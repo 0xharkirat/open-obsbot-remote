@@ -7,6 +7,15 @@ import 'package:flutter/foundation.dart';
 /// Status of the bundled obsbot-bridge binary.
 enum BridgeStatus { stopped, starting, running, error }
 
+/// What we currently know about the macOS camera-access TCC state, parsed
+/// from the bridge subprocess log.
+enum CameraPermission {
+  unknown,    // bridge hasn't tried to open the camera yet
+  granted,    // capture session started OR devices visible
+  denied,     // explicit denial from AVAuthorizationStatus
+  noCamera,   // permission OK but no Tiny 2 Lite found
+}
+
 class BridgeSupervisor extends ChangeNotifier {
   Process? _proc;
   BridgeStatus _status = BridgeStatus.stopped;
@@ -17,6 +26,7 @@ class BridgeSupervisor extends ChangeNotifier {
   bool _cameraConnected = false;
   String? _lastError;
   int _wsClientCount = 0;
+  CameraPermission _cameraPermission = CameraPermission.unknown;
 
   // Disk log: ~/Library/Logs/OBSBOT Bridge/bridge.log
   IOSink? _logSink;
@@ -32,6 +42,7 @@ class BridgeSupervisor extends ChangeNotifier {
   bool get cameraConnected => _cameraConnected;
   String? get lastError => _lastError;
   int get wsClientCount => _wsClientCount;
+  CameraPermission get cameraPermission => _cameraPermission;
 
   /// Returns the path to the bundled obsbot-bridge binary inside the .app.
   /// Falls back to the dev-tree build path if running via `flutter run`.
@@ -158,6 +169,10 @@ class BridgeSupervisor extends ChangeNotifier {
   static final RegExp _devUnpluggedRe = RegExp(r'device unplugged');
   static final RegExp _wsConnRe = RegExp(r'ws client connected.*total=(\d+)');
   static final RegExp _wsDisconnRe = RegExp(r'ws client disconnected.*total=(\d+)');
+  static final RegExp _videoStartedRe = RegExp(r'video: capture session started');
+  static final RegExp _videoDevicesRe = RegExp(r'video: \d+ capture devices visible');
+  static final RegExp _videoDeniedRe = RegExp(r'video: camera permission denied|video: camera not authorized');
+  static final RegExp _videoNoCamRe = RegExp(r'video: no matching capture device');
 
   void _onLogLine(String line) {
     if (line.isEmpty) return;
@@ -181,7 +196,54 @@ class BridgeSupervisor extends ChangeNotifier {
       _wsClientCount = int.tryParse(c.group(1) ?? '0') ?? 0;
     }
 
+    if (_videoStartedRe.hasMatch(line) || _videoDevicesRe.hasMatch(line)) {
+      _cameraPermission = CameraPermission.granted;
+    } else if (_videoDeniedRe.hasMatch(line)) {
+      _cameraPermission = CameraPermission.denied;
+    } else if (_videoNoCamRe.hasMatch(line)) {
+      // permission was OK enough to enumerate; just no camera attached
+      if (_cameraPermission != CameraPermission.granted) {
+        _cameraPermission = CameraPermission.granted;
+      }
+    }
+
     notifyListeners();
+  }
+
+  /// Open System Settings → Privacy & Security → Camera so the user can
+  /// toggle permission for OBSBOT Bridge.
+  Future<void> openSystemCameraSettings() async {
+    await Process.run('open', <String>[
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+    ]);
+  }
+
+  /// Reset macOS camera-access decisions for THIS bundle so the prompt
+  /// fires again next time the bridge subprocess tries to open the camera.
+  /// Then restart the bridge to retrigger the prompt.
+  Future<void> resetCameraPermissionAndRestart() async {
+    final bundleId = await _bundleIdentifier();
+    if (bundleId != null && bundleId.isNotEmpty) {
+      await Process.run('tccutil', <String>['reset', 'Camera', bundleId]);
+    } else {
+      // Fallback: nuke all camera decisions (asks every app again).
+      await Process.run('tccutil', <String>['reset', 'Camera']);
+    }
+    _cameraPermission = CameraPermission.unknown;
+    await stop();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await start();
+  }
+
+  Future<String?> _bundleIdentifier() async {
+    // Resolved exec path is .../OBSBOT Bridge.app/Contents/MacOS/<exec>
+    final exe = File(Platform.resolvedExecutable);
+    final infoPlist = File('${exe.parent.parent.path}/Info.plist');
+    if (!await infoPlist.exists()) return null;
+    final r = await Process.run('/usr/libexec/PlistBuddy',
+        <String>['-c', 'Print :CFBundleIdentifier', infoPlist.path]);
+    if (r.exitCode != 0) return null;
+    return (r.stdout as String).trim();
   }
 
   @override

@@ -158,6 +158,7 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
+            _cameraPermissionRow(context),
             _row(context, 'Camera',
               supervisor.cameraConnected
                 ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
@@ -230,6 +231,75 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _cameraPermissionRow(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    String label;
+    Color dot;
+    Widget? trailing;
+    switch (supervisor.cameraPermission) {
+      case CameraPermission.granted:
+        label = 'Granted';
+        dot = Colors.green;
+        break;
+      case CameraPermission.denied:
+        label = 'Denied — click "Open Settings" and turn on OBSBOT Bridge';
+        dot = theme.colorScheme.error;
+        trailing = Wrap(spacing: 6, children: <Widget>[
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            ),
+            icon: const Icon(Icons.settings, size: 14),
+            label: const Text('Open Settings'),
+            onPressed: supervisor.openSystemCameraSettings,
+          ),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            ),
+            icon: const Icon(Icons.refresh, size: 14),
+            label: const Text('Reset & retry'),
+            onPressed: () async {
+              await supervisor.resetCameraPermissionAndRestart();
+            },
+          ),
+        ]);
+        break;
+      case CameraPermission.noCamera:
+        label = 'Granted (no camera detected yet)';
+        dot = Colors.amber;
+        break;
+      case CameraPermission.unknown:
+        label = 'Not determined yet';
+        dot = theme.colorScheme.outline;
+        break;
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 180,
+            child: Text('Camera permission',
+                style: TextStyle(color: theme.colorScheme.outline)),
+          ),
+          Container(
+            width: 10, height: 10,
+            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(label,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          if (trailing != null) trailing,
+        ],
       ),
     );
   }
