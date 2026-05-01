@@ -76,10 +76,10 @@ class PreviewWidget extends StatelessWidget {
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
-          Text(
-            'Grant Terminal camera access on the Mac and restart the bridge.',
+          const Text(
+            'Open the OBSBOT Bridge app on your Mac and grant camera access when prompted (System Settings → Privacy & Security → Camera).',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
+            style: TextStyle(color: Colors.white54, fontSize: 12),
           ),
           if (detail.isNotEmpty) ...<Widget>[
             const SizedBox(height: 8),

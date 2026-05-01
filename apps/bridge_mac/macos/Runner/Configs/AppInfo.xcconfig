@@ -4,6 +4,6 @@
 PRODUCT_NAME = OBSBOT Bridge
 
 // Bundle identifier — used by macOS for TCC, Launch Services, signing, etc.
-PRODUCT_BUNDLE_IDENTIFIER = com.obsbot.bridge
+PRODUCT_BUNDLE_IDENTIFIER = com.harksingh.obsbotbridge
 
-PRODUCT_COPYRIGHT = Copyright © 2026 OBSBOT Control. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Harkirat Singh. All rights reserved.

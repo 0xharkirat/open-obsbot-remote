@@ -8,7 +8,7 @@
 PRODUCT_NAME = obsbot_control
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.obsbot.obsbotControl
+PRODUCT_BUNDLE_IDENTIFIER = com.harksingh.obsbotcontrol
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.obsbot. All rights reserved.

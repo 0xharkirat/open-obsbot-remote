@@ -46,7 +46,16 @@ cp "$BRIDGE_BIN" "$APP/Contents/MacOS/obsbot-bridge"
 cp "$BRIDGE_LIB" "$APP/Contents/MacOS/libdev.dylib"
 chmod +x "$APP/Contents/MacOS/obsbot-bridge"
 
-# 4) sanity: file sizes
+# 4) ad-hoc sign the whole bundle. Without this, the unsigned subprocess
+#    has its own TCC identity and won't inherit camera-access grants
+#    from the parent .app — preview silently fails.
+echo "==> Ad-hoc signing the bundle..."
+codesign --force --deep --sign - \
+    --entitlements "$ROOT/apps/bridge_mac/macos/Runner/Release.entitlements" \
+    "$APP" 2>&1 | tail -5 || true
+codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -3 || true
+
+# 5) sanity: file sizes
 echo
 echo "==> Self-contained .app ready:"
 echo "    $APP"
