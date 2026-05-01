@@ -32,7 +32,7 @@ class _ObsbotAppState extends State<ObsbotApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'OBSBOT Control',
+      title: 'Open OBSBOT Remote',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(

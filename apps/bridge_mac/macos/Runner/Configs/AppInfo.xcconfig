@@ -1,7 +1,7 @@
 // Application-level settings for the Runner target.
 
 // Final .app filename + window title shown to the user.
-PRODUCT_NAME = OBSBOT Bridge
+PRODUCT_NAME = Open OBSBOT Bridge
 
 // Bundle identifier — used by macOS for TCC, Launch Services, signing, etc.
 PRODUCT_BUNDLE_IDENTIFIER = com.harksingh.obsbotbridge

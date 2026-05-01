@@ -15,7 +15,7 @@ Future<void> main() async {
       size: Size(560, 480),
       minimumSize: Size(420, 320),
       titleBarStyle: TitleBarStyle.normal,
-      title: 'OBSBOT Bridge',
+      title: 'Open OBSBOT Bridge',
       center: true,
     ),
     () async {
@@ -62,7 +62,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'OBSBOT Bridge',
+      title: 'Open OBSBOT Bridge',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

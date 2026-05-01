@@ -73,7 +73,7 @@ class BridgeSupervisor extends ChangeNotifier {
     if (_logSink != null) return;
     final home = Platform.environment['HOME'] ?? '';
     if (home.isEmpty) return;
-    final dir = Directory('$home/Library/Logs/OBSBOT Bridge');
+    final dir = Directory('$home/Library/Logs/Open OBSBOT Bridge');
     try {
       await dir.create(recursive: true);
       final f = File('${dir.path}/bridge.log');

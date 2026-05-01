@@ -32,11 +32,14 @@ echo "==> Building Flutter macOS app..."
 cd apps/bridge_mac
 flutter build macos --release
 
-APP="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/OBSBOT Bridge.app"
+APP="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
 if [[ ! -d "$APP" ]]; then
-  # Fallback for older builds that hadn't been renamed yet.
-  legacy="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app"
-  if [[ -d "$legacy" ]]; then APP="$legacy"; fi
+  # Fall back to older naming if a stale build is still around.
+  for legacy in \
+      "$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/OBSBOT Bridge.app" \
+      "$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app"; do
+    if [[ -d "$legacy" ]]; then APP="$legacy"; break; fi
+  done
 fi
 test -d "$APP" || { echo ".app not built (looked for $APP)"; exit 1; }
 

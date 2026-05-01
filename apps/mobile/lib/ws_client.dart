@@ -207,7 +207,7 @@ class WsClient extends ChangeNotifier {
       _connected = true;
       _connecting = false;
       _send({'action': 'hello', 'id': _id(), 'client': {
-        'name': 'OBSBOT Control', 'version': '1.0.0'
+        'name': 'Open OBSBOT Remote', 'version': '1.0.0'
       }});
       _send({'action': 'subscribe', 'id': _id()});
       await _saveLastServer(hostPort);
