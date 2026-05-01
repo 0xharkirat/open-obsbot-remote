@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Build the self-contained "OBSBOT Bridge.app" macOS bundle.
+# Result: apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app
+# That .app contains:
+#   Contents/MacOS/obsbot_bridge_mac      ← Flutter UI
+#   Contents/MacOS/obsbot-bridge          ← C++ WS bridge (libdev consumer)
+#   Contents/MacOS/libdev.dylib           ← OBSBOT SDK
+#   Contents/Frameworks/FlutterMacOS.framework
+#
+# End-user just drags the .app to /Applications. First launch prompts for
+# camera + local-network access (declared in Info.plist).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# 0) sanity: SDK present
+./scripts/verify-sdk.sh
+
+# 1) build C++ bridge (uses libdev from third_party/obsbot-sdk/)
+echo "==> Building C++ bridge..."
+export PATH="/opt/homebrew/bin:$PATH"
+cmake -S apps/bridge_cpp -B apps/bridge_cpp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build apps/bridge_cpp/build -j
+
+BRIDGE_BIN="$ROOT/apps/bridge_cpp/build/obsbot-bridge"
+BRIDGE_LIB="$ROOT/apps/bridge_cpp/build/libdev.dylib"
+test -x "$BRIDGE_BIN" || { echo "obsbot-bridge missing"; exit 1; }
+test -f "$BRIDGE_LIB" || { echo "libdev.dylib missing"; exit 1; }
+
+# 2) build Flutter macOS app
+echo "==> Building Flutter macOS app..."
+cd apps/bridge_mac
+flutter build macos --release
+
+APP="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app"
+test -d "$APP" || { echo ".app not built at $APP"; exit 1; }
+
+# 3) copy bridge binary + dylib into the bundle
+echo "==> Bundling bridge binary + libdev into .app..."
+cp "$BRIDGE_BIN" "$APP/Contents/MacOS/obsbot-bridge"
+cp "$BRIDGE_LIB" "$APP/Contents/MacOS/libdev.dylib"
+chmod +x "$APP/Contents/MacOS/obsbot-bridge"
+
+# 4) sanity: file sizes
+echo
+echo "==> Self-contained .app ready:"
+echo "    $APP"
+du -sh "$APP" 2>/dev/null || true
+echo
+echo "Drag '$APP' to /Applications and double-click to launch."
+echo "First launch will prompt for camera + local-network access."
