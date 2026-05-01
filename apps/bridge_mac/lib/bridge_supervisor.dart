@@ -114,10 +114,27 @@ class BridgeSupervisor extends ChangeNotifier {
       return;
     }
 
+    // Pass --web-root pointing at the bundled Flutter web build (when running
+    // from inside the .app) or at apps/mobile/build/web (dev tree).
+    final exe = File(Platform.resolvedExecutable);
+    final macosDir = exe.parent;
+    final webCandidates = <String>[
+      '${macosDir.parent.path}/Resources/web',                      // inside .app
+      '${macosDir.path}/../../../../../mobile/build/web',           // dev tree
+      '${Directory.current.path}/../mobile/build/web',
+    ];
+    String? webRoot;
+    for (final p in webCandidates) {
+      if (await Directory(p).exists()) { webRoot = File(p).absolute.path; break; }
+    }
+
     try {
+      final args = <String>['--port', '8765'];
+      if (webRoot != null) args.addAll(<String>['--web-root', webRoot]);
+
       final proc = await Process.start(
         bin,
-        <String>['8765'],
+        args,
         mode: ProcessStartMode.normal,
       );
       _proc = proc;

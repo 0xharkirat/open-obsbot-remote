@@ -27,7 +27,13 @@ BRIDGE_LIB="$ROOT/apps/bridge_cpp/build/libdev.dylib"
 test -x "$BRIDGE_BIN" || { echo "obsbot-bridge missing"; exit 1; }
 test -f "$BRIDGE_LIB" || { echo "libdev.dylib missing"; exit 1; }
 
-# 2) build Flutter macOS app
+# 2a) build Flutter web app (Open OBSBOT Remote) so the bridge can serve it.
+echo "==> Building Flutter web app..."
+(cd apps/mobile && flutter build web --release)
+WEB_DIR="$ROOT/apps/mobile/build/web"
+test -d "$WEB_DIR" || { echo "web build missing at $WEB_DIR"; exit 1; }
+
+# 2b) build Flutter macOS app
 echo "==> Building Flutter macOS app..."
 cd apps/bridge_mac
 flutter build macos --release
@@ -43,11 +49,15 @@ if [[ ! -d "$APP" ]]; then
 fi
 test -d "$APP" || { echo ".app not built (looked for $APP)"; exit 1; }
 
-# 3) copy bridge binary + dylib into the bundle
-echo "==> Bundling bridge binary + libdev into .app..."
+# 3) copy bridge binary + dylib + web assets into the bundle
+echo "==> Bundling bridge binary + libdev + web assets into .app..."
 cp "$BRIDGE_BIN" "$APP/Contents/MacOS/obsbot-bridge"
 cp "$BRIDGE_LIB" "$APP/Contents/MacOS/libdev.dylib"
 chmod +x "$APP/Contents/MacOS/obsbot-bridge"
+
+rm -rf "$APP/Contents/Resources/web"
+mkdir -p "$APP/Contents/Resources/web"
+cp -R "$WEB_DIR/." "$APP/Contents/Resources/web/"
 
 # 4) ad-hoc sign the whole bundle. Without this, the unsigned subprocess
 #    has its own TCC identity and won't inherit camera-access grants

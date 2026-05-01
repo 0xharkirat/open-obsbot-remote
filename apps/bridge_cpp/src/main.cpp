@@ -22,7 +22,17 @@ int main(int argc, char** argv) {
     obs::install_sdk_log_handler();
 
     uint16_t port = 8765;
-    if (argc >= 2) port = (uint16_t)std::atoi(argv[1]);
+    std::string web_root;
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--web-root" && i + 1 < argc) { web_root = argv[++i]; }
+        else if (a == "--port" && i + 1 < argc) { port = (uint16_t)std::atoi(argv[++i]); }
+        else if (a.size() && a[0] != '-') { port = (uint16_t)std::atoi(a.c_str()); }
+    }
+    if (web_root.empty()) {
+        const char* env = std::getenv("OBSBOT_WEB_ROOT");
+        if (env) web_root = env;
+    }
 
     obs::DeviceSession session;
 
@@ -41,6 +51,6 @@ int main(int argc, char** argv) {
         mjpeg.start((uint16_t)(port + 1), &video);
     }
 
-    obs::run_ws_server(port, session, &video);  // blocks
+    obs::run_ws_server(port, session, &video, web_root);  // blocks
     return 0;
 }

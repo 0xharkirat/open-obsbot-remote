@@ -58,6 +58,7 @@ static void serve_client(int fd, VideoCapture* video) {
         const char* resp =
             "HTTP/1.1 503 Service Unavailable\r\n"
             "Content-Type: text/plain\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
             "Connection: close\r\n\r\n"
             "video capture not running — check macOS camera permission";
         send_all(fd, resp, std::strlen(resp));
@@ -70,6 +71,9 @@ static void serve_client(int fd, VideoCapture* video) {
         "Cache-Control: no-cache, no-store, private\r\n"
         "Pragma: no-cache\r\n"
         "Connection: close\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: *\r\n"
         "Content-Type: multipart/x-mixed-replace; boundary=obsboundary\r\n\r\n";
     if (!send_all(fd, hdr, std::strlen(hdr))) { ::close(fd); return; }
 
