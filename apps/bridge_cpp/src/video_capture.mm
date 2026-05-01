@@ -56,6 +56,18 @@ struct VideoCapture::Impl {
         ctx = [CIContext contextWithOptions:nil];
     });
 
+    // Downscale long-side to 960px so the JPEG fits in <120 KB at q=0.40.
+    // This is plenty for "where is the camera pointed" preview on a phone.
+    const CGFloat kTargetMaxDim = 960.0;
+    CGFloat w = ci.extent.size.width;
+    CGFloat h = ci.extent.size.height;
+    if (w > 0 && h > 0) {
+        CGFloat scale = kTargetMaxDim / MAX(w, h);
+        if (scale < 1.0) {
+            ci = [ci imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+        }
+    }
+
     CGImageRef cgImage = [ctx createCGImage:ci fromRect:ci.extent];
     if (!cgImage) return;
 
@@ -74,7 +86,7 @@ struct VideoCapture::Impl {
         return;
     }
 
-    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.55 };
+    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.40 };
     CGImageDestinationAddImage(dest, cgImage, (__bridge CFDictionaryRef)props);
     CGImageDestinationFinalize(dest);
     CFRelease(dest);

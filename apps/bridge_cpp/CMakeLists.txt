@@ -38,6 +38,7 @@ add_executable(obsbot-bridge
     src/protocol.cpp
     src/log.cpp
     src/video_capture.mm
+    src/mjpeg_server.cpp
 )
 
 set_source_files_properties(src/video_capture.mm PROPERTIES

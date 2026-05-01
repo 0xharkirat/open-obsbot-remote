@@ -15,7 +15,13 @@ class PreviewWidget extends StatelessWidget {
     if (!client.connected || host.isEmpty) {
       return _placeholder(context, 'Connecting...');
     }
-    final url = 'http://$host/preview.mjpeg';
+    // MJPEG runs on ws-port + 1 (8766 by default).
+    final colon = host.lastIndexOf(':');
+    final hostOnly = colon >= 0 ? host.substring(0, colon) : host;
+    final wsPort = colon >= 0
+        ? int.tryParse(host.substring(colon + 1)) ?? 8765
+        : 8765;
+    final url = 'http://$hostOnly:${wsPort + 1}/preview.mjpeg';
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: AspectRatio(

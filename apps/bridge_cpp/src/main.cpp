@@ -1,6 +1,7 @@
 #include "device_session.h"
 #include "ws_server.h"
 #include "video_capture.h"
+#include "mjpeg_server.h"
 #include "log.h"
 
 #include <atomic>
@@ -32,6 +33,12 @@ int main(int argc, char** argv) {
     obs::VideoCapture video;
     if (!video.start()) {
         obs::log("warn ", "video capture not available — preview disabled");
+    }
+
+    // MJPEG preview server runs on the next port up (default 8766).
+    obs::MjpegServer mjpeg;
+    if (video.running()) {
+        mjpeg.start((uint16_t)(port + 1), &video);
     }
 
     obs::run_ws_server(port, session, &video);  // blocks
