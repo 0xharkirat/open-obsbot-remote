@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart';
 
 import 'ws_client.dart';
+import 'web_mjpeg_stub.dart'
+    if (dart.library.js_interop) 'web_mjpeg_web.dart';
 
 /// Live preview from the bridge (`/preview.mjpeg` on port 8766).
 ///
@@ -43,28 +45,11 @@ class PreviewWidget extends StatelessWidget {
   }
 
   Widget _webStream(String url) {
-    // The browser handles multipart/x-mixed-replace inside `<img>` natively.
-    // Image.network on Flutter web maps to an HTML <img> element, so this
-    // works out of the box. Add a cache-buster to avoid Safari/iOS reusing
-    // a cached frame across reconnects.
-    return Image.network(
-      url,
-      fit: BoxFit.contain,
-      gaplessPlayback: true,
-      errorBuilder: (BuildContext ctx, Object err, StackTrace? _) =>
-          _previewError(ctx, err.toString()),
-      loadingBuilder: (BuildContext ctx, Widget child,
-          ImageChunkEvent? progress) {
-        if (progress == null) return child;
-        return const Center(
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        );
-      },
-    );
+    // Image.network on Flutter web fetches bytes via HttpRequest and tries to
+    // decode them as a single image — it can't handle multipart/x-mixed-replace.
+    // Embed a real <img> element instead; the browser renders the multipart
+    // stream natively. See web_mjpeg_web.dart.
+    return buildWebMjpegView(url);
   }
 
   Widget _mobileStream(String url) {
