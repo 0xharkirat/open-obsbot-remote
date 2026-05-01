@@ -32,8 +32,13 @@ echo "==> Building Flutter macOS app..."
 cd apps/bridge_mac
 flutter build macos --release
 
-APP="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app"
-test -d "$APP" || { echo ".app not built at $APP"; exit 1; }
+APP="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/OBSBOT Bridge.app"
+if [[ ! -d "$APP" ]]; then
+  # Fallback for older builds that hadn't been renamed yet.
+  legacy="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app"
+  if [[ -d "$legacy" ]]; then APP="$legacy"; fi
+fi
+test -d "$APP" || { echo ".app not built (looked for $APP)"; exit 1; }
 
 # 3) copy bridge binary + dylib into the bundle
 echo "==> Bundling bridge binary + libdev into .app..."
@@ -47,5 +52,7 @@ echo "==> Self-contained .app ready:"
 echo "    $APP"
 du -sh "$APP" 2>/dev/null || true
 echo
-echo "Drag '$APP' to /Applications and double-click to launch."
+echo "Drag the .app above to /Applications and double-click to launch."
 echo "First launch will prompt for camera + local-network access."
+echo
+echo "Tip: 'open \"$APP\"' opens it without dragging to /Applications."
