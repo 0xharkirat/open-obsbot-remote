@@ -1,10 +1,12 @@
 # OBSBOT Control
 
-An open-source phone & tablet remote for OBSBOT cameras.
+A phone & tablet remote for OBSBOT cameras.
 
 Built for performers, presenters, and operators who need to control an OBSBOT camera (currently **Tiny 2 Lite**) from across the room — pan, tilt, zoom, recall presets, switch AI tracking — while their computer stays plugged in to the USB camera.
 
-> **Status:** alpha. Working end-to-end PTZ + zoom + presets + AI mode + image controls. No live preview yet. Tiny 2 Lite is the only tested camera.
+> **Status:** private alpha. End-to-end PTZ + zoom + presets + AI mode + image controls work. Live preview lands once we wire AVFoundation in. Tiny 2 Lite is the only tested camera.
+
+> **Repo is private** while we build a working demo. Plan is to open-source after we get OBSBOT's blessing on SDK redistribution. The SDK is **not** committed — every dev keeps a local copy at `third_party/obsbot-sdk/` (gitignored). The build flow bundles `libdev.dylib` into the resulting `.app` so the shipped DMG is a single self-contained artifact for end users. See [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md).
 
 ## How it works
 
@@ -39,22 +41,22 @@ Built for performers, presenters, and operators who need to control an OBSBOT ca
 ├── scripts/
 │   └── verify-sdk.sh            checks SDK files are in place
 ├── third_party/
-│   └── obsbot-sdk/              **NOT IN REPO — fetch separately, see below**
+│   └── obsbot-sdk/              gitignored — kept on local disk only
 └── run-bridge.sh                one-shot launcher for the C++ bridge
 ```
 
-## Getting the SDK
+## SDK setup
 
-This project depends on **OBSBOT's C++ SDK**, which OBSBOT distributes by request and **cannot be redistributed**. You need to fetch your own copy before anything builds.
+The OBSBOT C++ SDK lives only on your local disk at `third_party/obsbot-sdk/`. It is **not** in git and is **not** something the end user sees. The build pulls `libdev.dylib` from there and bundles it inside the resulting `.app`, so the shipped DMG is a single self-contained installer.
 
-See [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md). Short version: email `developer@obsbot.com`, drop the archive into `third_party/obsbot-sdk/`, run `./scripts/verify-sdk.sh`.
+If you're a new dev on this repo, see [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md) for how to obtain a copy from OBSBOT and where to drop it.
 
 ## Quick start (Tiny 2 Lite, macOS Apple Silicon, iPhone or Android)
 
 ```bash
 # 1) one-time setup
 brew install cmake asio
-./scripts/verify-sdk.sh                   # confirms SDK is in place
+./scripts/verify-sdk.sh                # confirms you have the local SDK
 
 # 2) plug in Tiny 2 Lite via USB; start the bridge
 ./run-bridge.sh
@@ -91,8 +93,8 @@ The author plays tabla on stage during worship services and streams them. He nee
 
 ## License
 
-[Apache 2.0](LICENSE) for everything in this repo. Note that **the OBSBOT SDK is licensed separately by OBSBOT** — building this project requires a copy of the SDK obtained directly from them.
+Source we wrote: Apache 2.0 (see [LICENSE](LICENSE)). The OBSBOT SDK is **not** in this repo — each dev keeps a local copy. Distributing a DMG that bundles `libdev.dylib` requires explicit redistribution permission from OBSBOT (see [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md) for the email draft).
 
 ## Contributing
 
-Issues + PRs welcome. Please don't include any binaries from the SDK in commits or screenshots that contain code — `git status` should show `third_party/obsbot-sdk/` as ignored at all times.
+Repo is private during the demo phase. Anyone with access can push to `main`. We'll move to PR review once we have a second contributor.

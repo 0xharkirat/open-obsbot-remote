@@ -1,5 +1,6 @@
 #include "device_session.h"
 #include "ws_server.h"
+#include "video_capture.h"
 #include "log.h"
 
 #include <atomic>
@@ -23,6 +24,16 @@ int main(int argc, char** argv) {
     if (argc >= 2) port = (uint16_t)std::atoi(argv[1]);
 
     obs::DeviceSession session;
-    obs::run_ws_server(port, session);  // blocks
+
+    // Start UVC video capture in parallel (independent of libdev). This
+    // exposes the camera as a regular MJPEG stream over HTTP so phone
+    // clients can show a live preview. Both libdev and AVFoundation can
+    // hold the camera at the same time.
+    obs::VideoCapture video;
+    if (!video.start()) {
+        obs::log("warn ", "video capture not available — preview disabled");
+    }
+
+    obs::run_ws_server(port, session, &video);  // blocks
     return 0;
 }

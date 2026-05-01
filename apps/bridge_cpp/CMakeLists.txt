@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(obsbot_bridge LANGUAGES CXX)
+project(obsbot_bridge LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,11 @@ add_executable(obsbot-bridge
     src/ws_server.cpp
     src/protocol.cpp
     src/log.cpp
+    src/video_capture.mm
+)
+
+set_source_files_properties(src/video_capture.mm PROPERTIES
+    COMPILE_FLAGS "-fobjc-arc"
 )
 
 target_compile_definitions(obsbot-bridge PRIVATE
@@ -52,7 +57,16 @@ target_include_directories(obsbot-bridge PRIVATE
 )
 
 target_link_directories(obsbot-bridge PRIVATE ${SDK_LIB_DIR})
-target_link_libraries(obsbot-bridge PRIVATE dev)
+target_link_libraries(obsbot-bridge PRIVATE dev
+    "-framework AVFoundation"
+    "-framework CoreMedia"
+    "-framework CoreVideo"
+    "-framework CoreImage"
+    "-framework ImageIO"
+    "-framework CoreGraphics"
+    "-framework Foundation"
+    "-framework UniformTypeIdentifiers"
+)
 
 target_compile_options(obsbot-bridge PRIVATE
     -Wall -Wno-deprecated-declarations -Wno-switch -Wno-unused-parameter

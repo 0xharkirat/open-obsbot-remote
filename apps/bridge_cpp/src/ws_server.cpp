@@ -2,15 +2,18 @@
 #include "device_session.h"
 #include "protocol.h"
 #include "log.h"
+#include "video_capture.h"
 
 #include <crow_all.h>
 
+#include <chrono>
 #include <mutex>
+#include <thread>
 #include <unordered_set>
 
 namespace obs {
 
-void run_ws_server(uint16_t port, DeviceSession& session) {
+void run_ws_server(uint16_t port, DeviceSession& session, VideoCapture* video) {
     crow::SimpleApp app;
     app.loglevel(crow::LogLevel::Warning);
 
@@ -48,6 +51,48 @@ void run_ws_server(uint16_t port, DeviceSession& session) {
         });
 
     CROW_ROUTE(app, "/health")([](){ return "ok"; });
+
+    if (video) {
+        CROW_ROUTE(app, "/preview.mjpeg")
+        ([video](const crow::request& /*req*/, crow::response& res) {
+            if (!video->running()) {
+                res.code = 503;
+                res.set_header("Content-Type", "text/plain");
+                res.write("video capture not running — check macOS camera permission");
+                res.end();
+                return;
+            }
+            res.set_header("Content-Type",
+                "multipart/x-mixed-replace; boundary=obsboundary");
+            res.set_header("Cache-Control", "no-cache, no-store, private");
+            res.set_header("Connection", "close");
+            res.set_header("Pragma", "no-cache");
+
+            uint64_t last_seq = 0;
+            const auto period = std::chrono::milliseconds(80);  // ~12 fps
+            for (int i = 0; i < 60 * 60 * 12; ++i) {  // 1h cap
+                auto seq = video->frame_seq();
+                if (seq != last_seq) {
+                    auto jpeg = video->latest_jpeg();
+                    if (!jpeg.empty()) {
+                        std::string header = "--obsboundary\r\n"
+                                             "Content-Type: image/jpeg\r\n"
+                                             "Content-Length: " +
+                                             std::to_string(jpeg.size()) +
+                                             "\r\n\r\n";
+                        res.write(header);
+                        res.write(std::string(reinterpret_cast<const char*>(jpeg.data()),
+                                              jpeg.size()));
+                        res.write("\r\n");
+                        last_seq = seq;
+                    }
+                }
+                std::this_thread::sleep_for(period);
+            }
+            res.end();
+        });
+        LOGI("preview MJPEG route enabled at /preview.mjpeg");
+    }
 
     LOGI("ws server listening on 0.0.0.0:%u  path=/v1  health=/health", (unsigned)port);
     app.bindaddr("0.0.0.0").port(port).multithreaded().run();

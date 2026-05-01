@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'preview_widget.dart';
 import 'ws_client.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -71,6 +72,10 @@ class _ControlScreenState extends State<ControlScreen> {
     return Column(
       children: <Widget>[
         _statusBar(s),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: PreviewWidget(client: widget.client),
+        ),
         Expanded(
           child: Row(
             children: <Widget>[
@@ -104,10 +109,16 @@ class _ControlScreenState extends State<ControlScreen> {
           child: Row(
             children: <Widget>[
               Expanded(
-                flex: 5,
+                flex: 6,
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: PtzPad(client: widget.client),
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: <Widget>[
+                      PreviewWidget(client: widget.client),
+                      const SizedBox(height: 8),
+                      Expanded(child: PtzPad(client: widget.client)),
+                    ],
+                  ),
                 ),
               ),
               SizedBox(
@@ -118,7 +129,7 @@ class _ControlScreenState extends State<ControlScreen> {
                 ),
               ),
               Expanded(
-                flex: 3,
+                flex: 4,
                 child: Padding(
                   padding: const EdgeInsets.all(8),
                   child: SingleChildScrollView(

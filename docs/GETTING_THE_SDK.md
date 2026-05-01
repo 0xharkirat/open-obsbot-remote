@@ -1,70 +1,77 @@
-# Getting the OBSBOT Camera SDK
+# OBSBOT SDK — local setup
 
-This project depends on the OBSBOT Camera SDK (`libdev`), which OBSBOT distributes directly to developers and **cannot be redistributed** under their terms. You'll need to obtain your own copy before you can build the bridge.
+This repo doesn't include the OBSBOT SDK in git. Each developer keeps their own copy locally at `third_party/obsbot-sdk/`. The build pulls `libdev.dylib` from there and bundles it inside the resulting `.app` — so the shipped DMG is self-contained and the end user doesn't deal with the SDK at all.
 
-## Why the SDK isn't in this repo
+## How to get the SDK
 
-The SDK ships as compiled libraries (`libdev.dylib`, `libdev.so`, `libdev.dll`) plus C++ headers. OBSBOT provides it on request to developers building on top of their cameras. Per their distribution practice it is **not** open source, so it stays out of this repository.
+OBSBOT's developer team emails the SDK on request:
 
-## How to request it
+1. Email **`developer@obsbot.com`** mentioning the OBSBOT camera you're working with.
+2. They reply with a download link or attachment within a few business days.
+3. Extract it to `third_party/obsbot-sdk/` at the root of this repo.
 
-1. Email **`developer@obsbot.com`** (or use the [OBSBOT Developer Contact form](https://www.obsbot.com/) — look for *Developer / SDK* under support).
-2. Mention the camera model you're working with (Tiny 2 Lite / Tiny 2 / Tail Air etc.) and that you're building a third-party control tool.
-3. They typically reply with a download link or zipped attachment within a few business days.
-
-The SDK is the same regardless of whether you're a hobbyist or a company — they don't currently charge for it.
-
-## Where to put it
-
-After you receive the archive, extract it into `third_party/obsbot-sdk/` at the **root of this repo**. The final layout must look like:
+After extracting, the layout must be:
 
 ```
 third_party/obsbot-sdk/
 ├── include/
-│   ├── dev/
-│   │   ├── dev.hpp
-│   │   └── devs.hpp
-│   └── util/
-│       └── comm.hpp
+│   ├── dev/{dev.hpp, devs.hpp}
+│   └── util/comm.hpp
 ├── macos/
-│   ├── arm64-release/
-│   │   └── libdev.dylib
-│   └── x86_64-release/
-│       └── libdev.dylib
-├── linux/
-│   ├── arm64-release/
-│   └── x86_64-release/
-├── windows/
-│   ├── win64-release/
-│   └── win64-debug/
+│   ├── arm64-release/libdev.dylib
+│   └── x86_64-release/libdev.dylib
+├── linux/...
+├── windows/...
 └── OBSBOT_Sample/
-    ├── CMakeLists.txt
-    └── main.cpp
 ```
 
-If the archive you receive uses different top-level names, just rename it to `obsbot-sdk` and place the `include/`, `macos/`, etc. directories directly inside.
+## Verify
 
-## Verifying
-
-From the repo root, run:
+From the repo root:
 
 ```bash
 ./scripts/verify-sdk.sh
 ```
 
-It exits 0 if everything is in place, or prints a list of missing files.
+Exits 0 if the SDK is in place, otherwise prints what's missing.
 
-## Versioning
+## Why it's gitignored
 
-This codebase was developed against **SDK 1.3.0** (`LIB_MAJOR_VER 1`, `LIB_MINOR_VER 3`, `LIB_REVISION 0`). Newer versions should be backwards-compatible at the API level. If something breaks against a newer SDK, please open an issue.
+OBSBOT's SDK ships with no LICENSE / EULA / NOTICE file, so default copyright applies — we have no explicit redistribution license. Keeping it out of git history makes the repo safe to flip public later (or to add collaborators who don't have their own copy yet).
 
-## A note on licensing
+Builds bundle `libdev.dylib` into the macOS `.app` for end-user convenience. That bundling is also a redistribution and needs OBSBOT's blessing before we hand a DMG to anyone outside the team.
 
-Because the SDK can't be redistributed, this project alone won't build into a usable binary out of the box for someone who clones the repo. They'll need to:
+## Before going public
 
-1. Clone this repo (Apache 2.0).
-2. Email OBSBOT for the SDK.
-3. Drop it into `third_party/obsbot-sdk/`.
-4. Run the build.
+When we eventually open the repo:
 
-We document this clearly in the root README so contributors aren't surprised. If OBSBOT ever publishes the SDK openly, the build will then "just work" with a fresh clone.
+1. Email OBSBOT for explicit redistribution wording (draft below).
+2. If approved, leave the build flow as-is and add a `THIRD_PARTY_NOTICES` file with their wording.
+3. If not approved, switch to BYOSDK (the install flow becomes "download DMG, drop libdev.dylib into a known path on first run").
+
+### Email draft to OBSBOT
+
+```
+Subject: Open-source OBSBOT controller — SDK redistribution / licensing question
+
+Hi OBSBOT developer team,
+
+I'm building a phone-based remote for OBSBOT cameras (starting with Tiny 2 Lite).
+Currently a private repo; I'd like to open-source it once a working demo is ready.
+
+You sent me the Camera SDK by email. The archive didn't include a LICENSE / EULA /
+NOTICE, so I want to confirm:
+
+1. Am I permitted to:
+   - Use libdev in personal / internal builds?
+   - Bundle libdev.dylib inside a notarized macOS .app or DMG I distribute?
+   - Include the SDK in a public open-source repo so other developers don't have
+     to email you?
+
+2. Do you have preferred attribution / wording for our README + a THIRD_PARTY_NOTICES
+   file?
+
+Happy to send source + a demo video for context. Thanks for the SDK.
+
+— <name>
+```

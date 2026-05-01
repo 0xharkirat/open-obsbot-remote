@@ -1,6 +1,6 @@
-# OBSBOT SDK — distributed by OBSBOT directly (NDA / internal use).
-# Never commit. Each developer fetches their own copy.
-# See docs/GETTING_THE_SDK.md
+# OBSBOT SDK — kept on the local filesystem (under third_party/obsbot-sdk/)
+# but never committed. Build scripts pull libdev from there and bundle it
+# into the resulting .app, so the shipped DMG is self-contained.
 third_party/obsbot-sdk/
 third_party/**/libdev.*
 third_party/**/OBSBOT_Sample

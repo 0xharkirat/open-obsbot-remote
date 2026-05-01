@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Fail fast if the OBSBOT SDK isn't in place.
+# Fail fast if the OBSBOT SDK isn't on the local filesystem.
+# The SDK is gitignored — every dev keeps their own copy under third_party/obsbot-sdk/.
+# Builds (CMake / Flutter macOS) pull libdev from here and bundle it into the resulting .app.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK="$ROOT/third_party/obsbot-sdk"
@@ -16,16 +18,8 @@ OBSBOT SDK is missing required files at $SDK:
 
   $(printf '  - %s\n' "${missing[@]}")
 
-The SDK is distributed by OBSBOT directly and cannot be redistributed.
-Follow docs/GETTING_THE_SDK.md to obtain a copy, then extract it so the
-layout looks like:
-
-  third_party/obsbot-sdk/
-  ├── include/
-  ├── macos/
-  ├── linux/
-  ├── windows/
-  └── OBSBOT_Sample/
+The SDK is distributed by OBSBOT directly. Drop your local copy into
+third_party/obsbot-sdk/ (gitignored). See docs/GETTING_THE_SDK.md.
 
 MSG
   exit 1
