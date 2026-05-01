@@ -18,6 +18,13 @@ class BridgeSupervisor extends ChangeNotifier {
   String? _lastError;
   int _wsClientCount = 0;
 
+  // Disk log: ~/Library/Logs/OBSBOT Bridge/bridge.log
+  IOSink? _logSink;
+  File? _logFile;
+
+  File? get logFile => _logFile;
+  String? get logFilePath => _logFile?.path;
+
   BridgeStatus get status => _status;
   List<String> get logTail => List<String>.unmodifiable(_logTail);
   String get detectedSn => _detectedSn;
@@ -51,12 +58,43 @@ class BridgeSupervisor extends ChangeNotifier {
     return null;
   }
 
+  Future<void> _openLogFile() async {
+    if (_logSink != null) return;
+    final home = Platform.environment['HOME'] ?? '';
+    if (home.isEmpty) return;
+    final dir = Directory('$home/Library/Logs/OBSBOT Bridge');
+    try {
+      await dir.create(recursive: true);
+      final f = File('${dir.path}/bridge.log');
+      _logFile = f;
+      _logSink = f.openWrite(mode: FileMode.append);
+      _writeLog('===== OBSBOT Bridge starting at ${DateTime.now().toIso8601String()} =====');
+    } catch (_) {
+      _logSink = null;
+    }
+  }
+
+  void _writeLog(String line) {
+    final sink = _logSink;
+    if (sink == null) return;
+    try {
+      sink.writeln(line);
+    } catch (_) {}
+  }
+
+  Future<void> revealLogInFinder() async {
+    final f = _logFile;
+    if (f == null) return;
+    await Process.run('open', <String>['-R', f.path]);
+  }
+
   Future<void> start() async {
     if (_status == BridgeStatus.running || _status == BridgeStatus.starting) {
       return;
     }
     _setStatus(BridgeStatus.starting);
     _lastError = null;
+    await _openLogFile();
 
     final bin = await _bridgeBinaryPath();
     if (bin == null) {
@@ -123,6 +161,7 @@ class BridgeSupervisor extends ChangeNotifier {
 
   void _onLogLine(String line) {
     if (line.isEmpty) return;
+    _writeLog(line);
     _logTail.add(line);
     while (_logTail.length > _maxLog) {
       _logTail.removeAt(0);
@@ -148,6 +187,9 @@ class BridgeSupervisor extends ChangeNotifier {
   @override
   void dispose() {
     stop();
+    _logSink?.flush();
+    _logSink?.close();
+    _logSink = null;
     super.dispose();
   }
 }

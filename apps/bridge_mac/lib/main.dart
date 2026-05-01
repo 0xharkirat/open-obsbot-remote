@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
@@ -174,8 +175,37 @@ class HomeScreen extends StatelessWidget {
                 child: Text('— offline (no Wi-Fi) —'),
               ),
             const SizedBox(height: 20),
-            Text('Bridge log',
-                style: theme.textTheme.titleSmall),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Text('Bridge log',
+                    style: theme.textTheme.titleSmall),
+                const Spacer(),
+                if (supervisor.logFilePath != null) ...<Widget>[
+                  Text(
+                    supervisor.logFilePath!.replaceAll(
+                      Platform.environment['HOME'] ?? '', '~',
+                    ),
+                    style: TextStyle(
+                      fontFamily: 'Menlo',
+                      fontSize: 10,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
+                    icon: const Icon(Icons.folder_open, size: 14),
+                    label: const Text('Reveal'),
+                    onPressed: supervisor.revealLogInFinder,
+                  ),
+                ],
+              ],
+            ),
             const SizedBox(height: 4),
             Expanded(
               child: Container(
