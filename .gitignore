@@ -1,0 +1,65 @@
+# OBSBOT SDK — distributed by OBSBOT directly (NDA / internal use).
+# Never commit. Each developer fetches their own copy.
+# See docs/GETTING_THE_SDK.md
+third_party/obsbot-sdk/
+third_party/**/libdev.*
+third_party/**/OBSBOT_Sample
+third_party/**/OBSBOT_Sample.exe
+
+# C++ bridge build output
+apps/bridge_cpp/build/
+apps/bridge_cpp/cmake-build-*/
+
+# Flutter / Dart
+**/.dart_tool/
+**/.packages
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+
+# Flutter generated files
+**/generated_plugin_registrant.*
+**/GeneratedPluginRegistrant.*
+**/Flutter/Generated.xcconfig
+**/Flutter/Flutter.podspec
+**/Flutter/flutter_export_environment.sh
+**/Flutter/ephemeral/
+
+# iOS / macOS
+**/ios/Pods/
+**/ios/Podfile.lock
+**/macos/Pods/
+**/macos/Podfile.lock
+**/ios/.symlinks/
+**/macos/.symlinks/
+**/*.xcuserstate
+**/xcuserdata/
+**/DerivedData/
+**/*.mode1v3
+**/*.mode2v3
+**/*.perspectivev3
+**/*.pbxuser
+
+# Android
+**/android/.gradle/
+**/android/local.properties
+**/android/app/release/
+**/android/captures/
+**/android/key.properties
+**/*.iml
+**/.idea/
+**/*.jks
+**/*.keystore
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log

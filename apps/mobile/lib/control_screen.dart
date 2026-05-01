@@ -1,0 +1,486 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'ws_client.dart';
+
+class ControlScreen extends StatefulWidget {
+  final WsClient client;
+  const ControlScreen({super.key, required this.client});
+
+  @override
+  State<ControlScreen> createState() => _ControlScreenState();
+}
+
+class _ControlScreenState extends State<ControlScreen> {
+  Timer? _pingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      widget.client.ping();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pingTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.client,
+      builder: (BuildContext context, _) {
+        final s = widget.client.state;
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('${s.modelDisplay} • ${s.sn.isEmpty ? '...' : s.sn}'),
+            actions: <Widget>[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Center(
+                  child: Text('${widget.client.lastLatencyMs} ms'),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Disconnect',
+                icon: const Icon(Icons.logout),
+                onPressed: () => widget.client.close(),
+              ),
+            ],
+          ),
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (BuildContext ctx, BoxConstraints c) {
+                final landscape = c.maxWidth > c.maxHeight;
+                return landscape
+                    ? _buildLandscape(s)
+                    : _buildPortrait(s);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPortrait(CameraState s) {
+    return Column(
+      children: <Widget>[
+        _statusBar(s),
+        Expanded(
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                flex: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: PtzPad(client: widget.client),
+                ),
+              ),
+              SizedBox(
+                width: 80,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: ZoomSlider(client: widget.client, state: s),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _bottomBar(s),
+      ],
+    );
+  }
+
+  Widget _buildLandscape(CameraState s) {
+    return Column(
+      children: <Widget>[
+        _statusBar(s),
+        Expanded(
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                flex: 5,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: PtzPad(client: widget.client),
+                ),
+              ),
+              SizedBox(
+                width: 90,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: ZoomSlider(client: widget.client, state: s),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: _bottomControls(s),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statusBar(CameraState s) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: <Widget>[
+          _chip('YAW', '${s.yaw.toStringAsFixed(1)}°'),
+          _chip('PITCH', '${s.pitch.toStringAsFixed(1)}°'),
+          _chip('ZOOM', '${s.zoom.toStringAsFixed(2)}×'),
+          _chip('AI', s.aiMode),
+          _chip('FOV', '${s.fov}°'),
+          if (s.runStatus != 'run') _chip('STATUS', s.runStatus.toUpperCase()),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Text.rich(TextSpan(children: <TextSpan>[
+        TextSpan(text: '$k ', style: TextStyle(
+          color: Theme.of(context).colorScheme.outline,
+          fontSize: 12,
+        )),
+        TextSpan(text: v, style: const TextStyle(
+          fontWeight: FontWeight.w600, fontSize: 14,
+        )),
+      ])),
+    );
+  }
+
+  Widget _bottomBar(CameraState s) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: _bottomControls(s),
+      ),
+    );
+  }
+
+  List<Widget> _bottomControls(CameraState s) {
+    return <Widget>[
+      Row(children: <Widget>[
+        Expanded(child: _bigBtn('Recenter', Icons.center_focus_strong,
+            () => widget.client.ptzRecenter())),
+        const SizedBox(width: 8),
+        Expanded(child: _bigBtn('Sleep', Icons.bedtime,
+            () => widget.client.runStatus('sleep'))),
+        const SizedBox(width: 8),
+        Expanded(child: _bigBtn('Wake', Icons.wb_sunny,
+            () => widget.client.runStatus('run'))),
+      ]),
+      const SizedBox(height: 8),
+      Row(children: <Widget>[
+        Expanded(child: _toggleBtn('AI HUMAN', s.aiMode == 'human',
+            () => widget.client.aiSetMode(
+                s.aiMode == 'human' ? 'none' : 'human', 'normal'))),
+        const SizedBox(width: 8),
+        Expanded(child: _toggleBtn('HDR', s.hdr,
+            () => widget.client.hdr(!s.hdr))),
+        const SizedBox(width: 8),
+        Expanded(child: _toggleBtn('FOV ${s.fov}°', false, () {
+          final next = s.fov == 86 ? 78 : (s.fov == 78 ? 65 : 86);
+          widget.client.fov(next);
+        })),
+      ]),
+      const SizedBox(height: 8),
+      Row(children: <Widget>[
+        Expanded(child: _presetBtn(0, 'P1', s)),
+        const SizedBox(width: 8),
+        Expanded(child: _presetBtn(1, 'P2', s)),
+        const SizedBox(width: 8),
+        Expanded(child: _presetBtn(2, 'P3', s)),
+        const SizedBox(width: 8),
+        Expanded(child: _presetBtn(3, 'P4', s)),
+      ]),
+    ];
+  }
+
+  Widget _bigBtn(String label, IconData icon, VoidCallback onTap) {
+    return SizedBox(
+      height: 56,
+      child: FilledButton.tonalIcon(
+        onPressed: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        icon: Icon(icon),
+        label: Text(label, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+
+  Widget _toggleBtn(String label, bool on, VoidCallback onTap) {
+    return SizedBox(
+      height: 56,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: on
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
+          foregroundColor: on
+              ? Theme.of(context).colorScheme.onPrimary
+              : Theme.of(context).colorScheme.onSurface,
+        ),
+        onPressed: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        child: Text(label, textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+
+  Widget _presetBtn(int id, String label, CameraState s) {
+    return SizedBox(
+      height: 64,
+      child: GestureDetector(
+        onLongPress: () {
+          HapticFeedback.heavyImpact();
+          widget.client.presetSave(id, label);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Saved $label at current position'),
+                duration: const Duration(milliseconds: 800)),
+          );
+        },
+        child: FilledButton.tonal(
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            widget.client.presetRecall(id);
+          },
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(label, style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text('hold to save', style: TextStyle(fontSize: 9)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+class PtzPad extends StatefulWidget {
+  final WsClient client;
+  const PtzPad({super.key, required this.client});
+
+  @override
+  State<PtzPad> createState() => _PtzPadState();
+}
+
+class _PtzPadState extends State<PtzPad> {
+  Offset _delta = Offset.zero;
+  bool _dragging = false;
+  Timer? _ticker;
+
+  void _start(Offset local, Size size) {
+    setState(() {
+      _dragging = true;
+    });
+    HapticFeedback.selectionClick();
+    _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      final dx = _delta.dx;
+      final dy = _delta.dy;
+      // map -1..1 → speed
+      final yawSpeed = (dx * 120).clamp(-150.0, 150.0);
+      final pitchSpeed = (-dy * 60).clamp(-80.0, 80.0);
+      widget.client.ptzVelocity(yawSpeed: yawSpeed, pitchSpeed: pitchSpeed);
+    });
+  }
+
+  void _update(Offset local, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final maxR = math.min(cx, cy);
+    final dx = ((local.dx - cx) / maxR).clamp(-1.0, 1.0);
+    final dy = ((local.dy - cy) / maxR).clamp(-1.0, 1.0);
+    setState(() => _delta = Offset(dx, dy));
+  }
+
+  void _end() {
+    _ticker?.cancel();
+    _ticker = null;
+    setState(() {
+      _delta = Offset.zero;
+      _dragging = false;
+    });
+    widget.client.ptzStop();
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext ctx, BoxConstraints c) {
+        final size = Size(c.maxWidth, c.maxHeight);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (DragStartDetails d) {
+            _update(d.localPosition, size);
+            _start(d.localPosition, size);
+          },
+          onPanUpdate: (DragUpdateDetails d) {
+            _update(d.localPosition, size);
+          },
+          onPanEnd: (_) => _end(),
+          onPanCancel: _end,
+          child: CustomPaint(
+            painter: _PadPainter(
+              delta: _delta,
+              dragging: _dragging,
+              color: Theme.of(context).colorScheme.primary,
+              base: Theme.of(context).colorScheme.surfaceContainerHighest,
+              outline: Theme.of(context).colorScheme.outline,
+            ),
+            size: Size.infinite,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PadPainter extends CustomPainter {
+  final Offset delta;
+  final bool dragging;
+  final Color color;
+  final Color base;
+  final Color outline;
+
+  _PadPainter({
+    required this.delta,
+    required this.dragging,
+    required this.color,
+    required this.base,
+    required this.outline,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = math.min(cx, cy) * 0.95;
+    final c = Offset(cx, cy);
+
+    final ring = Paint()
+      ..style = PaintingStyle.fill
+      ..color = base;
+    canvas.drawCircle(c, r, ring);
+
+    final ringStroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = outline.withValues(alpha: 0.4);
+    canvas.drawCircle(c, r, ringStroke);
+
+    // crosshairs
+    final cross = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = outline.withValues(alpha: 0.3);
+    canvas.drawLine(Offset(cx - r, cy), Offset(cx + r, cy), cross);
+    canvas.drawLine(Offset(cx, cy - r), Offset(cx, cy + r), cross);
+
+    // knob
+    final knobPos = Offset(cx + delta.dx * r * 0.85, cy + delta.dy * r * 0.85);
+    final knob = Paint()
+      ..style = PaintingStyle.fill
+      ..color = dragging ? color : color.withValues(alpha: 0.6);
+    canvas.drawCircle(knobPos, r * 0.18, knob);
+
+    final knobOutline = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = Colors.white.withValues(alpha: 0.8);
+    canvas.drawCircle(knobPos, r * 0.18, knobOutline);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PadPainter old) =>
+      old.delta != delta || old.dragging != dragging;
+}
+
+// ----------------------------------------------------------------------------
+
+class ZoomSlider extends StatefulWidget {
+  final WsClient client;
+  final CameraState state;
+  const ZoomSlider({super.key, required this.client, required this.state});
+
+  @override
+  State<ZoomSlider> createState() => _ZoomSliderState();
+}
+
+class _ZoomSliderState extends State<ZoomSlider> {
+  double? _dragValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.state;
+    final v = _dragValue ?? s.zoom;
+    return Column(
+      children: <Widget>[
+        Text('${v.toStringAsFixed(2)}×',
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Expanded(
+          child: RotatedBox(
+            quarterTurns: 3,
+            child: Slider(
+              min: s.zoomMin,
+              max: s.zoomMax,
+              value: v.clamp(s.zoomMin, s.zoomMax),
+              onChanged: (double nv) {
+                setState(() => _dragValue = nv);
+              },
+              onChangeEnd: (double nv) {
+                widget.client.zoomSet(nv);
+                Future<void>.delayed(const Duration(milliseconds: 200),
+                    () => mounted ? setState(() => _dragValue = null) : null);
+                HapticFeedback.lightImpact();
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text('${s.zoomMin.toInt()}×',
+            style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+}
