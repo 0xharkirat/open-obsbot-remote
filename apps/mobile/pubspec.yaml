@@ -49,6 +49,20 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  image_path: "assets/icon-1024.png"
+  android: "ic_launcher"
+  ios: true
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/icon-1024.png"
+    background_color: "#0E1116"
+    theme_color: "#1976D2"
+  # macOS not generated for the mobile app — it's a phone-first product;
+  # the bridge owns the Mac icon.
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
