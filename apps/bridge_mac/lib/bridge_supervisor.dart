@@ -30,6 +30,10 @@ class BridgeSupervisor extends ChangeNotifier {
   String _pin = '';   // 6-digit pairing PIN from bridge log
   int    _pairedTokenCount = 0;
 
+  // Auto-restart bookkeeping.
+  bool _userStopped = false;
+  int  _autoRestartCount = 0;
+
   // Disk log: ~/Library/Logs/OBSBOT Bridge/bridge.log
   IOSink? _logSink;
   File? _logFile;
@@ -123,6 +127,7 @@ class BridgeSupervisor extends ChangeNotifier {
     if (_status == BridgeStatus.running || _status == BridgeStatus.starting) {
       return;
     }
+    _userStopped = false;
     _setStatus(BridgeStatus.starting);
     _lastError = null;
     await _openLogFile();
@@ -164,7 +169,7 @@ class BridgeSupervisor extends ChangeNotifier {
       proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(_onLogLine);
       proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(_onLogLine);
 
-      proc.exitCode.then((int code) {
+      proc.exitCode.then((int code) async {
         _proc = null;
         _cameraConnected = false;
         if (code == 0) {
@@ -172,6 +177,15 @@ class BridgeSupervisor extends ChangeNotifier {
         } else {
           _lastError = 'bridge exited with code $code';
           _setStatus(BridgeStatus.error);
+        }
+        // Auto-restart unless user explicitly stopped via stop().
+        // _userStopped flag is set by stop(); cleared by start().
+        if (!_userStopped && _autoRestartCount < 5) {
+          _autoRestartCount++;
+          final delaySec = (_autoRestartCount * _autoRestartCount).clamp(1, 30);
+          _writeLog('===== bridge exited unexpectedly; auto-restart attempt $_autoRestartCount in ${delaySec}s =====');
+          await Future<void>.delayed(Duration(seconds: delaySec));
+          if (!_userStopped) await start();
         }
       });
 
@@ -183,6 +197,8 @@ class BridgeSupervisor extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _userStopped = true;       // suppress auto-restart
+    _autoRestartCount = 0;
     final proc = _proc;
     if (proc == null) {
       _setStatus(BridgeStatus.stopped);
