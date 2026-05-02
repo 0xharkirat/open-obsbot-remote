@@ -29,7 +29,7 @@ Two products:
 │                       Bundle ID: com.harksingh.obsbotbridge.
 ├── packages/                    (planned) shared Dart pkgs — empty stubs.
 ├── docs/                        ARCHITECTURE, PROTOCOL, SDK_EXPLORATION, GETTING_THE_SDK,
-│                                RUN, ROADMAP.
+│                                RUN, CAMERAS.
 ├── scripts/
 │   ├── build-bridge-mac.sh      builds bridge_cpp → flutter build web (rc) → flutter build
 │   │                            macos (bridge) → bundles libdev + web → ad-hoc signs.

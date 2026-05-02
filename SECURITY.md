@@ -18,11 +18,11 @@ Out of scope (not protected):
 
 - **PIN brute-force.** 6 digits = 1M combinations. With no rate limit currently, a malicious LAN device could try ~10/sec and succeed in ~14 hours expected. Acceptable on home Wi-Fi; not acceptable on shared / public networks.
 - **Token replay.** Tokens are sent in plaintext over `ws://` and `http://`. Anyone sniffing the LAN (hard on WPA2/3) could capture and reuse.
-- **No TLS.** Self-signed certs for arbitrary LAN IPs aren't browser-trusted. Tailscale Funnel is the documented path for users who want TLS — see [docs/ROADMAP.md](docs/ROADMAP.md).
+- **No TLS.** Self-signed certs for arbitrary LAN IPs aren't browser-trusted. The pragmatic path for TLS on a LAN is to put both bridge and clients on a Tailscale tailnet (Tailscale issues free `*.ts.net` certs).
 
 ## Reporting a vulnerability
 
-Please email `info.sandhukirat23@gmail.com` (the maintainer) with subject `[SECURITY] obsbot-control: <short description>`.
+Please email `info.sandhukirat23@gmail.com` (the maintainer) with subject `[SECURITY] open-obsbot-remote: <short description>`.
 
 Do **not** open a public GitHub issue for security problems.
 
