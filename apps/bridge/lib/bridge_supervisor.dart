@@ -63,7 +63,7 @@ class BridgeSupervisor extends ChangeNotifier {
       // Inside .app bundle: Contents/Resources/obsbot-bridge
       '${macosDir.parent.path}/Resources/obsbot-bridge',
       // Dev tree fallback (running via `flutter run`)
-      // .../apps/bridge_mac/build/macos/Build/Products/Debug → ../../../../../bridge_cpp/build/obsbot-bridge
+      // .../apps/bridge/build/macos/Build/Products/Debug → ../../../../../bridge_cpp/build/obsbot-bridge
       '${macosDir.path}/../../../../../bridge_cpp/build/obsbot-bridge',
       // Even-further-dev fallback
       '${Directory.current.path}/../bridge_cpp/build/obsbot-bridge',
@@ -141,13 +141,13 @@ class BridgeSupervisor extends ChangeNotifier {
     }
 
     // Pass --web-root pointing at the bundled Flutter web build (when running
-    // from inside the .app) or at apps/mobile/build/web (dev tree).
+    // from inside the .app) or at apps/rc/build/web (dev tree).
     final exe = File(Platform.resolvedExecutable);
     final macosDir = exe.parent;
     final webCandidates = <String>[
-      '${macosDir.parent.path}/Resources/web',                      // inside .app
-      '${macosDir.path}/../../../../../mobile/build/web',           // dev tree
-      '${Directory.current.path}/../mobile/build/web',
+      '${macosDir.parent.path}/Resources/web',                  // inside .app
+      '${macosDir.path}/../../../../../rc/build/web',           // dev tree
+      '${Directory.current.path}/../rc/build/web',
     ];
     String? webRoot;
     for (final p in webCandidates) {

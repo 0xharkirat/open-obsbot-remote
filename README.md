@@ -26,12 +26,14 @@ Built for performers, presenters, and operators who need to control an OBSBOT ca
 ```
 .
 ├── apps/
-│   ├── mobile/        Flutter phone app (iOS + Android), the actual product
-│   ├── bridge_cpp/    C++ bridge — currently working, linked against libdev directly
-│   └── bridge_mac/    [planned] Flutter macOS app replacing bridge_cpp; uses Pigeon → Swift → libdev
-├── packages/
-│   ├── obsbot_protocol/   [planned] shared Dart types for the WS protocol
-│   └── obsbot_native/     [planned] Pigeon-generated FFI to libdev
+│   ├── rc/            "Open OBSBOT Remote" — phone controller (iOS + Android + Web).
+│   │                   Web build is served by the bridge, so users can use any
+│   │                   phone browser without an install.
+│   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge talking to libdev. Single binary
+│   │                   `obsbot-bridge`. Wrapped by apps/bridge as a subprocess.
+│   └── bridge/        "Open OBSBOT Bridge" — Flutter desktop app wrapping the
+│                       C++ bridge. macOS today; Windows + Linux planned.
+├── packages/                    (planned) shared Dart packages — empty stubs.
 ├── docs/
 │   ├── ARCHITECTURE.md          system design
 │   ├── PROTOCOL.md              WebSocket message spec
@@ -39,10 +41,12 @@ Built for performers, presenters, and operators who need to control an OBSBOT ca
 │   ├── GETTING_THE_SDK.md       how to obtain the SDK (see below)
 │   └── RUN.md                   step-by-step usage
 ├── scripts/
+│   ├── build-bridge-mac.sh      builds C++ bridge → builds rc web → builds bridge
+│   │                            .app → bundles libdev + web → ad-hoc signs.
 │   └── verify-sdk.sh            checks SDK files are in place
 ├── third_party/
 │   └── obsbot-sdk/              gitignored — kept on local disk only
-└── run-bridge.sh                one-shot launcher for the C++ bridge
+└── run-bridge.sh                dev shortcut: runs the C++ bridge from Terminal
 ```
 
 ## SDK setup
@@ -62,9 +66,10 @@ brew install cmake asio
 ./run-bridge.sh
 # → prints 'ws://<your-LAN-ip>:8765/v1' addresses
 
-# 3) on your phone:
-cd apps/mobile && flutter run -d <android-or-ios-device-id>
-# In the app: type <your-LAN-ip>:8765, tap Connect.
+# 3) on your phone — either install the native app:
+cd apps/rc && flutter run -d <android-or-ios-device-id>
+# or open the bridge URL in any phone browser:
+# Safari/Chrome → http://<your-LAN-ip>:8765/
 ```
 
 Full walkthrough with troubleshooting: [docs/RUN.md](docs/RUN.md).

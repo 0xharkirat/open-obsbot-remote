@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the self-contained "OBSBOT Bridge.app" macOS bundle.
-# Result: apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app
+# Result: apps/bridge/build/macos/Build/Products/Release/obsbot_bridge_mac.app
 # That .app contains:
 #   Contents/MacOS/obsbot_bridge_mac      ← Flutter UI
 #   Contents/MacOS/obsbot-bridge          ← C++ WS bridge (libdev consumer)
@@ -29,21 +29,21 @@ test -f "$BRIDGE_LIB" || { echo "libdev.dylib missing"; exit 1; }
 
 # 2a) build Flutter web app (Open OBSBOT Remote) so the bridge can serve it.
 echo "==> Building Flutter web app..."
-(cd apps/mobile && flutter build web --release)
-WEB_DIR="$ROOT/apps/mobile/build/web"
+(cd apps/rc && flutter build web --release)
+WEB_DIR="$ROOT/apps/rc/build/web"
 test -d "$WEB_DIR" || { echo "web build missing at $WEB_DIR"; exit 1; }
 
 # 2b) build Flutter macOS app
 echo "==> Building Flutter macOS app..."
-cd apps/bridge_mac
+cd apps/bridge
 flutter build macos --release
 
-APP="$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
+APP="$ROOT/apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
 if [[ ! -d "$APP" ]]; then
   # Fall back to older naming if a stale build is still around.
   for legacy in \
-      "$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/OBSBOT Bridge.app" \
-      "$ROOT/apps/bridge_mac/build/macos/Build/Products/Release/obsbot_bridge_mac.app"; do
+      "$ROOT/apps/bridge/build/macos/Build/Products/Release/OBSBOT Bridge.app" \
+      "$ROOT/apps/bridge/build/macos/Build/Products/Release/obsbot_bridge_mac.app"; do
     if [[ -d "$legacy" ]]; then APP="$legacy"; break; fi
   done
 fi
@@ -64,7 +64,7 @@ cp -R "$WEB_DIR/." "$APP/Contents/Resources/web/"
 #    from the parent .app — preview silently fails.
 echo "==> Ad-hoc signing the bundle..."
 codesign --force --deep --sign - \
-    --entitlements "$ROOT/apps/bridge_mac/macos/Runner/Release.entitlements" \
+    --entitlements "$ROOT/apps/bridge/macos/Runner/Release.entitlements" \
     "$APP" 2>&1 | tail -5 || true
 codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -3 || true
 

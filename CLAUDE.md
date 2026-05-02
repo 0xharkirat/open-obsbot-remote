@@ -18,18 +18,24 @@ The repo is **private** while we build a working demo. SDK is gitignored (`third
 ```
 .
 ├── apps/
-│   ├── mobile/        Flutter iOS+Android (Open OBSBOT Remote). Bundle IDs:
-│   │                   com.harksingh.obsbotcontrol (iOS), com.harksingh.obsbot_control (Android)
-│   ├── bridge_cpp/    C++ WS bridge — links libdev + AVFoundation. Single binary `obsbot-bridge`.
-│   └── bridge_mac/    Flutter macOS app (Open OBSBOT Bridge) wrapping bridge_cpp as a subprocess.
-│                       Bundle ID: com.harksingh.obsbotbridge
-├── packages/          (planned) shared Dart pkgs — empty stubs
+│   ├── rc/            "Open OBSBOT Remote" — Flutter app for the controller surface.
+│   │                   Targets iOS + Android + Web (served by the bridge). Bundle IDs:
+│   │                   com.harksingh.obsbotcontrol (iOS), com.harksingh.obsbot_control (Android).
+│   │                   Internal pubspec name still `obsbot_control` — don't rename, breaks imports.
+│   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge — links libdev + AVFoundation. Single
+│   │                   binary `obsbot-bridge`. Wrapped by apps/bridge/ as a subprocess.
+│   └── bridge/        "Open OBSBOT Bridge" — Flutter desktop app wrapping bridge_cpp.
+│                       Currently macOS only. Will grow Windows/Linux targets later.
+│                       Internal pubspec name still `obsbot_bridge_mac` — leave it.
+│                       Bundle ID: com.harksingh.obsbotbridge.
+├── packages/          (planned) shared Dart pkgs — empty stubs.
 ├── docs/              ARCHITECTURE.md, PROTOCOL.md, SDK_EXPLORATION.md, GETTING_THE_SDK.md, RUN.md
 ├── scripts/
-│   ├── build-bridge-mac.sh    builds bridge_cpp → flutter build macos → bundles libdev → ad-hoc sign
+│   ├── build-bridge-mac.sh    builds bridge_cpp → flutter build web (rc) → flutter build
+│   │                          macos (bridge) → bundles libdev + web build → ad-hoc sign.
 │   └── verify-sdk.sh
 ├── third_party/obsbot-sdk/    GITIGNORED. SDK 1.3.0 from OBSBOT (received by email).
-└── run-bridge.sh              dev shortcut: runs the C++ bridge from Terminal (no .app wrapper)
+└── run-bridge.sh              dev shortcut: runs the C++ bridge from Terminal (no .app wrapper).
 ```
 
 ## Architecture in one sentence
@@ -45,10 +51,10 @@ See `docs/ARCHITECTURE.md` and `docs/PROTOCOL.md` for the full spec.
 ./scripts/build-bridge-mac.sh
 
 # launch the Mac app
-open "apps/bridge_mac/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
+open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
 
 # launch the phone app (needs ANDROID_DEVICE_ID from `adb devices` or `flutter devices`)
-cd apps/mobile && flutter run -d <device-id>
+cd apps/rc && flutter run -d <device-id>
 ```
 
 For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh` runs it from Terminal — but Terminal needs camera permission for that to work.
