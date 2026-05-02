@@ -19,13 +19,13 @@ class PresetEntry {
     required this.zoom,
   });
   factory PresetEntry.fromJson(Map<String, dynamic> j) => PresetEntry(
-        id: (j['id'] as num?)?.toInt() ?? 0,
-        name: j['name'] as String? ?? '',
-        yaw: (j['yaw'] as num?)?.toDouble() ?? 0,
-        pitch: (j['pitch'] as num?)?.toDouble() ?? 0,
-        roll: (j['roll'] as num?)?.toDouble() ?? 0,
-        zoom: (j['zoom'] as num?)?.toDouble() ?? 1,
-      );
+    id: (j['id'] as num?)?.toInt() ?? 0,
+    name: j['name'] as String? ?? '',
+    yaw: (j['yaw'] as num?)?.toDouble() ?? 0,
+    pitch: (j['pitch'] as num?)?.toDouble() ?? 0,
+    roll: (j['roll'] as num?)?.toDouble() ?? 0,
+    zoom: (j['zoom'] as num?)?.toDouble() ?? 1,
+  );
 }
 
 /// Sequencer state pushed by the bridge.
@@ -45,73 +45,79 @@ class SequenceState {
     required this.loaded,
   });
   static const empty = SequenceState(
-    running: false, stepIndex: -1, elapsedS: 0, totalS: 0,
-    available: <String>[], loaded: '',
+    running: false,
+    stepIndex: -1,
+    elapsedS: 0,
+    totalS: 0,
+    available: <String>[],
+    loaded: '',
   );
   factory SequenceState.fromJson(Map<String, dynamic> j) => SequenceState(
-        running: j['running'] as bool? ?? false,
-        stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
-        elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
-        totalS: (j['total_s'] as num?)?.toInt() ?? 0,
-        available: ((j['available'] as List<dynamic>?) ?? const <dynamic>[])
-            .map((e) => e.toString())
-            .toList(),
-        loaded: j['loaded'] as String? ?? '',
-      );
+    running: j['running'] as bool? ?? false,
+    stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
+    elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
+    totalS: (j['total_s'] as num?)?.toInt() ?? 0,
+    available: ((j['available'] as List<dynamic>?) ?? const <dynamic>[])
+        .map((e) => e.toString())
+        .toList(),
+    loaded: j['loaded'] as String? ?? '',
+  );
 }
 
 /// Move-to-preset transition speed.
 enum MoveSpeed { instant, slow, medium, fast }
 
 String moveSpeedToWire(MoveSpeed s) => switch (s) {
-      MoveSpeed.instant => 'instant',
-      MoveSpeed.slow => 'slow',
-      MoveSpeed.medium => 'medium',
-      MoveSpeed.fast => 'fast',
-    };
+  MoveSpeed.instant => 'instant',
+  MoveSpeed.slow => 'slow',
+  MoveSpeed.medium => 'medium',
+  MoveSpeed.fast => 'fast',
+};
 
 MoveSpeed moveSpeedFromWire(String s) => switch (s) {
-      'instant' => MoveSpeed.instant,
-      'slow' => MoveSpeed.slow,
-      'fast' => MoveSpeed.fast,
-      _ => MoveSpeed.medium,
-    };
+  'instant' => MoveSpeed.instant,
+  'slow' => MoveSpeed.slow,
+  'fast' => MoveSpeed.fast,
+  _ => MoveSpeed.medium,
+};
 
 String moveSpeedLabel(MoveSpeed s) => switch (s) {
-      MoveSpeed.instant => 'Instant',
-      MoveSpeed.slow => 'Slow',
-      MoveSpeed.medium => 'Medium',
-      MoveSpeed.fast => 'Fast',
-    };
+  MoveSpeed.instant => 'Instant',
+  MoveSpeed.slow => 'Slow',
+  MoveSpeed.medium => 'Medium',
+  MoveSpeed.fast => 'Fast',
+};
 
 /// How a sequence loops once it finishes its last step.
 enum LoopMode {
   /// Play once and stop.
   once,
+
   /// Restart at step 1 (P1→P2→P3→P1→P2→P3…).
   forward,
+
   /// Reverse direction at each end (P1→P2→P3→P2→P1→P2→P3…).
   /// Useful when P3→P1 is a long, ugly move you want to skip.
   pingPong,
 }
 
 String loopModeToWire(LoopMode m) => switch (m) {
-      LoopMode.once => 'once',
-      LoopMode.forward => 'forward',
-      LoopMode.pingPong => 'ping_pong',
-    };
+  LoopMode.once => 'once',
+  LoopMode.forward => 'forward',
+  LoopMode.pingPong => 'ping_pong',
+};
 
 LoopMode loopModeFromWire(String s) => switch (s) {
-      'once' => LoopMode.once,
-      'ping_pong' => LoopMode.pingPong,
-      _ => LoopMode.forward,
-    };
+  'once' => LoopMode.once,
+  'ping_pong' => LoopMode.pingPong,
+  _ => LoopMode.forward,
+};
 
 String loopModeLabel(LoopMode m) => switch (m) {
-      LoopMode.once => 'Once (stop at end)',
-      LoopMode.forward => 'Loop forward (P1→P2→P3→P1…)',
-      LoopMode.pingPong => 'Ping-pong (P1→P2→P3→P2→P1…)',
-    };
+  LoopMode.once => 'Once (stop at end)',
+  LoopMode.forward => 'Loop forward (P1→P2→P3→P1…)',
+  LoopMode.pingPong => 'Ping-pong (P1→P2→P3→P2→P1…)',
+};
 
 /// One step in a sequence sent to the bridge.
 class SequenceStep {
@@ -124,10 +130,10 @@ class SequenceStep {
     this.speed = MoveSpeed.medium,
   });
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'preset_id': presetId,
-        'seconds': seconds,
-        'speed': moveSpeedToWire(speed),
-      };
+    'preset_id': presetId,
+    'seconds': seconds,
+    'speed': moveSpeedToWire(speed),
+  };
 }
 
 /// Decoded device snapshot pushed by the bridge.
@@ -198,14 +204,30 @@ class CameraState {
   });
 
   static const empty = CameraState(
-    sn: '', modelDisplay: '', firmware: '',
-    connected: false, runStatus: 'unknown',
-    yaw: 0, pitch: 0, roll: 0,
-    zoom: 1, zoomMin: 1, zoomMax: 2,
-    aiMode: 'none', aiSubMode: 'normal', aiEnabled: false,
-    hdr: false, fov: 86,
-    brightness: 50, contrast: 50, saturation: 50, sharpness: 50,
-    faceAe: false, faceFocus: false, autoFocus: true, manualFocus: 50,
+    sn: '',
+    modelDisplay: '',
+    firmware: '',
+    connected: false,
+    runStatus: 'unknown',
+    yaw: 0,
+    pitch: 0,
+    roll: 0,
+    zoom: 1,
+    zoomMin: 1,
+    zoomMax: 2,
+    aiMode: 'none',
+    aiSubMode: 'normal',
+    aiEnabled: false,
+    hdr: false,
+    fov: 86,
+    brightness: 50,
+    contrast: 50,
+    saturation: 50,
+    sharpness: 50,
+    faceAe: false,
+    faceFocus: false,
+    autoFocus: true,
+    manualFocus: 50,
     flipH: false,
     presets: <PresetEntry>[],
     activePresetId: -1,
@@ -213,19 +235,24 @@ class CameraState {
   );
 
   factory CameraState.fromEvent(Map<String, dynamic> j) {
-    final dev = (j['device'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+    final dev =
+        (j['device'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     final ptz = (j['ptz'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final zoom = (j['zoom'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+    final zoom =
+        (j['zoom'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     final ai = (j['ai'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final img = (j['image'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+    final img =
+        (j['image'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     double d(dynamic v, [double def = 0]) => v is num ? v.toDouble() : def;
     int i(dynamic v, [int def = 0]) => v is num ? v.toInt() : def;
-    final List<dynamic> pl = (j['presets'] as List<dynamic>?) ?? const <dynamic>[];
+    final List<dynamic> pl =
+        (j['presets'] as List<dynamic>?) ?? const <dynamic>[];
     final List<PresetEntry> presets = pl
         .whereType<Map<String, dynamic>>()
         .map((Map<String, dynamic> e) => PresetEntry.fromJson(e))
         .toList();
-    final seqJson = (j['sequence'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+    final seqJson =
+        (j['sequence'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     return CameraState(
       sn: dev['sn'] as String? ?? '',
       modelDisplay: dev['model_display'] as String? ?? '',
@@ -265,14 +292,14 @@ class WsClient extends ChangeNotifier {
   int _msgId = 0;
   bool _connected = false;
   bool _connecting = false;
-  bool _needsPairing = false;        // true after auth_required response
+  bool _needsPairing = false; // true after auth_required response
   String _serverUri = '';
   CameraState _state = CameraState.empty;
   String? _lastError;
   String? _lastAuthError;
   int _lastLatencyMs = 0;
   DateTime? _lastPingSent;
-  String? _token;                    // bearer token after pairing
+  String? _token; // bearer token after pairing
   MoveSpeed _moveSpeed = MoveSpeed.medium;
 
   WsClient() {
@@ -355,7 +382,8 @@ class WsClient extends ChangeNotifier {
         onDone: () {
           _connected = false;
           _connecting = false;
-          _lastError ??= 'disconnected — bridge closed the socket or it was unreachable';
+          _lastError ??=
+              'disconnected — bridge closed the socket or it was unreachable';
           notifyListeners();
         },
       );
@@ -382,7 +410,7 @@ class WsClient extends ChangeNotifier {
         'action': 'hello',
         'id': _id(),
         if (_token != null) 'token': _token,
-        'client': {'name': 'Open OBSBOT Remote', 'version': '1.0.0'}
+        'client': {'name': 'Open OBSBOT Remote', 'version': '1.0.0'},
       });
       _send({'action': 'subscribe', 'id': _id()});
       await _saveLastServer(hostPort);
@@ -472,13 +500,24 @@ class WsClient extends ChangeNotifier {
         notifyListeners();
       } else if (j['type'] == 'pong') {
         if (_lastPingSent != null) {
-          _lastLatencyMs = DateTime.now().difference(_lastPingSent!).inMilliseconds;
+          _lastLatencyMs = DateTime.now()
+              .difference(_lastPingSent!)
+              .inMilliseconds;
           _lastPingSent = null;
           notifyListeners();
         }
       } else if (j['type'] == 'ack' && j['err'] == 'auth_required') {
         _needsPairing = true;
         _lastAuthError = j['msg'] as String?;
+        notifyListeners();
+      } else if (j['type'] == 'ack' && j['ok'] == false) {
+        final msg = j['msg'];
+        final err = j['err'];
+        _lastError = msg is String
+            ? msg
+            : err is String
+            ? err
+            : 'command failed';
         notifyListeners();
       }
     } catch (_) {}
@@ -501,14 +540,13 @@ class WsClient extends ChangeNotifier {
   void ptzAngle({required double yaw, required double pitch}) =>
       _send({'action': 'ptz.angle', 'id': _id(), 'yaw': yaw, 'pitch': pitch});
 
-  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) =>
-      _send({
-        'action': 'ptz.velocity',
-        'id': _id(),
-        'yaw_speed': yawSpeed,
-        'pitch_speed': pitchSpeed,
-        'roll_speed': 0,
-      });
+  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) => _send({
+    'action': 'ptz.velocity',
+    'id': _id(),
+    'yaw_speed': yawSpeed,
+    'pitch_speed': pitchSpeed,
+    'roll_speed': 0,
+  });
 
   void ptzStop() => _send({'action': 'ptz.stop', 'id': _id()});
   void ptzRecenter() => _send({'action': 'ptz.recenter', 'id': _id()});
@@ -516,23 +554,31 @@ class WsClient extends ChangeNotifier {
   void zoomSet(double value) =>
       _send({'action': 'zoom.set', 'id': _id(), 'value': value});
 
-  void aiSetMode(String mode, [String sub = 'normal']) =>
-      _send({'action': 'ai.set_mode', 'id': _id(), 'mode': mode, 'sub_mode': sub});
+  void aiSetMode(String mode, [String sub = 'normal']) => _send({
+    'action': 'ai.set_mode',
+    'id': _id(),
+    'mode': mode,
+    'sub_mode': sub,
+  });
 
   void hdr(bool e) =>
       _send({'action': 'image.set_hdr', 'id': _id(), 'enabled': e});
 
   void fov(int f) => _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
 
-  void presetSave(int id, String name) => _send(
-      {'action': 'preset.save', 'id': _id(), 'preset_id': id, 'name': name});
+  void presetSave(int id, String name) => _send({
+    'action': 'preset.save',
+    'id': _id(),
+    'preset_id': id,
+    'name': name,
+  });
 
   void presetRecall(int id, {MoveSpeed? speed}) => _send({
-        'action': 'preset.recall',
-        'id': _id(),
-        'preset_id': id,
-        'speed': moveSpeedToWire(speed ?? _moveSpeed),
-      });
+    'action': 'preset.recall',
+    'id': _id(),
+    'preset_id': id,
+    'speed': moveSpeedToWire(speed ?? _moveSpeed),
+  });
 
   void presetDelete(int id) =>
       _send({'action': 'preset.delete', 'id': _id(), 'preset_id': id});
@@ -541,30 +587,33 @@ class WsClient extends ChangeNotifier {
       _send({'action': 'system.run_status', 'id': _id(), 'status': s});
 
   // ---- sequencer ----
-  void sequenceSet(List<SequenceStep> steps,
-          {LoopMode mode = LoopMode.forward}) =>
-      _send({
-        'action': 'sequence.set',
-        'id': _id(),
-        'steps': steps.map((s) => s.toJson()).toList(),
-        'mode': loopModeToWire(mode),
-        // legacy field for older bridges
-        'loop': mode != LoopMode.once,
-      });
+  void sequenceSet(
+    List<SequenceStep> steps, {
+    LoopMode mode = LoopMode.forward,
+  }) => _send({
+    'action': 'sequence.set',
+    'id': _id(),
+    'steps': steps.map((s) => s.toJson()).toList(),
+    'mode': loopModeToWire(mode),
+    // legacy field for older bridges
+    'loop': mode != LoopMode.once,
+  });
 
   void sequenceStart() => _send({'action': 'sequence.start', 'id': _id()});
   void sequenceStop() => _send({'action': 'sequence.stop', 'id': _id()});
 
   // Library
-  void sequenceSaveAs(String name, List<SequenceStep> steps,
-          {LoopMode mode = LoopMode.forward}) =>
-      _send({
-        'action': 'sequence.save_as',
-        'id': _id(),
-        'name': name,
-        'mode': loopModeToWire(mode),
-        'steps': steps.map((s) => s.toJson()).toList(),
-      });
+  void sequenceSaveAs(
+    String name,
+    List<SequenceStep> steps, {
+    LoopMode mode = LoopMode.forward,
+  }) => _send({
+    'action': 'sequence.save_as',
+    'id': _id(),
+    'name': name,
+    'mode': loopModeToWire(mode),
+    'steps': steps.map((s) => s.toJson()).toList(),
+  });
   void sequenceLoad(String name) =>
       _send({'action': 'sequence.load', 'id': _id(), 'name': name});
   void sequenceDelete(String name) =>

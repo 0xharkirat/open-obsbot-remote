@@ -3,14 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart';
 
 import 'ws_client.dart';
-import 'web_mjpeg_stub.dart'
-    if (dart.library.js_interop) 'web_mjpeg_web.dart';
+import 'web_mjpeg_stub.dart' if (dart.library.js_interop) 'web_mjpeg_web.dart';
 
 /// Live preview from the bridge (`/preview.mjpeg` on port 8766).
 ///
 /// Strategy by platform:
-///   • Web (Chrome/Safari)   → plain `Image.network` — browsers natively render
-///                             multipart/x-mixed-replace inside `<img>`.
+///   • Web (Chrome/Safari)   → HtmlElementView with a real `<img>` element.
 ///   • Android / iOS native  → `flutter_mjpeg` package (decodes the multipart
 ///                             stream itself; required because Flutter's
 ///                             Image widget on mobile doesn't grok multipart).
@@ -108,7 +106,10 @@ class PreviewWidget extends StatelessWidget {
           ),
           if (detail.isNotEmpty) ...<Widget>[
             const SizedBox(height: 8),
-            Text(detail, style: const TextStyle(color: Colors.white24, fontSize: 10)),
+            Text(
+              detail,
+              style: const TextStyle(color: Colors.white24, fontSize: 10),
+            ),
           ],
         ],
       ),

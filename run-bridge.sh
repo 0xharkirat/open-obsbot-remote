@@ -39,7 +39,7 @@ fi
 echo "Bridge LAN addresses (use these from your phone):"
 ifconfig | awk '/inet / && $2 != "127.0.0.1" { printf "  ws://%s:%s/v1\n", $2, "'"$PORT"'" }'
 echo
-echo "Plug your Tiny 2 Lite into USB, then leave this terminal open."
+echo "Plug your OBSBOT camera into USB, then leave this terminal open."
 echo
 
 cd "$BRIDGE_DIR/build"

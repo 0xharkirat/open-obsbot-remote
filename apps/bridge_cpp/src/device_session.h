@@ -121,6 +121,11 @@ public:
     void cmd_image_set_contrast(int v, ReplyFn reply);
     void cmd_image_set_saturation(int v, ReplyFn reply);
     void cmd_image_set_sharpness(int v, ReplyFn reply);
+    void cmd_image_set_color(bool has_brightness, int brightness,
+                             bool has_contrast, int contrast,
+                             bool has_saturation, int saturation,
+                             bool has_sharpness, int sharpness,
+                             ReplyFn reply);
     void cmd_image_set_face_ae(bool e, ReplyFn reply);
     void cmd_image_set_face_focus(bool e, ReplyFn reply);
     void cmd_image_set_flip_h(bool e, ReplyFn reply);

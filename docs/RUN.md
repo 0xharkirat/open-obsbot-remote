@@ -1,113 +1,153 @@
-# How to test the OBSBOT Tiny 2 Lite control app
+# Run And Test
 
-## What's built
+This is the manual test guide for a local source build or downloaded release bundle.
 
-- `bridge/` — C++ WebSocket bridge that talks to the camera over USB. Already built at `bridge/build/obsbot-bridge`.
-- `client/` — Flutter app (iOS + macOS targets) with PTZ pad, zoom slider, presets, AI/HDR toggles, FOV cycling.
+## Recommended Path: Run The App Bundle
 
-## Step 1 — Plug in the camera
+1. Build the bundle:
 
-Connect the Tiny 2 Lite to the Mac via USB. Wait for the boot sequence to finish (LED stops flashing).
+   ```bash
+   ./scripts/build-bridge-mac.sh
+   ```
 
-## Step 2 — Start the bridge
+2. Quit OBSBOT Center and any other app controlling the camera.
 
-In a terminal:
+3. Plug the camera into the computer over USB and wait for it to finish booting.
+
+4. Launch the bridge app:
+
+   ```bash
+   open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
+   ```
+
+5. Allow the Camera and Local Network permission prompts.
+
+6. Click `Reveal` in the bridge window. The app shows a 6-digit PIN, QR code, and local URL.
+
+7. Open the shown URL from a phone, tablet, or browser on the same LAN.
+
+8. Enter the PIN once. The remote should load the live preview and controls.
+
+## Quick Smoke Test
+
+After pairing, verify:
+
+- Live preview updates.
+- `Recenter` moves the camera to home.
+- Joystick drag moves pan/tilt and release stops motion.
+- Zoom slider moves between the shown min/max values.
+- Save a preset, recall it, and confirm active preset highlight.
+- Start a short two-step sequence, confirm it advances, then stop it.
+- Sleep and wake work.
+- Quit/reopen the phone browser and confirm it reconnects without asking for the PIN again.
+
+## Bridge-Only Development
+
+For C++ bridge work, run the subprocess directly:
 
 ```bash
-cd /Users/hark/flutter_projects/obsbot.workspace
 ./run-bridge.sh
 ```
 
-You should see:
+This prints LAN URLs such as:
 
-```
-ws server listening on 0.0.0.0:8765  path=/v1  health=/health
-device session started; waiting for camera plug-in...
-device plugged sn=ABC...
-active device: ABC... (Tiny 2 Lite) fw=...
+```text
+ws://192.168.1.20:8765/v1
 ```
 
-The script also prints your Mac's LAN URLs — copy one (e.g. `ws://10.250.1.51:8765/v1`).
-
-Quick sanity check while the bridge runs (in another terminal):
-```bash
-curl http://localhost:8765/health    # → "ok"
-```
-
-## Step 3 — Run the Flutter client
-
-### Easiest: macOS desktop (same Mac)
+Health check:
 
 ```bash
-cd /Users/hark/flutter_projects/obsbot.workspace/client
-flutter run -d macos
+curl http://localhost:8765/health
 ```
 
-When the app opens, type `127.0.0.1:8765` (or `localhost:8765`) in the Bridge address field and tap **Connect**.
+Expected response:
 
-### Goal: iPhone 17 Pro over Wi-Fi
+```text
+ok
+```
 
-1. Plug iPhone into the Mac with a USB cable.
-2. On iPhone: **Settings → Privacy & Security → Developer Mode → On** (requires reboot the first time).
-3. Open Xcode once (`open -a Xcode`) and accept the license if prompted; sign in with your Apple ID under **Xcode → Settings → Accounts**.
-4. Open the Runner project once: `open client/ios/Runner.xcworkspace`. Select the **Runner** target → **Signing & Capabilities** → set **Team** to your Personal Team. Close Xcode after the team is set.
-5. List devices to confirm the iPhone appears:
-   ```bash
-   flutter devices
-   ```
-6. Run the app on the iPhone:
-   ```bash
-   cd client
-   flutter run -d <iphone-id>
-   ```
-   The `<iphone-id>` comes from `flutter devices` (looks like a UDID).
-7. The first launch shows a "Untrusted Developer" prompt on the iPhone — go to **Settings → General → VPN & Device Management → Developer App** and trust your Apple ID.
-8. iOS will ask "Allow OBSBOT Control to find devices on your local network?" → **Allow**.
-9. In the app, type the LAN address printed by `run-bridge.sh` (e.g. `10.250.1.51:8765`) and tap **Connect**.
+The direct bridge path is useful for protocol testing, but the terminal process needs macOS Camera permission for preview capture. The `.app` path is the realistic end-user path because the signed bundle controls the permission identity.
 
-## Step 4 — Use it
+## Native Remote Development
 
-Once connected the control screen appears.
+The web remote is served automatically by the bridge app. To run native clients during development:
 
-| Control | Effect |
-|---|---|
-| Drag the round pad | Pan/tilt at variable speed (faster as you drag farther from center). Bridge auto-disables AI on first move. |
-| Release the pad | Camera stops moving |
-| Vertical slider on the right | Set zoom level (1.0× – 4.0×) |
-| **Recenter** | Move gimbal to yaw=0, pitch=0 |
-| **Sleep / Wake** | Toggle camera sleep |
-| **AI HUMAN** | Toggle Human tracking on/off |
-| **HDR** | Toggle HDR (3 s debounce — second toggle within 3 s is rejected) |
-| **FOV ##°** | Cycle 86° → 78° → 65° → 86° |
-| **P1..P4** tap | Recall preset slot 0..3 |
-| **P1..P4** long-press | Save current PTZ + zoom into that slot |
-| Top status bar | Live yaw / pitch / zoom / AI / FOV from the bridge |
-| `### ms` in title bar | Round-trip ping (refreshed every 3 s) |
+```bash
+cd apps/rc
+flutter devices
+flutter run -d <device-id>
+```
+
+Connect to the bridge host shown in the bridge app, for example:
+
+```text
+192.168.1.20:8765
+```
+
+Android needs cleartext local-network traffic enabled; this is already set in the app manifest. iOS needs Local Network permission; allow it on first launch.
+
+## WebSocket Fault Isolation
+
+Because the bridge is PIN/token-gated, a raw WebSocket test needs a token. The easiest way to obtain one is through the HTTP pairing endpoint while the PIN is visible in the bridge app:
+
+```bash
+curl -s \
+  -H 'Content-Type: application/json' \
+  -d '{"pin":"123456"}' \
+  http://localhost:8765/pair
+```
+
+Example response:
+
+```json
+{"ok":true,"token":"<token>"}
+```
+
+Then connect with a WebSocket client:
+
+```bash
+wscat -c ws://localhost:8765/v1
+```
+
+Send:
+
+```json
+{"action":"hello","id":"1","token":"<token>","client":{"name":"cli","version":"0"}}
+```
+
+Then:
+
+```json
+{"action":"subscribe","id":"2"}
+{"action":"ptz.angle","id":"3","yaw":20,"pitch":0}
+{"action":"zoom.set","id":"4","value":1.5}
+{"action":"ptz.recenter","id":"5"}
+```
+
+The camera should move for each command and `state` events should flow back.
 
 ## Troubleshooting
 
 | Symptom | Fix |
-|---|---|
-| Bridge prints `device unplugged` immediately or never sees camera | Unplug + replug, try a different cable. Camera must be powered (LED on). |
-| `Connection refused` from phone | Mac and phone aren't on the same Wi-Fi. Check Mac IP shown by run-bridge; try other interface IPs (`ifconfig`). VPNs commonly break this. |
-| `device_busy` errors after long use | Camera firmware glitch. Sleep it (`Sleep` button) and wake it again. |
-| HDR toggle says `debounced` | Wait 3 s and try again. |
-| Manual PTZ does nothing while AI is on | Bridge automatically turns AI off on first manual command — try once more. |
-| Building bridge fails | Run `brew install cmake asio` then `rm -rf bridge/build && ./run-bridge.sh`. |
-| iOS app can't connect | Confirm "Local Network" permission was granted (Settings → Privacy → Local Network). |
+| --- | --- |
+| Bridge cannot find the SDK | Run `./scripts/verify-sdk.sh` and place the SDK at `third_party/obsbot-sdk/`. |
+| Build fails because `cmake` or `asio.hpp` is missing | Run `brew install cmake asio`. |
+| Preview is disabled | Confirm macOS Camera permission for the process you launched. Use the `.app` path for realistic permission behavior. |
+| Phone cannot connect | Confirm both devices are on the same LAN and not isolated by guest Wi-Fi, VPN, or firewall rules. |
+| Pairing fails | Click `Reveal` again and use the current PIN. If needed, reset pairing in the bridge UI. |
+| PTZ returns `device_busy` | Quit OBSBOT Center or any other camera-control app, then restart Open OBSBOT Bridge. |
+| Camera never appears | Replug the camera, try another USB cable/port, and wait for boot to finish. |
+| Web remote looks stale after a new build | Use the cache-clear menu in the remote, then reload. |
 
-## Quick fault-isolation test (no Flutter)
+## Reset Local State
 
-If you suspect the bridge or camera, test with `wscat` (no phone needed):
+Pairing and sequences are local files:
 
-```bash
-brew install ws  # if you don't have wscat already
-wscat -c ws://localhost:8765/v1
-> {"action":"hello","id":"1","client":{"name":"cli","version":"0"}}
-> {"action":"subscribe","id":"2"}
-> {"action":"ptz.angle","id":"3","yaw":30,"pitch":-10}
-> {"action":"zoom.set","id":"4","value":1.5}
-> {"action":"ptz.recenter","id":"5"}
+```text
+~/Library/Application Support/Open OBSBOT Bridge/auth.json
+~/Library/Application Support/Open OBSBOT Bridge/sequence.json
+~/Library/Application Support/Open OBSBOT Bridge/sequences.json
 ```
 
-Camera should physically move on each command. State events flow back as JSON.
+Prefer using the bridge UI reset buttons. Delete these files only when debugging local development state.

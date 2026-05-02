@@ -10,16 +10,16 @@ enum BridgeStatus { stopped, starting, running, error }
 /// What we currently know about the macOS camera-access TCC state, parsed
 /// from the bridge subprocess log.
 enum CameraPermission {
-  unknown,    // bridge hasn't tried to open the camera yet
-  granted,    // capture session started OR devices visible
-  denied,     // explicit denial from AVAuthorizationStatus
-  noCamera,   // permission OK but no Tiny 2 Lite found
+  unknown, // bridge hasn't tried to open the camera yet
+  granted, // capture session started OR devices visible
+  denied, // explicit denial from AVAuthorizationStatus
+  noCamera, // permission OK but no Tiny 2 Lite found
 }
 
 class BridgeSupervisor extends ChangeNotifier {
   Process? _proc;
   BridgeStatus _status = BridgeStatus.stopped;
-  final List<String> _logTail = <String>[];   // last 200 lines, ring-buffered
+  final List<String> _logTail = <String>[]; // last 200 lines, ring-buffered
   static const int _maxLog = 200;
   String _detectedSn = '';
   String _detectedModel = '';
@@ -27,14 +27,14 @@ class BridgeSupervisor extends ChangeNotifier {
   String? _lastError;
   int _wsClientCount = 0;
   CameraPermission _cameraPermission = CameraPermission.unknown;
-  String _pin = '';   // 6-digit pairing PIN from bridge log
-  int    _pairedTokenCount = 0;
+  String _pin = ''; // 6-digit pairing PIN from bridge log
+  int _pairedTokenCount = 0;
 
   // Auto-restart bookkeeping.
   bool _userStopped = false;
-  int  _autoRestartCount = 0;
+  int _autoRestartCount = 0;
 
-  // Disk log: ~/Library/Logs/OBSBOT Bridge/bridge.log
+  // Disk log: ~/Library/Logs/Open OBSBOT Bridge/bridge.log
   IOSink? _logSink;
   File? _logFile;
 
@@ -50,7 +50,7 @@ class BridgeSupervisor extends ChangeNotifier {
   int get wsClientCount => _wsClientCount;
   CameraPermission get cameraPermission => _cameraPermission;
   String get pin => _pin;
-  int    get pairedTokenCount => _pairedTokenCount;
+  int get pairedTokenCount => _pairedTokenCount;
 
   /// Returns the path to the bundled obsbot-bridge binary inside the .app.
   /// Falls back to the dev-tree build path if running via `flutter run`.
@@ -87,7 +87,9 @@ class BridgeSupervisor extends ChangeNotifier {
       final f = File('${dir.path}/bridge.log');
       _logFile = f;
       _logSink = f.openWrite(mode: FileMode.append);
-      _writeLog('===== OBSBOT Bridge starting at ${DateTime.now().toIso8601String()} =====');
+      _writeLog(
+        '===== OBSBOT Bridge starting at ${DateTime.now().toIso8601String()} =====',
+      );
     } catch (_) {
       _logSink = null;
     }
@@ -112,7 +114,12 @@ class BridgeSupervisor extends ChangeNotifier {
     // free the ports before we spawn a new one. Best-effort: lsof + kill -9.
     for (final port in <int>[8765, 8766]) {
       try {
-        final r = await Process.run('lsof', <String>['-nP', '-iTCP:$port', '-sTCP:LISTEN', '-t']);
+        final r = await Process.run('lsof', <String>[
+          '-nP',
+          '-iTCP:$port',
+          '-sTCP:LISTEN',
+          '-t',
+        ]);
         for (final line in (r.stdout as String).split(RegExp(r'\s+'))) {
           final pid = int.tryParse(line.trim());
           if (pid != null && pid > 1) {
@@ -145,13 +152,16 @@ class BridgeSupervisor extends ChangeNotifier {
     final exe = File(Platform.resolvedExecutable);
     final macosDir = exe.parent;
     final webCandidates = <String>[
-      '${macosDir.parent.path}/Resources/web',                  // inside .app
-      '${macosDir.path}/../../../../../rc/build/web',           // dev tree
+      '${macosDir.parent.path}/Resources/web', // inside .app
+      '${macosDir.path}/../../../../../rc/build/web', // dev tree
       '${Directory.current.path}/../rc/build/web',
     ];
     String? webRoot;
     for (final p in webCandidates) {
-      if (await Directory(p).exists()) { webRoot = File(p).absolute.path; break; }
+      if (await Directory(p).exists()) {
+        webRoot = File(p).absolute.path;
+        break;
+      }
     }
 
     try {
@@ -166,8 +176,14 @@ class BridgeSupervisor extends ChangeNotifier {
       _proc = proc;
 
       // Tail stdout + stderr
-      proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(_onLogLine);
-      proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(_onLogLine);
+      proc.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(_onLogLine);
+      proc.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(_onLogLine);
 
       proc.exitCode.then((int code) async {
         _proc = null;
@@ -183,7 +199,9 @@ class BridgeSupervisor extends ChangeNotifier {
         if (!_userStopped && _autoRestartCount < 5) {
           _autoRestartCount++;
           final delaySec = (_autoRestartCount * _autoRestartCount).clamp(1, 30);
-          _writeLog('===== bridge exited unexpectedly; auto-restart attempt $_autoRestartCount in ${delaySec}s =====');
+          _writeLog(
+            '===== bridge exited unexpectedly; auto-restart attempt $_autoRestartCount in ${delaySec}s =====',
+          );
           await Future<void>.delayed(Duration(seconds: delaySec));
           if (!_userStopped) await start();
         }
@@ -197,7 +215,7 @@ class BridgeSupervisor extends ChangeNotifier {
   }
 
   Future<void> stop() async {
-    _userStopped = true;       // suppress auto-restart
+    _userStopped = true; // suppress auto-restart
     _autoRestartCount = 0;
     final proc = _proc;
     if (proc == null) {
@@ -205,10 +223,14 @@ class BridgeSupervisor extends ChangeNotifier {
       return;
     }
     proc.kill(ProcessSignal.sigterm);
-    // Force-kill if still alive after 2s
-    Timer(const Duration(seconds: 2), () {
-      if (_proc != null) _proc!.kill(ProcessSignal.sigkill);
-    });
+    try {
+      await proc.exitCode.timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      proc.kill(ProcessSignal.sigkill);
+      try {
+        await proc.exitCode.timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
   }
 
   void _setStatus(BridgeStatus s) {
@@ -222,15 +244,31 @@ class BridgeSupervisor extends ChangeNotifier {
   );
   static final RegExp _devUnpluggedRe = RegExp(r'device unplugged');
   static final RegExp _wsConnRe = RegExp(r'ws client connected.*total=(\d+)');
-  static final RegExp _wsDisconnRe = RegExp(r'ws client disconnected.*total=(\d+)');
-  static final RegExp _videoStartedRe = RegExp(r'video: capture session started');
-  static final RegExp _videoDevicesRe = RegExp(r'video: \d+ capture devices visible');
-  static final RegExp _videoDeniedRe = RegExp(r'video: camera permission denied|video: camera not authorized');
-  static final RegExp _videoNoCamRe = RegExp(r'video: no matching capture device');
-  static final RegExp _pinRe        = RegExp(r'auth: pairing PIN = (\d{6})\s+\(tokens: (\d+)\)');
-  static final RegExp _tokenIssuedRe = RegExp(r'auth: token issued \(total: (\d+)\)');
+  static final RegExp _wsDisconnRe = RegExp(
+    r'ws client disconnected.*total=(\d+)',
+  );
+  static final RegExp _videoStartedRe = RegExp(
+    r'video: capture session started',
+  );
+  static final RegExp _videoDevicesRe = RegExp(
+    r'video: \d+ capture devices visible',
+  );
+  static final RegExp _videoDeniedRe = RegExp(
+    r'video: camera permission denied|video: camera not authorized',
+  );
+  static final RegExp _videoNoCamRe = RegExp(
+    r'video: no matching capture device',
+  );
+  static final RegExp _pinRe = RegExp(
+    r'auth: pairing PIN = (\d{6})\s+\(tokens: (\d+)\)',
+  );
+  static final RegExp _tokenIssuedRe = RegExp(
+    r'auth: token issued \(total: (\d+)\)',
+  );
   static final RegExp _tokenRevokedRe = RegExp(r'auth: all tokens revoked');
-  static final RegExp _pinRotatedRe = RegExp(r'auth: PIN rotated, new PIN = (\d{6})');
+  static final RegExp _pinRotatedRe = RegExp(
+    r'auth: PIN rotated, new PIN = (\d{6})',
+  );
 
   void _onLogLine(String line) {
     if (line.isEmpty) return;
@@ -277,9 +315,7 @@ class BridgeSupervisor extends ChangeNotifier {
       _cameraPermission = CameraPermission.denied;
     } else if (_videoNoCamRe.hasMatch(line)) {
       // permission was OK enough to enumerate; just no camera attached
-      if (_cameraPermission != CameraPermission.granted) {
-        _cameraPermission = CameraPermission.granted;
-      }
+      _cameraPermission = CameraPermission.noCamera;
     }
 
     notifyListeners();
@@ -291,7 +327,9 @@ class BridgeSupervisor extends ChangeNotifier {
   Future<void> resetPairing() async {
     final home = Platform.environment['HOME'] ?? '';
     if (home.isNotEmpty) {
-      final f = File('$home/Library/Application Support/Open OBSBOT Bridge/auth.json');
+      final f = File(
+        '$home/Library/Application Support/Open OBSBOT Bridge/auth.json',
+      );
       if (await f.exists()) await f.delete();
     }
     _pin = '';
@@ -331,8 +369,11 @@ class BridgeSupervisor extends ChangeNotifier {
     final exe = File(Platform.resolvedExecutable);
     final infoPlist = File('${exe.parent.parent.path}/Info.plist');
     if (!await infoPlist.exists()) return null;
-    final r = await Process.run('/usr/libexec/PlistBuddy',
-        <String>['-c', 'Print :CFBundleIdentifier', infoPlist.path]);
+    final r = await Process.run('/usr/libexec/PlistBuddy', <String>[
+      '-c',
+      'Print :CFBundleIdentifier',
+      infoPlist.path,
+    ]);
     if (r.exitCode != 0) return null;
     return (r.stdout as String).trim();
   }

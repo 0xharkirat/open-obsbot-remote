@@ -3,8 +3,8 @@
 **SDK location:** `obsbot-sdk/`
 **SDK version:** `LIB_MAJOR_VER 1.3.0` (from `include/util/comm.hpp`)
 **Date explored:** 2026-05-01
-**Target host for bridge app:** macOS arm64 (MacBook Pro M5)
-**Test camera:** OBSBOT Tiny 2 Lite
+**Target host for bridge app:** macOS arm64
+**Test camera used for this exploration:** OBSBOT Tiny 2 Lite
 
 ---
 
@@ -114,7 +114,7 @@ Devices::get().close();
 | `ObsbotProdTiny` | Tiny | 1st gen (no PTZ gimbal — image-only crop) |
 | `ObsbotProdTiny4k` | Tiny 4K | 1st gen 4K |
 | `ObsbotProdTiny2` | Tiny 2 | Full PTZ gimbal |
-| `ObsbotProdTiny2Lite` | **Tiny 2 Lite** ← user's camera | Same protocol as Tiny 2 (uses tiny.* status struct) |
+| `ObsbotProdTiny2Lite` | **Tiny 2 Lite** | Same protocol as Tiny 2 (uses tiny.* status struct) |
 | `ObsbotProdTinySE` | Tiny SE | Adds zone tracking |
 | `ObsbotProdTiny3` (=18) | Tiny 3 | Adds speech-track AI mode + audio modes |
 | `ObsbotProdTiny3Lite` (=19) | Tiny 3 Lite | |
@@ -140,7 +140,7 @@ Total: **208 `*R` / `*U`** methods + getters. Grouped below.
 ### 5.1 PTZ / Gimbal control
 | Method | Cameras | Use |
 |---|---|---|
-| `aiSetGimbalMotorAngleR(pitch, yaw, roll)` | tiny2 series, tail air | Absolute angle. Pitch -90~90, yaw -180~180. **PRIMARY for performer's pan/tilt.** |
+| `aiSetGimbalMotorAngleR(pitch, yaw, roll)` | tiny2 series, tail air | Absolute angle. Pitch -90~90, yaw -180~180. **Primary for remote pan/tilt.** |
 | `aiSetGimbalSpeedCtrlR(pitch, pan, roll)` | tiny, tiny4k, tiny2 series, tail air | Velocity ctrl. 0 stops. Use this for joystick drag. |
 | `aiSetGimbalStop()` | tiny2 series, tail air | Halt motion |
 | `aiGetGimbalStateR(AiGimbalStateInfo*)` | tiny2 series, tail air | Current angles + velocities |
@@ -342,7 +342,7 @@ Derived from `@category` annotations on every method.
 | Power ctrl (reboot/poweroff) | — | — | — | — | — | — | — | ✓ | ✓ |
 | Custom remote key bindings | — | — | — | — | — | — | — | ✓ | ✓ |
 
-**Bold column = Tiny 2 Lite (user's camera). Treat it identically to Tiny 2.**
+**Bold column = tested Tiny 2 Lite path. Treat it identically to Tiny 2 unless hardware testing proves otherwise.**
 
 ---
 
@@ -378,8 +378,6 @@ C++ name-mangled, namespace `Device::*` (e.g., `__ZN6Device12cameraStatusEv`, `_
 | Linux x86_64 | Same | |
 | Windows x64 | MSVC, CMake | `/utf-8` flag + warning suppress; needs `w32-pthreads.dll` shipped alongside |
 
-**On the dev machine right now: cmake is NOT installed.** Need to `brew install cmake` before building the bridge.
-
 ---
 
 ## 8. Limitations & Gotchas
@@ -406,8 +404,8 @@ C++ name-mangled, namespace `Device::*` (e.g., `__ZN6Device12cameraStatusEv`, `_
 
 | Question | Default chosen |
 |---|---|
-| Does Tiny 2 Lite respond to all Tiny 2 commands? | **Yes** — same `tiny` status struct family, same product-type branch in sample. Confirm by running sample on the user's hardware. |
-| Is there a video preview API? | **No, not in SDK.** Bridge will skip preview for v1; performer doesn't need it on stage. |
+| Does Tiny 2 Lite respond to all Tiny 2 commands? | **Yes for the implemented path** — same `tiny` status struct family, same product-type branch in sample. Keep validating on real hardware for each new command. |
+| Is there a video preview API? | **No, not in SDK.** The bridge gets preview separately through AVFoundation/UVC and streams MJPEG itself. |
 | Bluetooth/Wi-Fi config flow for Tail Air? | **Out of scope for v1.** Tiny 2 Lite is USB-only. Add when Tail Air support is requested. |
 | Multi-camera support? | **`Devices` returns a list.** Bridge can iterate. WebSocket protocol must include a `device_id` (use `devSn()`) on every command. |
 | Latency expectations? | Sample uses synchronous `R` calls + sleeps. Real measurement needed; expect <30 ms for UVC-tunneled commands. Add over-WiFi → phone budget of <100 ms is realistic. |
@@ -415,36 +413,25 @@ C++ name-mangled, namespace `Device::*` (e.g., `__ZN6Device12cameraStatusEv`, `_
 
 ---
 
-## 10. Recommended Bridge App Architecture (informs Phase 2)
+## 10. Resulting Bridge Architecture
 
-Based on the SDK realities:
+The current implementation follows the C++ bridge direction from the exploration:
 
-1. **Language: C++ with one of: Crow / uWebSockets / Beast for WebSocket.** Reasoning:
-   - SDK is a C++ class hierarchy with name-mangled symbols. Wrapping for Node.js/Python means writing N-API/pybind11 binding for ~208 methods and 30+ enums + complex unions in `CameraStatus`. That's weeks of glue code.
-   - In C++, link `libdev` directly. Use a single-header WebSocket lib (uWebSockets or Crow) so the bridge is one binary with one shared lib (`libdev.dylib`).
-   - Trade-off: less ergonomic to develop than Python. But 1-shot translation Device API → JSON protocol is mechanical.
-2. **Alternative: C++ core + minimal C-ABI shim, then Rust binary using the shim.** Adds 3 weeks. Skip unless we want a memory-safe wrapper.
-3. **Threading:** Single producer/single consumer queue between WebSocket I/O thread and an SDK-call thread. SDK callbacks → enqueue → broadcast to subscribed WS clients.
-4. **Discovery:** mDNS / Bonjour broadcast (`_obsbot-bridge._tcp` service). Use Apple's `dnssd` API on macOS, Avahi on Linux, Bonjour Print Services on Windows.
-5. **Process lifecycle:** signal handler → `Devices::get().close()` → exit.
-6. **Logging:** Hook `dev_set_log_handler` to capture SDK logs into bridge log file.
-7. **Config:** YAML/JSON file for port, mDNS name, TLS off-by-default (LAN-only).
-8. **Distribution:** macOS notarized .app with helper service; Linux systemd unit; Windows service.
-
-For Phase 2, the bridge spec should freeze at:
-- WebSocket port 8765 (configurable)
-- HTTP REST on 8766 for device list + config (rare, not realtime)
-- mDNS service `_obsbot-bridge._tcp`
-- Single binary (`obsbot-bridge`) + bundled `libdev.dylib`
+1. **C++ subprocess links `libdev` directly.** This avoids binding the SDK's large C++ surface into another runtime.
+2. **Crow handles WebSocket and normal HTTP on port 8765.** It serves `/v1`, `/health`, `/pair`, and the Flutter web bundle.
+3. **A separate BSD-socket MJPEG server handles preview on port 8766.** Crow is not used for streaming because it buffers response writes until the handler returns.
+4. **`DeviceSession` owns SDK calls on a worker thread.** WebSocket handlers enqueue work and receive async acks.
+5. **AVFoundation supplies preview frames.** The SDK does not expose video frames.
+6. **The Flutter macOS app supervises the subprocess.** It provides pairing UI, log display, permissions UX, auto-restart, and single-instance behavior.
+7. **mDNS is not implemented yet.** The bridge shows a QR code and URL instead.
 
 ---
 
-## 11. Phase 1 Conclusions
+## 11. Conclusions
 
 - **SDK is comprehensive.** ~208 commands across 9+ camera families, with clear `@category` doc tags letting us auto-generate the compatibility matrix.
 - **Tiny 2 Lite is well-supported** via the existing Tiny 2 code paths.
-- **Bridge will be C++.** Writing N-API or Python bindings is more work than just linking libdev directly.
-- **macOS-first dev is fine.** Prebuilt arm64 dylib works; `cmake` install needed (`brew install cmake`).
-- **Threading + sync/async semantics** are the main implementation hazards. Plan a queue + worker model from day 1.
-- **No video preview from SDK** — drop the "camera thumbnail" UI item from Phase 4 v1, or get it via AVFoundation directly.
-- **Recommend proceeding to Phase 2 (Architecture + Protocol).** No blocking unknowns.
+- **C++ bridge is the right first architecture.** Writing N-API or Python bindings would be more work than linking `libdev` directly.
+- **macOS arm64 is the validated build host today.**
+- **Threading + sync/async semantics remain the main implementation hazards.** Keep SDK calls behind `DeviceSession`.
+- **Preview must stay outside the SDK.** AVFoundation/UVC is the working path.

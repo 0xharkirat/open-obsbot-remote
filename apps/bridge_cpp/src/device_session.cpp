@@ -232,6 +232,7 @@ void DeviceSession::poll_status_locked() {
 
 static CmdResult ok() { return {true, "", ""}; }
 static CmdResult err(const char* code, const char* msg) { return {false, code, msg}; }
+static bool valid_percent(int v) { return v >= 0 && v <= 100; }
 
 #define REQUIRE_DEV() \
     if (!dev_) return err("not_connected", "no camera attached")
@@ -283,6 +284,8 @@ void DeviceSession::cmd_ptz_stop(ReplyFn reply) {
 void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
     submit([this]() -> CmdResult {
         REQUIRE_DEV();
+        dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+        dev_->aiSetEnabledR(false);
         int32_t r = dev_->gimbalRstPosR();
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
@@ -295,8 +298,21 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
 void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
     submit([this, value]() -> CmdResult {
         REQUIRE_DEV();
-        if (value < 1.0f || value > 4.0f) return err("invalid_param", "zoom out of 1..4 range");
-        int32_t r = dev_->cameraSetZoomAbsoluteR(value);
+        float zmin = 1.0f, zmax = 4.0f;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            zmin = snap_.zoom_min;
+            zmax = snap_.zoom_max;
+        }
+        if (value < zmin || value > zmax) {
+            return err("invalid_param", "zoom out of camera range");
+        }
+        int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR(
+            (uint32_t)(value * 100.f), 10);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.zoom = value;
+        }
         return r == 0 ? ok() : err("device_busy", "zoom failed");
     }, std::move(reply));
 }
@@ -304,9 +320,21 @@ void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
 void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
     submit([this, value, speed]() -> CmdResult {
         REQUIRE_DEV();
-        if (value < 1.0f || value > 4.0f) return err("invalid_param", "zoom out of range");
+        float zmin = 1.0f, zmax = 4.0f;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            zmin = snap_.zoom_min;
+            zmax = snap_.zoom_max;
+        }
+        if (value < zmin || value > zmax) {
+            return err("invalid_param", "zoom out of camera range");
+        }
         if (speed < 1 || speed > 10) return err("invalid_param", "speed must be 1..10");
         int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(value * 100.f), (uint32_t)speed);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.zoom = value;
+        }
         return r == 0 ? ok() : err("device_busy", "zoom_smooth failed");
     }, std::move(reply));
 }
@@ -372,6 +400,7 @@ void DeviceSession::cmd_image_set_fov(int fov, ReplyFn reply) {
 void DeviceSession::cmd_image_set_brightness(int v, ReplyFn reply) {
     submit([this, v]() -> CmdResult {
         REQUIRE_DEV();
+        if (!valid_percent(v)) return err("invalid_param", "brightness must be 0..100");
         int32_t r = dev_->cameraSetImageBrightnessR(v);
         return r == 0 ? ok() : err("device_busy", "brightness failed");
     }, std::move(reply));
@@ -379,6 +408,7 @@ void DeviceSession::cmd_image_set_brightness(int v, ReplyFn reply) {
 void DeviceSession::cmd_image_set_contrast(int v, ReplyFn reply) {
     submit([this, v]() -> CmdResult {
         REQUIRE_DEV();
+        if (!valid_percent(v)) return err("invalid_param", "contrast must be 0..100");
         int32_t r = dev_->cameraSetImageContrastR(v);
         return r == 0 ? ok() : err("device_busy", "contrast failed");
     }, std::move(reply));
@@ -386,6 +416,7 @@ void DeviceSession::cmd_image_set_contrast(int v, ReplyFn reply) {
 void DeviceSession::cmd_image_set_saturation(int v, ReplyFn reply) {
     submit([this, v]() -> CmdResult {
         REQUIRE_DEV();
+        if (!valid_percent(v)) return err("invalid_param", "saturation must be 0..100");
         int32_t r = dev_->cameraSetImageSaturationR(v);
         return r == 0 ? ok() : err("device_busy", "saturation failed");
     }, std::move(reply));
@@ -393,8 +424,56 @@ void DeviceSession::cmd_image_set_saturation(int v, ReplyFn reply) {
 void DeviceSession::cmd_image_set_sharpness(int v, ReplyFn reply) {
     submit([this, v]() -> CmdResult {
         REQUIRE_DEV();
+        if (!valid_percent(v)) return err("invalid_param", "sharpness must be 0..100");
         int32_t r = dev_->cameraSetImageSharpR(v);
         return r == 0 ? ok() : err("device_busy", "sharpness failed");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_color(bool has_brightness, int brightness,
+                                        bool has_contrast, int contrast,
+                                        bool has_saturation, int saturation,
+                                        bool has_sharpness, int sharpness,
+                                        ReplyFn reply) {
+    submit([this,
+            has_brightness, brightness,
+            has_contrast, contrast,
+            has_saturation, saturation,
+            has_sharpness, sharpness]() -> CmdResult {
+        REQUIRE_DEV();
+        if (has_brightness && !valid_percent(brightness)) {
+            return err("invalid_param", "brightness must be 0..100");
+        }
+        if (has_contrast && !valid_percent(contrast)) {
+            return err("invalid_param", "contrast must be 0..100");
+        }
+        if (has_saturation && !valid_percent(saturation)) {
+            return err("invalid_param", "saturation must be 0..100");
+        }
+        if (has_sharpness && !valid_percent(sharpness)) {
+            return err("invalid_param", "sharpness must be 0..100");
+        }
+
+        if (has_brightness && dev_->cameraSetImageBrightnessR(brightness) != 0) {
+            return err("device_busy", "brightness failed");
+        }
+        if (has_contrast && dev_->cameraSetImageContrastR(contrast) != 0) {
+            return err("device_busy", "contrast failed");
+        }
+        if (has_saturation && dev_->cameraSetImageSaturationR(saturation) != 0) {
+            return err("device_busy", "saturation failed");
+        }
+        if (has_sharpness && dev_->cameraSetImageSharpR(sharpness) != 0) {
+            return err("device_busy", "sharpness failed");
+        }
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            if (has_brightness) snap_.brightness = brightness;
+            if (has_contrast) snap_.contrast = contrast;
+            if (has_saturation) snap_.saturation = saturation;
+            if (has_sharpness) snap_.sharpness = sharpness;
+        }
+        return ok();
     }, std::move(reply));
 }
 
@@ -448,6 +527,8 @@ static void speed_to_rates(MoveSpeed s, float& sr, float& sp, float& sy) {
 void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
     submit([this, id, speed]() -> CmdResult {
         REQUIRE_DEV();
+        dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+        dev_->aiSetEnabledR(false);
         int32_t r = -1;
         if (speed == MoveSpeed::instant) {
             r = dev_->aiTrgGimbalPresetR(id);
@@ -465,9 +546,6 @@ void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
                 // Fall back to instant — preset list may not be loaded yet.
                 r = dev_->aiTrgGimbalPresetR(id);
             } else {
-                // AI must release the gimbal so we can drive it.
-                dev_->cameraSetAiModeU(Device::AiWorkModeNone);
-                dev_->aiSetEnabledR(false);
                 float sr, sp, sy;
                 speed_to_rates(speed, sr, sp, sy);
                 r = dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
@@ -840,6 +918,8 @@ void DeviceSession::sequence_loop() {
         int pid = step.preset_id;
         int total = step.seconds;
         // honor per-step speed
+        dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+        dev_->aiSetEnabledR(false);
         if (step.speed == MoveSpeed::instant) {
             dev_->aiTrgGimbalPresetR(pid);
         } else {
@@ -852,8 +932,6 @@ void DeviceSession::sequence_loop() {
                 }
             }
             if (found) {
-                dev_->cameraSetAiModeU(Device::AiWorkModeNone);
-                dev_->aiSetEnabledR(false);
                 float sr, sp, sy; speed_to_rates(step.speed, sr, sp, sy);
                 dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
                 if (p.zoom > 0) {

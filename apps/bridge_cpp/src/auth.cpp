@@ -107,6 +107,7 @@ void AuthStore::save() const {
     for (auto& t : tokens_) j["tokens"].push_back(t);
     std::ofstream f(path_);
     if (f) f << j.dump(2);
+    ::chmod(path_.c_str(), 0600);
 }
 
 }  // namespace obs

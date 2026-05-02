@@ -5,7 +5,7 @@ A duplicate copy lives at `AGENTS.md` for non-Claude AI tools that follow that c
 
 ## What this project is
 
-Phone-based remote for OBSBOT cameras (Tiny 2 Lite is the only camera tested). The performer / streamer has the camera + Mac on stage, and uses an Android, iOS, or **web browser** on their phone to pan/tilt/zoom/recall presets/run a timed sequence — all from across the room.
+Phone-based remote for OBSBOT cameras (Tiny 2 Lite is the only camera tested). A controller device uses Android, iOS, or a **web browser** to pan/tilt/zoom/recall presets/run a timed sequence while the camera stays connected to the bridge host over USB.
 
 Two products:
 
@@ -88,9 +88,10 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 - WS port 8765, MJPEG port 8766 (always WS-port + 1). Both configurable but everywhere assumes the +1 relationship.
 - Logs persist at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
 - Auth state at `~/Library/Application Support/Open OBSBOT Bridge/auth.json` (PIN + tokens).
-- Sequence persists at `~/Library/Application Support/Open OBSBOT Bridge/sequence.json`.
-- Caveman / terse responses preferred — user explicitly likes brevity. Switch to clearer prose for security/legal/permission topics.
-- macOS app is *not* sandboxed and *not* notarized yet. Distribution is dev-only.
+- Active sequence persists at `~/Library/Application Support/Open OBSBOT Bridge/sequence.json`.
+- Saved sequence library persists at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`.
+- Keep responses concise. Use clearer prose for security, legal, and permission topics.
+- macOS app is *not* sandboxed and *not* notarized yet. Distribution is GitHub Release ZIP or source build.
 
 ## Camera permission flow
 
@@ -113,13 +114,11 @@ If denied: UI shows a "Reset & retry" button that runs `tccutil reset Camera com
 
 ## What's known to work
 
-See README.md "What works today" section. Tiny 2 Lite is feature-complete for daily use — replaces OBSBOT Center for everything except firmware updates.
+See README.md "Features" and "Known Limits" sections. Tiny 2 Lite is the tested path; firmware updates still require OBSBOT Center.
 
-## Future-Claude operating tips
+## Operating tips
 
-- The user is `0xharkirat` on GitHub, builds on a MacBook Pro M5 (macOS 26.x arm64), tests on a Moto g56 5G (Android 15) and an iPhone 17 Pro.
-- `gh repo create` and `git push` to GitHub require a permission prompt — they're sometimes blocked in non-interactive automation. If so, hand the exact command back to the user.
-- The user accepts terse caveman-style responses but switches to clearer prose for security/legal/permission topics. Match accordingly.
+- GitHub operations may require permission prompts and may be blocked in non-interactive automation. If so, hand the exact command back to the user.
 - Don't rewrite working code unless asked. Add features behind toggles, keep the demo path intact.
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
 - When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the self-contained "OBSBOT Bridge.app" macOS bundle.
-# Result: apps/bridge/build/macos/Build/Products/Release/obsbot_bridge_mac.app
+# Build the self-contained "Open OBSBOT Bridge.app" macOS bundle.
+# Result: apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app
 # That .app contains:
 #   Contents/MacOS/obsbot_bridge_mac      ← Flutter UI
 #   Contents/MacOS/obsbot-bridge          ← C++ WS bridge (libdev consumer)

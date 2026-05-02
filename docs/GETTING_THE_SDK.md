@@ -1,11 +1,13 @@
 # OBSBOT SDK — local setup
 
-This repo doesn't include the OBSBOT SDK in git. Each developer keeps their own copy locally at `third_party/obsbot-sdk/`. The build pulls `libdev.dylib` from there and bundles it inside the resulting `.app` — so the shipped DMG is self-contained and the end user doesn't deal with the SDK at all.
+This repo does not include the OBSBOT SDK in git. Each developer keeps a local copy at `third_party/obsbot-sdk/`. The macOS build pulls `libdev.dylib` from there and bundles it inside the resulting `.app`.
+
+Do not commit the SDK files. GitHub Release ZIPs may include the runtime `libdev.dylib` inside `Open OBSBOT Bridge.app`, but the full SDK package, headers, samples, and archives stay out of git.
 
 ## How to get the SDK
 
 1. Go to **<https://www.obsbot.com/sdk>**.
-2. Fill in the short form (camera model + your use case — "third-party controller for Tiny 2 Lite" is fine).
+2. Fill in the short form with the camera model and use case, for example "third-party local camera controller".
 3. They typically reply with a download link within minutes (sometimes hours, rarely longer).
 4. Download the archive, unzip, and rename the extracted folder to `obsbot-sdk`.
 5. Drop it into `third_party/` at the root of this repo so the path becomes `third_party/obsbot-sdk/include/dev/dev.hpp` etc.
@@ -37,7 +39,6 @@ Exits 0 if the SDK is in place, otherwise prints what's missing.
 
 ## Why it's gitignored
 
-OBSBOT's SDK ships with no LICENSE / EULA / NOTICE file, so default copyright applies — we have no explicit redistribution license. Keeping it out of git history makes the repo safe to flip public later (or to add collaborators who don't have their own copy yet).
+OBSBOT's SDK ships separately from this repo. Keeping it out of git history lets the source repo stay public without committing third-party SDK headers or samples.
 
-Builds bundle `libdev.dylib` into the macOS `.app` for end-user convenience. That bundling is also a redistribution and needs OBSBOT's blessing before we hand a DMG to anyone outside the team.
-
+Builds bundle `libdev.dylib` into the macOS `.app` for convenience. Check OBSBOT's SDK terms before publishing release assets that include the runtime dylib.

@@ -74,7 +74,7 @@ void run_ws_server(uint16_t port,
 
     auto broadcast = [&](const std::string& payload) {
         std::lock_guard<std::mutex> g(conn_mu);
-        for (auto* c : conns) c->send_text(payload);
+        for (auto* c : authed_conns) c->send_text(payload);
     };
 
     // hook session state pushes into broadcaster
@@ -115,17 +115,16 @@ void run_ws_server(uint16_t port,
                 authed = authed_conns.count(&conn) > 0;
             }
 
-            // Open actions: ping, pair, hello (carries token if any)
-            const bool is_open_action = (action == "pair" || action == "ping" ||
-                                         action == "hello" || action == "subscribe" ||
-                                         action == "unsubscribe");
-
             // Promote conn to authed if hello/pair carried a valid token or correct PIN.
             if (!authed) {
                 if (action == "hello" && auth.is_valid_token(token)) {
                     std::lock_guard<std::mutex> g(conn_mu);
                     authed_conns.insert(&conn);
                     authed = true;
+                } else if (action == "hello") {
+                    try { conn.send_text(ack_err(id, "auth_required",
+                        "send {action:'pair', pin:<6-digit>} or {action:'hello', token:<token>} first").dump()); } catch (...) {}
+                    return;
                 } else if (action == "pair") {
                     std::string pin;
                     try { pin = nlohmann::json::parse(data).value("pin", std::string{}); } catch (...) {}
@@ -143,7 +142,7 @@ void run_ws_server(uint16_t port,
                 }
             }
 
-            if (!authed && !is_open_action) {
+            if (!authed && action != "ping") {
                 try { conn.send_text(ack_err(id, "auth_required",
                     "send {action:'pair', pin:<6-digit>} or {action:'hello', token:<token>} first").dump()); } catch (...) {}
                 return;
@@ -252,48 +251,16 @@ void run_ws_server(uint16_t port,
                                   std::string c, std::string d){
             serve_static(a + "/" + b + "/" + c + "/" + d, res, /*no_cache=*/false);
         });
-    }
 
-    if (video) {
-        CROW_ROUTE(app, "/preview.mjpeg")
-        ([video](const crow::request& /*req*/, crow::response& res) {
-            if (!video->running()) {
-                res.code = 503;
-                res.set_header("Content-Type", "text/plain");
-                res.write("video capture not running — check macOS camera permission");
-                res.end();
-                return;
-            }
-            res.set_header("Content-Type",
-                "multipart/x-mixed-replace; boundary=obsboundary");
-            res.set_header("Cache-Control", "no-cache, no-store, private");
-            res.set_header("Connection", "close");
-            res.set_header("Pragma", "no-cache");
-
-            uint64_t last_seq = 0;
-            const auto period = std::chrono::milliseconds(80);  // ~12 fps
-            for (int i = 0; i < 60 * 60 * 12; ++i) {  // 1h cap
-                auto seq = video->frame_seq();
-                if (seq != last_seq) {
-                    auto jpeg = video->latest_jpeg();
-                    if (!jpeg.empty()) {
-                        std::string header = "--obsboundary\r\n"
-                                             "Content-Type: image/jpeg\r\n"
-                                             "Content-Length: " +
-                                             std::to_string(jpeg.size()) +
-                                             "\r\n\r\n";
-                        res.write(header);
-                        res.write(std::string(reinterpret_cast<const char*>(jpeg.data()),
-                                              jpeg.size()));
-                        res.write("\r\n");
-                        last_seq = seq;
-                    }
-                }
-                std::this_thread::sleep_for(period);
-            }
-            res.end();
+        CROW_ROUTE(app, "/<path>/<path>/<path>/<path>/<path>")
+        ([web_root, serve_static](const crow::request& /*req*/,
+                                  crow::response& res,
+                                  std::string a, std::string b,
+                                  std::string c, std::string d,
+                                  std::string e){
+            serve_static(a + "/" + b + "/" + c + "/" + d + "/" + e,
+                         res, /*no_cache=*/false);
         });
-        LOGI("preview MJPEG route enabled at /preview.mjpeg");
     }
 
     LOGI("ws server listening on 0.0.0.0:%u  path=/v1  health=/health", (unsigned)port);

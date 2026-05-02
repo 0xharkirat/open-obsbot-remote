@@ -2,11 +2,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// "Made by Hark Singh • Powered by OBSBOT SDK + Flutter" footer.
+/// Compact project footer with stack credits.
 ///
-/// Uses real button widgets (not TextSpan recognizers) — TextSpan
-/// recognizers ignore taps inside Flutter web's <flt-platform-view>
-/// fallback path on small touch targets, and tap targets <44px fail
+/// Uses real button widgets instead of TextSpan recognizers because TextSpan
+/// recognizers ignore taps inside Flutter web platform-view fallback paths
+/// on small touch targets, and tap targets under 44px fail
 /// iOS Safari heuristics.
 class AppFooter extends StatelessWidget {
   final EdgeInsets padding;
@@ -20,15 +20,13 @@ class AppFooter extends StatelessWidget {
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        final messenger = ScaffoldMessenger.of(ctx);
+        messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
       }
     } catch (e) {
       if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('$e')),
-        );
+        final messenger = ScaffoldMessenger.of(ctx);
+        messenger.showSnackBar(SnackBar(content: Text('$e')));
       }
     }
   }
@@ -66,9 +64,11 @@ class AppFooter extends StatelessWidget {
           children: <Widget>[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Made by', style: small),
+              child: Text(
+                'Open OBSBOT Remote',
+                style: small.copyWith(fontWeight: FontWeight.w600),
+              ),
             ),
-            link('Hark Singh', 'https://harksingh.com'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text('•  Powered by', style: small),

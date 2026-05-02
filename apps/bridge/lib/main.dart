@@ -75,10 +75,8 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
       ),
       home: AnimatedBuilder(
         animation: supervisor,
-        builder: (BuildContext context, _) => HomeScreen(
-          supervisor: supervisor,
-          lanIps: _lanIps,
-        ),
+        builder: (BuildContext context, _) =>
+            HomeScreen(supervisor: supervisor, lanIps: _lanIps),
       ),
     );
   }
@@ -175,7 +173,8 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               children: <Widget>[
                 Container(
-                  width: 14, height: 14,
+                  width: 14,
+                  height: 14,
                   decoration: BoxDecoration(
                     color: _statusColor(context),
                     shape: BoxShape.circle,
@@ -183,19 +182,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(_statusLabel(),
-                      style: theme.textTheme.titleMedium),
+                  child: Text(
+                    _statusLabel(),
+                    style: theme.textTheme.titleMedium,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
             _cameraPermissionRow(context),
-            _row(context, 'Camera',
+            _row(
+              context,
+              'Camera',
               supervisor.cameraConnected
-                ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
-                : '— none plugged in —'),
-            _row(context, 'Phone clients connected',
-                '${supervisor.wsClientCount}  (${supervisor.pairedTokenCount} paired)'),
+                  ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
+                  : '— none plugged in —',
+            ),
+            _row(
+              context,
+              'Phone clients connected',
+              '${supervisor.wsClientCount}  (${supervisor.pairedTokenCount} paired)',
+            ),
             const SizedBox(height: 16),
             _revealCard(context),
             if (lanIps.isEmpty)
@@ -207,13 +214,13 @@ class _HomeScreenState extends State<HomeScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                Text('Bridge log',
-                    style: theme.textTheme.titleSmall),
+                Text('Bridge log', style: theme.textTheme.titleSmall),
                 const Spacer(),
                 if (supervisor.logFilePath != null) ...<Widget>[
                   Text(
                     supervisor.logFilePath!.replaceAll(
-                      Platform.environment['HOME'] ?? '', '~',
+                      Platform.environment['HOME'] ?? '',
+                      '~',
                     ),
                     style: TextStyle(
                       fontFamily: 'Menlo',
@@ -225,8 +232,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   TextButton.icon(
                     style: TextButton.styleFrom(
                       visualDensity: VisualDensity.compact,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                     ),
                     icon: const Icon(Icons.folder_open, size: 14),
                     label: const Text('Reveal'),
@@ -249,10 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   itemBuilder: (BuildContext ctx, int i) {
                     return SelectableText(
                       supervisor.logTail[i],
-                      style: const TextStyle(
-                        fontFamily: 'Menlo',
-                        fontSize: 11,
-                      ),
+                      style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
                     );
                   },
                 ),
@@ -274,48 +280,53 @@ class _HomeScreenState extends State<HomeScreen> {
           color: theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Row(children: <Widget>[
-          Icon(Icons.lock_outline, color: theme.colorScheme.outline),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Pairing PIN + QR hidden.\nReveal only when a phone is in front of you.',
-              style: TextStyle(color: theme.colorScheme.outline, fontSize: 12),
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.lock_outline, color: theme.colorScheme.outline),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Pairing PIN + QR hidden.\nReveal only when a phone is in front of you.',
+                style: TextStyle(
+                  color: theme.colorScheme.outline,
+                  fontSize: 12,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.icon(
-            icon: const Icon(Icons.visibility, size: 16),
-            label: const Text('Reveal'),
-            onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
-          ),
-        ]),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              icon: const Icon(Icons.visibility, size: 16),
+              label: const Text('Reveal'),
+              onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
+            ),
+          ],
+        ),
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Row(children: <Widget>[
-          Expanded(child: _pinBlock(ctx)),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.visibility_off, size: 14),
-            label: const Text('Hide'),
-            onPressed: _toggleReveal,
-          ),
-        ]),
+        Row(
+          children: <Widget>[
+            Expanded(child: _pinBlock(ctx)),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.visibility_off, size: 14),
+              label: const Text('Hide'),
+              onPressed: _toggleReveal,
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
-        Text('Connect from your phone to:',
-            style: theme.textTheme.titleSmall),
+        Text('Connect from your phone to:', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         if (lanIps.isNotEmpty) _qrCard(ctx, lanIps.first),
         ...lanIps.map((ip) => _ipPill(ctx, '$ip:8765')),
         const SizedBox(height: 4),
-        Text('Auto-hides in 60 seconds',
-            style: TextStyle(
-              fontSize: 11,
-              color: theme.colorScheme.outline,
-            )),
+        Text(
+          'Auto-hides in 60 seconds',
+          style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+        ),
       ],
     );
   }
@@ -325,89 +336,95 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(ctx);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: QrImageView(
-                data: url,
-                version: QrVersions.auto,
-                size: 140,
-                backgroundColor: Colors.white,
-                eyeStyle: const QrEyeStyle(
-                  eyeShape: QrEyeShape.square,
-                  color: Colors.black,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                dataModuleStyle: const QrDataModuleStyle(
-                  dataModuleShape: QrDataModuleShape.square,
-                  color: Colors.black,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            // URL under QR — type if scanning is slow
-            SelectableText(
-              url,
-              style: const TextStyle(
-                fontFamily: 'Menlo',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 2),
-            TextButton.icon(
-              icon: const Icon(Icons.copy, size: 14),
-              label: const Text('Copy URL'),
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              ),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: url));
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(
-                    content: Text('URL copied'),
-                    duration: Duration(milliseconds: 700),
+                child: QrImageView(
+                  data: url,
+                  version: QrVersions.auto,
+                  size: 140,
+                  backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: Colors.black,
                   ),
-                );
-              },
-            ),
-          ],
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Scan or type the URL on any phone to open the web remote.',
-                  style: TextStyle(
-                    color: theme.colorScheme.outline,
-                    fontSize: 12,
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: Colors.black,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'After the page loads, type the 6-digit PIN above to pair.',
-                  style: TextStyle(
-                    color: theme.colorScheme.outline,
-                    fontSize: 11,
-                    fontStyle: FontStyle.italic,
+              ),
+              const SizedBox(height: 6),
+              // URL under QR — type if scanning is slow
+              SelectableText(
+                url,
+                style: const TextStyle(
+                  fontFamily: 'Menlo',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              TextButton.icon(
+                icon: const Icon(Icons.copy, size: 14),
+                label: const Text('Copy URL'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
                   ),
                 ),
-              ],
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: url));
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(
+                      content: Text('URL copied'),
+                      duration: Duration(milliseconds: 700),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'Scan or type the URL on any phone to open the web remote.',
+                    style: TextStyle(
+                      color: theme.colorScheme.outline,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'After the page loads, type the 6-digit PIN above to pair.',
+                    style: TextStyle(
+                      color: theme.colorScheme.outline,
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -420,8 +437,10 @@ class _HomeScreenState extends State<HomeScreen> {
           color: theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text('Pairing PIN — generated on first launch',
-            style: TextStyle(color: theme.colorScheme.outline)),
+        child: Text(
+          'Pairing PIN — generated on first launch',
+          style: TextStyle(color: theme.colorScheme.outline),
+        ),
       );
     }
     return Container(
@@ -430,66 +449,79 @@ class _HomeScreenState extends State<HomeScreen> {
         color: theme.colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(children: <Widget>[
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text('Pairing PIN',
+      child: Row(
+        children: <Widget>[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                'Pairing PIN',
                 style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
-                )),
-            const SizedBox(height: 2),
-            SelectableText(
-              supervisor.pin,
-              style: TextStyle(
-                fontFamily: 'Menlo',
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 6,
-                color: theme.colorScheme.onPrimaryContainer,
-              ),
-            ),
-          ],
-        ),
-        const Spacer(),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text('${supervisor.pairedTokenCount} paired',
-                style: theme.textTheme.labelSmall),
-            const SizedBox(height: 4),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.refresh, size: 14),
-              label: const Text('Reset pairing'),
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-              ),
-              onPressed: () async {
-                final ok = await showDialog<bool>(
-                  context: ctx,
-                  builder: (BuildContext c) => AlertDialog(
-                    title: const Text('Reset pairing?'),
-                    content: const Text(
-                        'This deletes the PIN and revokes every paired phone. '
-                        'A new PIN will be generated. Each phone has to re-enter it.'),
-                    actions: <Widget>[
-                      TextButton(onPressed: () => Navigator.of(c).pop(false),
-                          child: const Text('Cancel')),
-                      FilledButton(onPressed: () => Navigator.of(c).pop(true),
-                          child: const Text('Reset')),
-                    ],
+                  color: theme.colorScheme.onPrimaryContainer.withValues(
+                    alpha: 0.7,
                   ),
-                );
-                if (ok == true) {
-                  await supervisor.resetPairing();
-                }
-              },
-            ),
-          ],
-        ),
-      ]),
+                ),
+              ),
+              const SizedBox(height: 2),
+              SelectableText(
+                supervisor.pin,
+                style: TextStyle(
+                  fontFamily: 'Menlo',
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 6,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                '${supervisor.pairedTokenCount} paired',
+                style: theme.textTheme.labelSmall,
+              ),
+              const SizedBox(height: 4),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.refresh, size: 14),
+                label: const Text('Reset pairing'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: ctx,
+                    builder: (BuildContext c) => AlertDialog(
+                      title: const Text('Reset pairing?'),
+                      content: const Text(
+                        'This deletes the PIN and revokes every paired phone. '
+                        'A new PIN will be generated. Each phone has to re-enter it.',
+                      ),
+                      actions: <Widget>[
+                        TextButton(
+                          onPressed: () => Navigator.of(c).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(c).pop(true),
+                          child: const Text('Reset'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok == true) {
+                    await supervisor.resetPairing();
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -506,28 +538,37 @@ class _HomeScreenState extends State<HomeScreen> {
       case CameraPermission.denied:
         label = 'Denied — click "Open Settings" and turn on OBSBOT Bridge';
         dot = theme.colorScheme.error;
-        trailing = Wrap(spacing: 6, children: <Widget>[
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        trailing = Wrap(
+          spacing: 6,
+          children: <Widget>[
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+              ),
+              icon: const Icon(Icons.settings, size: 14),
+              label: const Text('Open Settings'),
+              onPressed: supervisor.openSystemCameraSettings,
             ),
-            icon: const Icon(Icons.settings, size: 14),
-            label: const Text('Open Settings'),
-            onPressed: supervisor.openSystemCameraSettings,
-          ),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+              ),
+              icon: const Icon(Icons.refresh, size: 14),
+              label: const Text('Reset & retry'),
+              onPressed: () async {
+                await supervisor.resetCameraPermissionAndRestart();
+              },
             ),
-            icon: const Icon(Icons.refresh, size: 14),
-            label: const Text('Reset & retry'),
-            onPressed: () async {
-              await supervisor.resetCameraPermissionAndRestart();
-            },
-          ),
-        ]);
+          ],
+        );
         break;
       case CameraPermission.noCamera:
         label = 'Granted (no camera detected yet)';
@@ -544,19 +585,24 @@ class _HomeScreenState extends State<HomeScreen> {
         children: <Widget>[
           SizedBox(
             width: 180,
-            child: Text('Camera permission',
-                style: TextStyle(color: theme.colorScheme.outline)),
+            child: Text(
+              'Camera permission',
+              style: TextStyle(color: theme.colorScheme.outline),
+            ),
           ),
           Container(
-            width: 10, height: 10,
+            width: 10,
+            height: 10,
             decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(label,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
-          if (trailing != null) trailing,
+          ?trailing,
         ],
       ),
     );
@@ -569,8 +615,10 @@ class _HomeScreenState extends State<HomeScreen> {
         children: <Widget>[
           SizedBox(
             width: 180,
-            child: Text(k,
-                style: TextStyle(color: Theme.of(ctx).colorScheme.outline)),
+            child: Text(
+              k,
+              style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
+            ),
           ),
           Expanded(
             child: SelectableText(
@@ -586,29 +634,34 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _ipPill(BuildContext ctx, String hostPort) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(children: <Widget>[
-        SizedBox(
-          width: 180,
-          child: Text('  ',
-              style: TextStyle(color: Theme.of(ctx).colorScheme.outline)),
-        ),
-        Expanded(
-          child: SelectableText(
-            hostPort,
-            style: const TextStyle(
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 180,
+            child: Text(
+              '  ',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              hostPort,
+              style: const TextStyle(
                 fontFamily: 'Menlo',
                 fontWeight: FontWeight.w600,
-                fontSize: 14),
+                fontSize: 14,
+              ),
+            ),
           ),
-        ),
-        IconButton(
-          tooltip: 'Copy',
-          icon: const Icon(Icons.copy, size: 16),
-          onPressed: () {
-            Clipboard.setData(ClipboardData(text: hostPort));
-          },
-        ),
-      ]),
+          IconButton(
+            tooltip: 'Copy',
+            icon: const Icon(Icons.copy, size: 16),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: hostPort));
+            },
+          ),
+        ],
+      ),
     );
   }
 }

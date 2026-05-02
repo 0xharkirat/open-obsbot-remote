@@ -20,7 +20,7 @@ body:
     id: phone
     attributes:
       label: Phone / browser
-      placeholder: "Moto g56 5G — Android 15 — Chrome 147"
+      placeholder: "Android 15 - Chrome, iOS 18 - Safari, or desktop browser"
     validations:
       required: true
 
@@ -28,7 +28,7 @@ body:
     id: mac
     attributes:
       label: Mac / macOS / app version
-      placeholder: "MacBook Pro M5 — macOS 26.x — Open OBSBOT Bridge v0.3.1"
+      placeholder: "Apple Silicon Mac - macOS version - Open OBSBOT Bridge version"
     validations:
       required: true
 

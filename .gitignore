@@ -1,6 +1,6 @@
 # OBSBOT SDK — kept on the local filesystem (under third_party/obsbot-sdk/)
 # but never committed. Build scripts pull libdev from there and bundle it
-# into the resulting .app, so the shipped DMG is self-contained.
+# into the resulting .app, so the shipped release ZIP is self-contained.
 third_party/obsbot-sdk/
 third_party/**/libdev.*
 third_party/**/OBSBOT_Sample
@@ -9,6 +9,10 @@ third_party/**/OBSBOT_Sample.exe
 # C++ bridge build output
 apps/bridge_cpp/build/
 apps/bridge_cpp/cmake-build-*/
+
+# Local release artifacts. Upload these to GitHub Releases manually; don't
+# commit packaged apps or SDK binaries to git.
+dist/
 
 # Flutter / Dart
 **/.dart_tool/

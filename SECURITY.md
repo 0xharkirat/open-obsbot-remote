@@ -1,36 +1,50 @@
-# Security policy
+# Security Policy
 
-Open OBSBOT Control is a LAN-only tool. The bridge listens on `0.0.0.0` and gates access via a 6-digit pairing PIN + 32-byte bearer token. Wi-Fi WPA2/WPA3 already encrypts traffic on the wire.
+Open OBSBOT Remote is a LAN-only camera-control tool. The bridge listens on all interfaces so phones on the same network can connect, but camera commands require pairing with a 6-digit PIN and then a saved bearer token.
 
-## Threat model (today)
+## Threat Model
 
 In scope:
-- Anyone on the same Wi-Fi as the bridge can attempt to pair.
-- A compromised paired phone can issue any camera command.
-- A malicious LAN device cannot send camera commands without the PIN.
 
-Out of scope (not protected):
-- Public-internet exposure (port-forwarding the bridge: don't, no TLS, no rate limit).
-- Compromised macOS user account on the bridge machine.
-- Side-channel via OBSBOT Center (different app, different process).
+- A device on the same local network tries to pair or control the camera.
+- A paired device is lost or should no longer have access.
+- A token leaks from a paired browser/app.
 
-## What could go wrong
+Out of scope:
 
-- **PIN brute-force.** 6 digits = 1M combinations. With no rate limit currently, a malicious LAN device could try ~10/sec and succeed in ~14 hours expected. Acceptable on home Wi-Fi; not acceptable on shared / public networks.
-- **Token replay.** Tokens are sent in plaintext over `ws://` and `http://`. Anyone sniffing the LAN (hard on WPA2/3) could capture and reuse.
-- **No TLS.** Self-signed certs for arbitrary LAN IPs aren't browser-trusted. The pragmatic path for TLS on a LAN is to put both bridge and clients on a Tailscale tailnet (Tailscale issues free `*.ts.net` certs).
+- Public internet exposure. Do not port-forward ports `8765` or `8766`.
+- A compromised user account on the bridge host.
+- Other local apps that already have camera or USB access.
 
-## Reporting a vulnerability
+## Current Protections
 
-Please email `info.sandhukirat23@gmail.com` (the maintainer) with subject `[SECURITY] open-obsbot-remote: <short description>`.
+- Camera commands require a valid token.
+- Pairing requires the bridge PIN shown locally in the bridge app.
+- MJPEG preview requires `?t=<token>`.
+- Pairing can be reset from the bridge app, which revokes issued tokens.
 
-Do **not** open a public GitHub issue for security problems.
+## Known Gaps
 
-We aim to respond within 7 days. If you don't hear back, escalate by tagging `@0xharkirat` in a public issue with no details — the maintainer will follow up privately.
+- No TLS. Traffic is plain `ws://` and `http://` on the local network.
+- No PIN attempt rate limit yet.
+- Tokens are bearer tokens. Anyone who obtains one can use it until pairing is reset.
+- The bridge is intended for trusted LANs, not shared/public networks.
 
-## Hardening checklist for power users
+## Reporting A Vulnerability
 
-- Use a separate IoT / camera Wi-Fi VLAN for the Mac if your network supports it.
-- Don't port-forward 8765 / 8766 to the public internet.
-- Reset the pairing PIN after a known-bad device touched it (Reveal → Reset pairing in the bridge UI).
-- Run the bridge under a dedicated macOS user account with limited disk access.
+Do not open a public issue with exploit details.
+
+Use the repository's private vulnerability reporting channel if enabled. If that is not available, contact the maintainer privately and include:
+
+- A short impact summary.
+- Reproduction steps.
+- Whether a paired token or only LAN access is required.
+- Relevant bridge log lines with secrets removed.
+
+## Hardening Checklist
+
+- Keep the bridge on a trusted network.
+- Do not expose ports `8765` or `8766` to the public internet.
+- Reset pairing after a device is lost or shared accidentally.
+- Quit OBSBOT Center and other camera-control apps before launching the bridge.
+- Consider a separate VLAN or isolated Wi-Fi for camera/control devices in shared venues.

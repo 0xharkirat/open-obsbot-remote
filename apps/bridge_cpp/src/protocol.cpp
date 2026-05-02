@@ -85,14 +85,6 @@ json ack_err(const string& id, const string& code, const string& msg) {
     return json{{"type", "ack"}, {"id", id}, {"ok", false}, {"err", code}, {"msg", msg}};
 }
 
-// Map a CmdResult back to an ack.
-static void send_ack(const std::string& id,
-                     const CmdResult& r,
-                     const std::function<void(std::string)>& send) {
-    json j = r.ok ? ack_ok(id) : ack_err(id, r.err, r.msg);
-    send(j.dump());
-}
-
 void dispatch_message(DeviceSession& session,
                       const string& raw,
                       std::function<void(std::string)> reply_send) {
@@ -112,6 +104,7 @@ void dispatch_message(DeviceSession& session,
         reply_send(j.dump());
     };
 
+    try {
     if (action == "hello") {
         json devices = json::array();
         auto s = session.snapshot();
@@ -203,11 +196,16 @@ void dispatch_message(DeviceSession& session,
         return;
     }
     if (action == "image.set_color") {
-        if (msg.contains("brightness")) session.cmd_image_set_brightness(msg["brightness"], [](CmdResult){});
-        if (msg.contains("contrast"))   session.cmd_image_set_contrast(msg["contrast"], [](CmdResult){});
-        if (msg.contains("saturation")) session.cmd_image_set_saturation(msg["saturation"], [](CmdResult){});
-        if (msg.contains("sharpness"))  session.cmd_image_set_sharpness(msg["sharpness"], [](CmdResult){});
-        reply_send(ack_ok(id).dump());
+        const bool has_brightness = msg.contains("brightness");
+        const bool has_contrast = msg.contains("contrast");
+        const bool has_saturation = msg.contains("saturation");
+        const bool has_sharpness = msg.contains("sharpness");
+        session.cmd_image_set_color(
+            has_brightness, has_brightness ? msg["brightness"].get<int>() : 0,
+            has_contrast, has_contrast ? msg["contrast"].get<int>() : 0,
+            has_saturation, has_saturation ? msg["saturation"].get<int>() : 0,
+            has_sharpness, has_sharpness ? msg["sharpness"].get<int>() : 0,
+            reply_cb);
         return;
     }
     if (action == "image.set_face_ae")    { session.cmd_image_set_face_ae(msg.value("enabled", false), reply_cb); return; }
@@ -321,6 +319,9 @@ void dispatch_message(DeviceSession& session,
     }
 
     reply_send(ack_err(id, "unsupported", "unknown action: " + action).dump());
+    } catch (const std::exception& e) {
+        reply_send(ack_err(id, "invalid_param", e.what()).dump());
+    }
 }
 
 }  // namespace obs

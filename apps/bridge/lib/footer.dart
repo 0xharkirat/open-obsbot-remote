@@ -9,15 +9,13 @@ class AppFooter extends StatelessWidget {
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        final messenger = ScaffoldMessenger.of(ctx);
+        messenger.showSnackBar(SnackBar(content: Text('Could not open $url')));
       }
     } catch (e) {
       if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('$e')),
-        );
+        final messenger = ScaffoldMessenger.of(ctx);
+        messenger.showSnackBar(SnackBar(content: Text('$e')));
       }
     }
   }
@@ -54,9 +52,11 @@ class AppFooter extends StatelessWidget {
           children: <Widget>[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text('Made by', style: small),
+              child: Text(
+                'Open OBSBOT Bridge',
+                style: small.copyWith(fontWeight: FontWeight.w600),
+              ),
             ),
-            link('Hark Singh', 'https://harksingh.com'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text('•  Powered by', style: small),

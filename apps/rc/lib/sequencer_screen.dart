@@ -38,20 +38,24 @@ class _SequencerScreenState extends State<SequencerScreen> {
 
   void _addStep() {
     setState(() {
-      _steps.add(_EditStep(
-        presetId: _steps.isEmpty ? 0 : _steps.last.presetId,
-        seconds: 60,
-      ));
+      _steps.add(
+        _EditStep(
+          presetId: _steps.isEmpty ? 0 : _steps.last.presetId,
+          seconds: 60,
+        ),
+      );
     });
   }
 
   void _save() {
     final list = _steps
-        .map((e) => SequenceStep(
-              presetId: e.presetId,
-              seconds: e.seconds,
-              speed: e.speed,
-            ))
+        .map(
+          (e) => SequenceStep(
+            presetId: e.presetId,
+            seconds: e.seconds,
+            speed: e.speed,
+          ),
+        )
         .toList();
     widget.client.sequenceSet(list, mode: _mode);
   }
@@ -92,11 +96,13 @@ class _SequencerScreenState extends State<SequencerScreen> {
     );
     if (name == null || name.isEmpty) return;
     final list = _steps
-        .map((e) => SequenceStep(
-              presetId: e.presetId,
-              seconds: e.seconds,
-              speed: e.speed,
-            ))
+        .map(
+          (e) => SequenceStep(
+            presetId: e.presetId,
+            seconds: e.seconds,
+            speed: e.speed,
+          ),
+        )
         .toList();
     widget.client.sequenceSaveAs(name, list, mode: _mode);
   }
@@ -110,7 +116,9 @@ class _SequencerScreenState extends State<SequencerScreen> {
         final running = s.sequence.running;
         return Scaffold(
           appBar: AppBar(
-            title: Text(s.sequence.loaded.isEmpty ? 'Sequence' : s.sequence.loaded),
+            title: Text(
+              s.sequence.loaded.isEmpty ? 'Sequence' : s.sequence.loaded,
+            ),
             actions: <Widget>[
               IconButton(
                 tooltip: 'Save sequence as…',
@@ -132,83 +140,96 @@ class _SequencerScreenState extends State<SequencerScreen> {
             ],
           ),
           body: SafeArea(
-            child: Column(children: <Widget>[
-              _libraryBar(context, s),
-              if (running) _runningBar(context, s),
-              Expanded(
-                child: _steps.isEmpty
-                    ? const Center(
-                        child: Text('Add steps to build a sequence'))
-                    : ReorderableListView.builder(
-                        itemCount: _steps.length,
-                        onReorder: (oldI, newI) {
-                          setState(() {
-                            if (newI > oldI) newI -= 1;
-                            final item = _steps.removeAt(oldI);
-                            _steps.insert(newI, item);
-                          });
-                        },
-                        itemBuilder: (BuildContext c, int i) {
-                          // Stable key based on step identity, not index.
-                          return _stepRow(c, i, s.presets,
-                              key: ValueKey<_EditStep>(_steps[i]));
-                        },
+            child: Column(
+              children: <Widget>[
+                _libraryBar(context, s),
+                if (running) _runningBar(context, s),
+                Expanded(
+                  child: _steps.isEmpty
+                      ? const Center(
+                          child: Text('Add steps to build a sequence'),
+                        )
+                      : ReorderableListView.builder(
+                          itemCount: _steps.length,
+                          onReorder: (oldI, newI) {
+                            setState(() {
+                              if (newI > oldI) newI -= 1;
+                              final item = _steps.removeAt(oldI);
+                              _steps.insert(newI, item);
+                            });
+                          },
+                          itemBuilder: (BuildContext c, int i) {
+                            // Stable key based on step identity, not index.
+                            return _stepRow(
+                              c,
+                              i,
+                              s.presets,
+                              key: ValueKey<_EditStep>(_steps[i]),
+                            );
+                          },
+                        ),
+                ),
+                _modeSelector(context),
+                if (running)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
+                    child: Text(
+                      'Edits while running take effect at the next step boundary.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.outline,
+                        fontStyle: FontStyle.italic,
                       ),
-              ),
-              _modeSelector(context),
-              if (running)
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Text(
-                    'Edits while running take effect at the next step boundary.',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context).colorScheme.outline,
-                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add step'),
+                            onPressed: _addStep,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: Icon(running ? Icons.stop : Icons.play_arrow),
+                            label: Text(
+                              running
+                                  ? 'Stop'
+                                  : (s.sequence.running
+                                        ? 'Apply changes'
+                                        : 'Save & start'),
+                            ),
+                            onPressed: running
+                                ? _stop
+                                : (_steps.isEmpty ? null : _start),
+                          ),
+                        ),
+                        if (running) ...<Widget>[
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.save),
+                              label: const Text('Apply'),
+                              onPressed: _save,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add step'),
-                        onPressed: _addStep,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                        label: Text(running
-                            ? 'Stop'
-                            : (s.sequence.running
-                                ? 'Apply changes'
-                                : 'Save & start')),
-                        onPressed: running
-                            ? _stop
-                            : (_steps.isEmpty ? null : _start),
-                      ),
-                    ),
-                    if (running) ...<Widget>[
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.save),
-                          label: const Text('Apply'),
-                          onPressed: _save,
-                        ),
-                      ),
-                    ],
-                  ]),
-                ),
-              ),
-            ]),
+              ],
+            ),
           ),
         );
       },
@@ -226,16 +247,25 @@ class _SequencerScreenState extends State<SequencerScreen> {
           color: theme.colorScheme.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Row(children: <Widget>[
-          Icon(Icons.bookmark_outline,
-              size: 16, color: theme.colorScheme.outline),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text('No saved sequences yet — tap the bookmark to save this one.',
+        child: Row(
+          children: <Widget>[
+            Icon(
+              Icons.bookmark_outline,
+              size: 16,
+              color: theme.colorScheme.outline,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'No saved sequences yet — tap the bookmark to save this one.',
                 style: TextStyle(
-                    fontSize: 12, color: theme.colorScheme.outline)),
-          ),
-        ]),
+                  fontSize: 12,
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     }
     return Container(
@@ -245,50 +275,54 @@ class _SequencerScreenState extends State<SequencerScreen> {
         color: theme.colorScheme.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(children: <Widget>[
-        Icon(Icons.bookmark, size: 16, color: theme.colorScheme.primary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: DropdownButton<String>(
-            isExpanded: true,
-            underline: const SizedBox.shrink(),
-            value: s.sequence.loaded.isEmpty ? null : s.sequence.loaded,
-            hint: const Text('Load saved sequence…'),
-            items: <DropdownMenuItem<String>>[
-              for (final n in lib)
-                DropdownMenuItem<String>(value: n, child: Text(n)),
-            ],
-            onChanged: (n) {
-              if (n != null) widget.client.sequenceLoad(n);
-            },
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.bookmark, size: 16, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              value: s.sequence.loaded.isEmpty ? null : s.sequence.loaded,
+              hint: const Text('Load saved sequence…'),
+              items: <DropdownMenuItem<String>>[
+                for (final n in lib)
+                  DropdownMenuItem<String>(value: n, child: Text(n)),
+              ],
+              onChanged: (n) {
+                if (n != null) widget.client.sequenceLoad(n);
+              },
+            ),
           ),
-        ),
-        if (s.sequence.loaded.isNotEmpty)
-          IconButton(
-            tooltip: 'Delete saved sequence',
-            icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () async {
-              final ok = await showDialog<bool>(
-                context: ctx,
-                builder: (BuildContext c) => AlertDialog(
-                  title: Text('Delete "${s.sequence.loaded}"?'),
-                  content: const Text('This removes the saved sequence from the bridge. The current edit stays.'),
-                  actions: <Widget>[
-                    TextButton(
-                      onPressed: () => Navigator.of(c).pop(false),
-                      child: const Text('Cancel'),
+          if (s.sequence.loaded.isNotEmpty)
+            IconButton(
+              tooltip: 'Delete saved sequence',
+              icon: const Icon(Icons.delete_outline, size: 18),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: ctx,
+                  builder: (BuildContext c) => AlertDialog(
+                    title: Text('Delete "${s.sequence.loaded}"?'),
+                    content: const Text(
+                      'This removes the saved sequence from the bridge. The current edit stays.',
                     ),
-                    FilledButton(
-                      onPressed: () => Navigator.of(c).pop(true),
-                      child: const Text('Delete'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true) widget.client.sequenceDelete(s.sequence.loaded);
-            },
-          ),
-      ]),
+                    actions: <Widget>[
+                      TextButton(
+                        onPressed: () => Navigator.of(c).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(c).pop(true),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) widget.client.sequenceDelete(s.sequence.loaded);
+              },
+            ),
+        ],
+      ),
     );
   }
 
@@ -313,19 +347,26 @@ class _SequencerScreenState extends State<SequencerScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('When sequence reaches the end…',
-              style: theme.textTheme.labelMedium),
+          Text(
+            'When sequence reaches the end…',
+            style: theme.textTheme.labelMedium,
+          ),
           const SizedBox(height: 4),
           for (final m in LoopMode.values)
-            RadioListTile<LoopMode>(
+            ListTile(
               dense: true,
-              value: m,
-              groupValue: _mode,
-              onChanged: (v) {
-                if (v != null) setState(() => _mode = v);
-              },
-              title: Text(loopModeLabel(m), style: const TextStyle(fontSize: 13)),
+              leading: Icon(
+                _mode == m
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 20,
+              ),
+              title: Text(
+                loopModeLabel(m),
+                style: const TextStyle(fontSize: 13),
+              ),
               contentPadding: EdgeInsets.zero,
+              onTap: () => setState(() => _mode = m),
             ),
         ],
       ),
@@ -344,8 +385,10 @@ class _SequencerScreenState extends State<SequencerScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('Step ${s.sequence.stepIndex + 1} of ${_steps.length} — ${remaining}s left',
-              style: theme.textTheme.labelLarge),
+          Text(
+            'Step ${s.sequence.stepIndex + 1} of ${_steps.length} — ${remaining}s left',
+            style: theme.textTheme.labelLarge,
+          ),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
@@ -356,8 +399,12 @@ class _SequencerScreenState extends State<SequencerScreen> {
     );
   }
 
-  Widget _stepRow(BuildContext ctx, int idx, List<PresetEntry> presets,
-      {required Key key}) {
+  Widget _stepRow(
+    BuildContext ctx,
+    int idx,
+    List<PresetEntry> presets, {
+    required Key key,
+  }) {
     final step = _steps[idx];
     return ListTile(
       key: key,
@@ -380,48 +427,53 @@ class _SequencerScreenState extends State<SequencerScreen> {
           if (v != null) setState(() => step.presetId = v);
         },
       ),
-      subtitle: Row(children: <Widget>[
-        const Text('Hold for '),
-        SizedBox(
-          width: 80,
-          child: TextField(
-            // KEY: stable controller per step, so cursor doesn't get
-            // wiped on every parent rebuild.
-            controller: step.secondsCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-            ],
-            decoration: const InputDecoration(
-              isDense: true,
-              suffixText: 's',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      subtitle: Row(
+        children: <Widget>[
+          const Text('Hold for '),
+          SizedBox(
+            width: 80,
+            child: TextField(
+              // KEY: stable controller per step, so cursor doesn't get
+              // wiped on every parent rebuild.
+              controller: step.secondsCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: const InputDecoration(
+                isDense: true,
+                suffixText: 's',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+              ),
+              onChanged: (v) {
+                final n = int.tryParse(v);
+                if (n != null && n >= 3 && n <= 36000) step.seconds = n;
+              },
             ),
+          ),
+          const SizedBox(width: 12),
+          const Text('move '),
+          DropdownButton<MoveSpeed>(
+            value: step.speed,
+            underline: const SizedBox.shrink(),
+            isDense: true,
+            items: <DropdownMenuItem<MoveSpeed>>[
+              for (final s in MoveSpeed.values)
+                DropdownMenuItem<MoveSpeed>(
+                  value: s,
+                  child: Text(moveSpeedLabel(s).toLowerCase()),
+                ),
+            ],
             onChanged: (v) {
-              final n = int.tryParse(v);
-              if (n != null && n >= 3 && n <= 36000) step.seconds = n;
+              if (v != null) setState(() => step.speed = v);
             },
           ),
-        ),
-        const SizedBox(width: 12),
-        const Text('move '),
-        DropdownButton<MoveSpeed>(
-          value: step.speed,
-          underline: const SizedBox.shrink(),
-          isDense: true,
-          items: <DropdownMenuItem<MoveSpeed>>[
-            for (final s in MoveSpeed.values)
-              DropdownMenuItem<MoveSpeed>(
-                value: s,
-                child: Text(moveSpeedLabel(s).toLowerCase()),
-              ),
-          ],
-          onChanged: (v) {
-            if (v != null) setState(() => step.speed = v);
-          },
-        ),
-      ]),
+        ],
+      ),
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline),
         onPressed: () {
@@ -445,13 +497,9 @@ class _SequencerScreenState extends State<SequencerScreen> {
 class _EditStep {
   int presetId;
   int seconds;
-  MoveSpeed speed;
+  MoveSpeed speed = MoveSpeed.medium;
   late TextEditingController secondsCtrl;
-  _EditStep({
-    required this.presetId,
-    required this.seconds,
-    this.speed = MoveSpeed.medium,
-  }) {
+  _EditStep({required this.presetId, required this.seconds}) {
     secondsCtrl = TextEditingController(text: '$seconds');
   }
 }

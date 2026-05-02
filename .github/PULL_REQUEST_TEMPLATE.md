@@ -17,7 +17,7 @@
 - [ ] `flutter analyze apps/rc apps/bridge` — clean
 - [ ] `cmake --build apps/bridge_cpp/build` — clean
 - [ ] `./scripts/build-bridge-mac.sh` produces a working `.app`
-- [ ] Manual: <!-- e.g. "Tiny 2 Lite plugged in, ran sequencer with ping-pong, watched it cycle for 5 minutes" -->
+- [ ] Manual: <!-- e.g. "camera plugged in, ran sequencer with ping-pong, watched it cycle for 5 minutes" -->
 
 ## Screenshots / recordings
 

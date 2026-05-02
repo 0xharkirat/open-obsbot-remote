@@ -4,24 +4,24 @@ Thanks for considering a contribution. Bug reports, feature ideas, and PRs are w
 
 ## Quick orientation
 
-Read these in order before opening anything:
+Read these in order before changing behavior:
 
 1. [README.md](README.md) — what this project is and how it's wired.
-2. [CLAUDE.md](CLAUDE.md) (a.k.a. [AGENTS.md](AGENTS.md)) — repo layout, conventions, and 20 specific gotchas we've already hit.
+2. [AGENTS.md](AGENTS.md) — repo layout, conventions, and project-specific gotchas for AI coding tools.
 3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the bigger picture of how the bridge / phone / web pieces fit.
 4. [docs/PROTOCOL.md](docs/PROTOCOL.md) — the WS message format.
 
 ## Setup
 
 You will need:
-- macOS Apple Silicon (the only platform where the bridge currently builds)
+- macOS Apple Silicon for the current bridge app build
 - `brew install cmake asio`
 - A copy of the OBSBOT C++ SDK (see [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md)) extracted at `third_party/obsbot-sdk/`
 - An OBSBOT camera plugged in (Tiny 2 Lite is the only model exercised today)
 - Flutter 3.27+
 
 ```bash
-git clone https://github.com/0xharkirat/open-obsbot-remote
+git clone <repo-url>
 cd open-obsbot-remote
 # drop the SDK into third_party/obsbot-sdk/ first
 ./scripts/verify-sdk.sh
@@ -46,7 +46,7 @@ fix(rc): stable TextEditingController per sequencer step
 docs(claude): note SIGPIPE handling
 ```
 
-We use Co-Authored-By footers when AI tools materially helped, e.g. `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
+Use `Co-Authored-By` footers when required by your workflow or organization.
 
 ## Style
 

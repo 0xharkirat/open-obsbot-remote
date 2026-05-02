@@ -5,15 +5,26 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 ## [Unreleased]
 
 ### Added
+- **Developer-friendly docs refresh** — README, run guide, architecture, protocol, app READMEs, and security policy now match the current public-source plus macOS release ZIP flow.
+- **macOS release packaging script** — `scripts/package-mac-release.sh` builds the app, verifies the bundle, optionally Developer ID signs/notarizes/staples it, creates an arm64 release ZIP, and writes a SHA-256 checksum.
 - **Saved sequence library** — name + persist sequences, switch between them via dropdown. Bridge stores them at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`. New WS actions `sequence.save_as / sequence.load / sequence.delete`. State event ships `sequence.available` + `sequence.loaded`.
-- **AGENTS.md** symlink to CLAUDE.md so non-Claude AI tools find the same guidance.
+- **AGENTS.md** so AI coding tools find the same repo guidance.
 - **CHANGELOG.md** (this file).
 - **CONTRIBUTING.md**, **CODE_OF_CONDUCT.md**, GitHub issue + PR templates.
-- **Footers** in both apps crediting Hark Singh + OBSBOT SDK + Flutter.
+- **Footers** in both apps crediting the project, OBSBOT SDK, and Flutter.
 
 ### Changed
 - Folder rename: `apps/bridge_mac → apps/bridge`, `apps/mobile → apps/rc`. Internal pubspec names unchanged.
 - Repo renamed `obsbot-control → open-obsbot-remote`.
+
+### Fixed
+- **Auth gate** — unauthenticated WebSocket clients no longer receive `state` broadcasts or subscribe snapshots before pairing.
+- **Zoom validation** — zoom commands now use the camera-reported range instead of accepting a hardcoded 1.0-4.0 range.
+- **Preview exposure** — removed the stale unauthenticated Crow MJPEG route; preview is served only by the token-gated MJPEG server on `ws_port + 1`.
+- **Static web assets** — bridge now serves five-segment Flutter asset paths such as `assets/packages/cupertino_icons/assets/CupertinoIcons.ttf`.
+- **Bridge restarts** — reset-pairing and camera-permission retry now wait for the subprocess to exit before starting it again.
+- **Control commands** — recenter, preset recall, and sequence steps release AI tracking before moving the gimbal; direct zoom uses the reliable speed-aware SDK call.
+- **Auth persistence** — `auth.json` is chmodded to user-only permissions after writes.
 
 ## [0.3.1] - 2026-05-02
 
@@ -69,9 +80,3 @@ Initial demo working end-to-end on a Tiny 2 Lite.
 - Bundle layout, ad-hoc signing, build-bridge-mac.sh script.
 - Logs persist at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
 - Camera permission wired through Info.plist + entitlements; first-launch prompt under "OBSBOT Bridge" name.
-
-[Unreleased]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.3...v0.3.1
-[0.3.0]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.2...v0.3
-[0.2.0]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.1...v0.2
-[0.1.0]: https://github.com/0xharkirat/open-obsbot-remote/releases/tag/demo-v0.1

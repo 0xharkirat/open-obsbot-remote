@@ -1,17 +1,45 @@
-# obsbot_control
+# Open OBSBOT Remote
 
-A new Flutter project.
+Flutter controller app for Open OBSBOT Bridge.
 
-## Getting Started
+Targets:
 
-This project is a starting point for a Flutter application.
+- Web, served by the bridge from `http://<bridge-host>:8765/`.
+- Android native.
+- iOS native.
 
-A few resources to get you started if this is your first Flutter project:
+## Development
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+From this directory:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter pub get
+flutter run -d chrome
+flutter run -d <device-id>
+```
+
+For normal end-to-end testing, build and launch the bridge app from the repo root:
+
+```bash
+./scripts/build-bridge-mac.sh
+open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
+```
+
+Then open the bridge URL shown in the bridge app.
+
+## Builds
+
+```bash
+flutter build web --release
+flutter build apk --release
+flutter build ios --release
+```
+
+The macOS bridge build script runs `flutter build web --release` here and bundles the output into `Open OBSBOT Bridge.app`.
+
+## Notes
+
+- The internal pubspec name is still `obsbot_control`; do not rename it casually because imports depend on it.
+- Android allows cleartext LAN traffic for `ws://` and `http://`.
+- iOS needs Local Network permission to connect to the bridge.
+- Flutter web preview uses an HTML `<img>` element for MJPEG because Flutter image widgets do not decode multipart streams.
