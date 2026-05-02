@@ -580,11 +580,29 @@ static MoveSpeed parse_speed(const std::string& s) {
     return MoveSpeed::medium;
 }
 
-static void persist_sequence(const std::vector<SequenceStep>& steps, bool loop) {
+static const char* loop_mode_str(LoopMode m) {
+    switch (m) {
+        case LoopMode::once:      return "once";
+        case LoopMode::forward:   return "forward";
+        case LoopMode::ping_pong: return "ping_pong";
+    }
+    return "forward";
+}
+
+static LoopMode parse_loop_mode(const std::string& s, bool legacy_loop = true) {
+    if (s == "once")      return LoopMode::once;
+    if (s == "forward")   return LoopMode::forward;
+    if (s == "ping_pong") return LoopMode::ping_pong;
+    // fallback to legacy bool: loop=true → forward, loop=false → once
+    return legacy_loop ? LoopMode::forward : LoopMode::once;
+}
+
+static void persist_sequence(const std::vector<SequenceStep>& steps, LoopMode mode) {
     std::string path = sequence_file_path();
     if (path.empty()) return;
     nlohmann::json j;
-    j["loop"] = loop;
+    j["mode"] = loop_mode_str(mode);
+    j["loop"] = (mode != LoopMode::once);  // legacy field
     j["steps"] = nlohmann::json::array();
     for (auto& s : steps) {
         j["steps"].push_back({
@@ -597,32 +615,27 @@ static void persist_sequence(const std::vector<SequenceStep>& steps, bool loop) 
     if (f) f << j.dump(2);
 }
 
-static void load_sequence(std::vector<SequenceStep>& steps, bool& loop) {
-    std::string path = sequence_file_path();
-    if (path.empty()) return;
-    std::ifstream f(path);
-    if (!f) return;
-    try {
-        nlohmann::json j; f >> j;
-        loop = j.value("loop", true);
-        steps.clear();
-        for (auto& it : j["steps"]) {
-            SequenceStep s;
-            s.preset_id = it.value("preset_id", 0);
-            s.seconds = it.value("seconds", 60);
-            s.speed = parse_speed(it.value("speed", std::string("medium")));
-            if (s.seconds < 3) s.seconds = 3;
-            steps.push_back(s);
+void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, LoopMode mode, ReplyFn reply) {
+    submit([this, steps, mode]() -> CmdResult {
+        bool was_running = seq_running_.load();
+        {
+            std::lock_guard<std::mutex> g(seq_mu_);
+            seq_steps_ = steps;
+            seq_mode_ = mode;
+            // If editing mid-run, clamp current index. Sequencer thread
+            // picks up the new list at next step boundary.
+            if (was_running) {
+                if (seq_steps_.empty()) {
+                    // empty list mid-run = stop
+                    seq_running_ = false;
+                    seq_quit_ = true;
+                } else if (seq_step_index_ >= (int)seq_steps_.size()) {
+                    seq_step_index_ = (int)seq_steps_.size() - 1;
+                }
+            }
+            persist_sequence(seq_steps_, seq_mode_);
         }
-    } catch (...) { /* ignore */ }
-}
-
-void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, bool loop, ReplyFn reply) {
-    submit([this, steps, loop]() -> CmdResult {
-        std::lock_guard<std::mutex> g(seq_mu_);
-        seq_steps_ = steps;
-        seq_loop_ = loop;
-        persist_sequence(seq_steps_, seq_loop_);
+        seq_cv_.notify_all();
         return ok();
     }, std::move(reply));
 }
@@ -635,6 +648,11 @@ void DeviceSession::cmd_sequence_start(ReplyFn reply) {
         seq_running_ = true;
         seq_quit_ = false;
         seq_step_index_ = 0;
+        seq_direction_ = 1;
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.sequence_mode = loop_mode_str(seq_mode_);
+        }
         if (seq_thr_.joinable()) seq_thr_.join();
         seq_thr_ = std::thread(&DeviceSession::sequence_loop, this);
         {
@@ -734,11 +752,33 @@ void DeviceSession::sequence_loop() {
         if (on_state_) on_state_(snapshot());
 
         if (elapsed >= total) {
-            int next = idx + 1;
-            if (next >= (int)seq_steps_.size()) {
-                if (seq_loop_) next = 0;
-                else { seq_running_ = false; break; }
+            int n = (int)seq_steps_.size();
+            int next = idx;
+            switch (seq_mode_) {
+                case LoopMode::once: {
+                    next = idx + 1;
+                    if (next >= n) { seq_running_ = false; }
+                    break;
+                }
+                case LoopMode::forward: {
+                    next = (idx + 1) % n;
+                    break;
+                }
+                case LoopMode::ping_pong: {
+                    if (n <= 1) { next = 0; break; }
+                    int candidate = idx + seq_direction_;
+                    if (candidate >= n) {
+                        seq_direction_ = -1;
+                        candidate = idx - 1;
+                    } else if (candidate < 0) {
+                        seq_direction_ = 1;
+                        candidate = idx + 1;
+                    }
+                    next = candidate;
+                    break;
+                }
             }
+            if (!seq_running_) break;
             seq_step_index_ = next;
             lk.unlock();
             trigger_step(next);

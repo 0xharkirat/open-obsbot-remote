@@ -32,6 +32,8 @@ struct SequenceStep {
     MoveSpeed speed = MoveSpeed::medium;
 };
 
+enum class LoopMode { once, forward, ping_pong };
+
 struct DeviceSnapshot {
     std::string sn;
     std::string model;
@@ -56,6 +58,7 @@ struct DeviceSnapshot {
     int  sequence_step_index = -1;
     int  sequence_elapsed_s = 0;
     int  sequence_total_s = 0;
+    std::string sequence_mode = "forward";  // once | forward | ping_pong
 
     std::string ai_mode = "none";
     std::string ai_sub_mode = "normal";
@@ -121,7 +124,7 @@ public:
     void cmd_preset_delete(int id, ReplyFn reply);
 
     // Sequencer.
-    void cmd_sequence_set(const std::vector<SequenceStep>& steps, bool loop, ReplyFn reply);
+    void cmd_sequence_set(const std::vector<SequenceStep>& steps, LoopMode mode, ReplyFn reply);
     void cmd_sequence_start(ReplyFn reply);
     void cmd_sequence_stop(ReplyFn reply);
 
@@ -143,7 +146,8 @@ private:
 
     // Sequence state (worker thread reads, command thread writes).
     std::vector<SequenceStep> seq_steps_;
-    bool seq_loop_ = true;
+    LoopMode seq_mode_ = LoopMode::forward;
+    int seq_direction_ = 1;            // +1 or -1 for ping_pong
     std::atomic<bool> seq_running_{false};
     std::atomic<bool> seq_quit_{false};
     std::thread seq_thr_;

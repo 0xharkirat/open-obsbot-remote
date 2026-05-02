@@ -74,6 +74,35 @@ String moveSpeedLabel(MoveSpeed s) => switch (s) {
       MoveSpeed.fast => 'Fast',
     };
 
+/// How a sequence loops once it finishes its last step.
+enum LoopMode {
+  /// Play once and stop.
+  once,
+  /// Restart at step 1 (P1→P2→P3→P1→P2→P3…).
+  forward,
+  /// Reverse direction at each end (P1→P2→P3→P2→P1→P2→P3…).
+  /// Useful when P3→P1 is a long, ugly move you want to skip.
+  pingPong,
+}
+
+String loopModeToWire(LoopMode m) => switch (m) {
+      LoopMode.once => 'once',
+      LoopMode.forward => 'forward',
+      LoopMode.pingPong => 'ping_pong',
+    };
+
+LoopMode loopModeFromWire(String s) => switch (s) {
+      'once' => LoopMode.once,
+      'ping_pong' => LoopMode.pingPong,
+      _ => LoopMode.forward,
+    };
+
+String loopModeLabel(LoopMode m) => switch (m) {
+      LoopMode.once => 'Once (stop at end)',
+      LoopMode.forward => 'Loop forward (P1→P2→P3→P1…)',
+      LoopMode.pingPong => 'Ping-pong (P1→P2→P3→P2→P1…)',
+    };
+
 /// One step in a sequence sent to the bridge.
 class SequenceStep {
   final int presetId;
@@ -234,6 +263,25 @@ class WsClient extends ChangeNotifier {
   int _lastLatencyMs = 0;
   DateTime? _lastPingSent;
   String? _token;                    // bearer token after pairing
+  MoveSpeed _moveSpeed = MoveSpeed.medium;
+
+  WsClient() {
+    SharedPreferences.getInstance().then((p) {
+      final s = p.getString('move_speed');
+      if (s != null) {
+        _moveSpeed = moveSpeedFromWire(s);
+        notifyListeners();
+      }
+    });
+  }
+
+  MoveSpeed get moveSpeed => _moveSpeed;
+  Future<void> setMoveSpeed(MoveSpeed s) async {
+    _moveSpeed = s;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('move_speed', moveSpeedToWire(s));
+  }
 
   bool get connected => _connected && _state.connected;
   bool get socketOpen => _connected;
@@ -469,11 +517,11 @@ class WsClient extends ChangeNotifier {
   void presetSave(int id, String name) => _send(
       {'action': 'preset.save', 'id': _id(), 'preset_id': id, 'name': name});
 
-  void presetRecall(int id, {MoveSpeed speed = MoveSpeed.medium}) => _send({
+  void presetRecall(int id, {MoveSpeed? speed}) => _send({
         'action': 'preset.recall',
         'id': _id(),
         'preset_id': id,
-        'speed': moveSpeedToWire(speed),
+        'speed': moveSpeedToWire(speed ?? _moveSpeed),
       });
 
   void presetDelete(int id) =>
@@ -483,11 +531,15 @@ class WsClient extends ChangeNotifier {
       _send({'action': 'system.run_status', 'id': _id(), 'status': s});
 
   // ---- sequencer ----
-  void sequenceSet(List<SequenceStep> steps, {bool loop = true}) => _send({
+  void sequenceSet(List<SequenceStep> steps,
+          {LoopMode mode = LoopMode.forward}) =>
+      _send({
         'action': 'sequence.set',
         'id': _id(),
         'steps': steps.map((s) => s.toJson()).toList(),
-        'loop': loop,
+        'mode': loopModeToWire(mode),
+        // legacy field for older bridges
+        'loop': mode != LoopMode.once,
       });
 
   void sequenceStart() => _send({'action': 'sequence.start', 'id': _id()});

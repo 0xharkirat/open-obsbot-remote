@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
@@ -24,23 +23,6 @@ class SimpleModeScreen extends StatefulWidget {
 }
 
 class _SimpleModeScreenState extends State<SimpleModeScreen> {
-  MoveSpeed _speed = MoveSpeed.medium;
-
-  @override
-  void initState() {
-    super.initState();
-    SharedPreferences.getInstance().then((p) {
-      final s = p.getString('move_speed') ?? 'medium';
-      if (mounted) setState(() => _speed = moveSpeedFromWire(s));
-    });
-  }
-
-  Future<void> _setSpeed(MoveSpeed s) async {
-    setState(() => _speed = s);
-    final p = await SharedPreferences.getInstance();
-    await p.setString('move_speed', moveSpeedToWire(s));
-  }
-
   WsClient get client => widget.client;
 
   @override
@@ -215,7 +197,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
       onTap: hasPreset
           ? () {
               HapticFeedback.lightImpact();
-              client.presetRecall(id, speed: _speed);
+              client.presetRecall(id);  // uses client.moveSpeed default
             }
           : null,
       onLongPress: () async {
@@ -273,6 +255,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
   }
 
   Widget _speedMenu(BuildContext ctx) {
+    final cur = client.moveSpeed;
     IconData iconFor(MoveSpeed s) => switch (s) {
           MoveSpeed.instant => Icons.flash_on,
           MoveSpeed.slow => Icons.directions_walk,
@@ -281,13 +264,13 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         };
     return PopupMenuButton<MoveSpeed>(
       tooltip: 'Move speed',
-      icon: Icon(iconFor(_speed)),
-      onSelected: _setSpeed,
+      icon: Icon(iconFor(cur)),
+      onSelected: (s) => client.setMoveSpeed(s),
       itemBuilder: (BuildContext c) => <PopupMenuEntry<MoveSpeed>>[
         for (final s in MoveSpeed.values)
           CheckedPopupMenuItem<MoveSpeed>(
             value: s,
-            checked: s == _speed,
+            checked: s == cur,
             child: Row(children: <Widget>[
               Icon(iconFor(s), size: 16),
               const SizedBox(width: 8),

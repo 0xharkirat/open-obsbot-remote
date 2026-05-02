@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'ws_client.dart';
 
@@ -14,18 +15,25 @@ class SequencerScreen extends StatefulWidget {
 
 class _SequencerScreenState extends State<SequencerScreen> {
   final List<_EditStep> _steps = <_EditStep>[];
-  bool _loop = true;
+  LoopMode _mode = LoopMode.forward;
 
   @override
   void initState() {
     super.initState();
-    // Seed with one default step pointing at first preset if any.
     final s = widget.client.state;
     if (s.presets.isNotEmpty) {
       _steps.add(_EditStep(presetId: s.presets.first.id, seconds: 60));
     } else {
       _steps.add(_EditStep(presetId: 0, seconds: 60));
     }
+  }
+
+  @override
+  void dispose() {
+    for (final s in _steps) {
+      s.secondsCtrl.dispose();
+    }
+    super.dispose();
   }
 
   void _addStep() {
@@ -45,7 +53,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
               speed: e.speed,
             ))
         .toList();
-    widget.client.sequenceSet(list, loop: _loop);
+    widget.client.sequenceSet(list, mode: _mode);
   }
 
   void _start() {
@@ -97,16 +105,26 @@ class _SequencerScreenState extends State<SequencerScreen> {
                           });
                         },
                         itemBuilder: (BuildContext c, int i) {
-                          return _stepRow(c, i, s.presets, key: ValueKey(i.hashCode ^ _steps[i].hashCode));
+                          // Stable key based on step identity, not index.
+                          return _stepRow(c, i, s.presets,
+                              key: ValueKey<_EditStep>(_steps[i]));
                         },
                       ),
               ),
-              SwitchListTile(
-                title: const Text('Loop'),
-                subtitle: const Text('Restart from step 1 when the last finishes'),
-                value: _loop,
-                onChanged: (v) => setState(() => _loop = v),
-              ),
+              _modeSelector(context),
+              if (running)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Text(
+                    'Edits while running take effect at the next step boundary.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.outline,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
               SafeArea(
                 top: false,
                 child: Padding(
@@ -123,12 +141,26 @@ class _SequencerScreenState extends State<SequencerScreen> {
                     Expanded(
                       child: FilledButton.icon(
                         icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                        label: Text(running ? 'Stop' : 'Save & start'),
+                        label: Text(running
+                            ? 'Stop'
+                            : (s.sequence.running
+                                ? 'Apply changes'
+                                : 'Save & start')),
                         onPressed: running
                             ? _stop
                             : (_steps.isEmpty ? null : _start),
                       ),
                     ),
+                    if (running) ...<Widget>[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.save),
+                          label: const Text('Apply'),
+                          onPressed: _save,
+                        ),
+                      ),
+                    ],
                   ]),
                 ),
               ),
@@ -136,6 +168,37 @@ class _SequencerScreenState extends State<SequencerScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _modeSelector(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('When sequence reaches the end…',
+              style: theme.textTheme.labelMedium),
+          const SizedBox(height: 4),
+          for (final m in LoopMode.values)
+            RadioListTile<LoopMode>(
+              dense: true,
+              value: m,
+              groupValue: _mode,
+              onChanged: (v) {
+                if (v != null) setState(() => _mode = v);
+              },
+              title: Text(loopModeLabel(m), style: const TextStyle(fontSize: 13)),
+              contentPadding: EdgeInsets.zero,
+            ),
+        ],
+      ),
     );
   }
 
@@ -180,11 +243,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
           for (int i = 0; i < 6; i++)
             DropdownMenuItem<int>(
               value: i,
-              child: Text(
-                presets.where((p) => p.id == i).isNotEmpty
-                    ? '${presets.firstWhere((p) => p.id == i).name.isEmpty ? "P${i + 1}" : presets.firstWhere((p) => p.id == i).name}'
-                    : 'P${i + 1} (empty)',
-              ),
+              child: Text(_presetLabel(i, presets)),
             ),
         ],
         onChanged: (v) {
@@ -194,13 +253,20 @@ class _SequencerScreenState extends State<SequencerScreen> {
       subtitle: Row(children: <Widget>[
         const Text('Hold for '),
         SizedBox(
-          width: 70,
+          width: 80,
           child: TextField(
-            controller: TextEditingController(text: '${step.seconds}'),
+            // KEY: stable controller per step, so cursor doesn't get
+            // wiped on every parent rebuild.
+            controller: step.secondsCtrl,
             keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+            ],
             decoration: const InputDecoration(
               isDense: true,
               suffixText: 's',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             ),
             onChanged: (v) {
               final n = int.tryParse(v);
@@ -228,9 +294,21 @@ class _SequencerScreenState extends State<SequencerScreen> {
       ]),
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline),
-        onPressed: () => setState(() => _steps.removeAt(idx)),
+        onPressed: () {
+          setState(() {
+            _steps[idx].secondsCtrl.dispose();
+            _steps.removeAt(idx);
+          });
+        },
       ),
     );
+  }
+
+  String _presetLabel(int id, List<PresetEntry> presets) {
+    final match = presets.where((p) => p.id == id);
+    if (match.isEmpty) return 'P${id + 1} (empty)';
+    final name = match.first.name;
+    return name.isEmpty ? 'P${id + 1}' : name;
   }
 }
 
@@ -238,9 +316,12 @@ class _EditStep {
   int presetId;
   int seconds;
   MoveSpeed speed;
+  late TextEditingController secondsCtrl;
   _EditStep({
     required this.presetId,
     required this.seconds,
     this.speed = MoveSpeed.medium,
-  });
+  }) {
+    secondsCtrl = TextEditingController(text: '$seconds');
+  }
 }

@@ -47,6 +47,7 @@ class _ControlScreenState extends State<ControlScreen> {
                   child: Text('${widget.client.lastLatencyMs} ms'),
                 ),
               ),
+              _speedMenu(context),
               if (widget.onSwitchSimple != null)
                 IconButton(
                   tooltip: 'Simple mode',
@@ -72,6 +73,33 @@ class _ControlScreenState extends State<ControlScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _speedMenu(BuildContext ctx) {
+    final cur = widget.client.moveSpeed;
+    IconData iconFor(MoveSpeed s) => switch (s) {
+          MoveSpeed.instant => Icons.flash_on,
+          MoveSpeed.slow => Icons.directions_walk,
+          MoveSpeed.medium => Icons.directions_run,
+          MoveSpeed.fast => Icons.bolt,
+        };
+    return PopupMenuButton<MoveSpeed>(
+      tooltip: 'Move speed',
+      icon: Icon(iconFor(cur)),
+      onSelected: (s) => widget.client.setMoveSpeed(s),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<MoveSpeed>>[
+        for (final s in MoveSpeed.values)
+          CheckedPopupMenuItem<MoveSpeed>(
+            value: s,
+            checked: s == cur,
+            child: Row(children: <Widget>[
+              Icon(iconFor(s), size: 16),
+              const SizedBox(width: 8),
+              Text(moveSpeedLabel(s)),
+            ]),
+          ),
+      ],
     );
   }
 

@@ -70,6 +70,7 @@ json build_state_event(const DeviceSnapshot& s) {
             {"step_index", s.sequence_step_index},
             {"elapsed_s", s.sequence_elapsed_s},
             {"total_s", s.sequence_total_s},
+            {"mode", s.sequence_mode},
         }},
     };
 }
@@ -256,8 +257,18 @@ void dispatch_message(DeviceSession& session,
                 steps.push_back(s);
             }
         }
-        bool loop = msg.value("loop", true);
-        session.cmd_sequence_set(steps, loop, reply_cb);
+        // Prefer "mode"; fall back to legacy bool "loop".
+        LoopMode mode = LoopMode::forward;
+        if (msg.contains("mode") && msg["mode"].is_string()) {
+            std::string m = msg["mode"];
+            if (m == "once") mode = LoopMode::once;
+            else if (m == "ping_pong") mode = LoopMode::ping_pong;
+            else mode = LoopMode::forward;
+        } else {
+            bool loop = msg.value("loop", true);
+            mode = loop ? LoopMode::forward : LoopMode::once;
+        }
+        session.cmd_sequence_set(steps, mode, reply_cb);
         return;
     }
     if (action == "sequence.start") {
