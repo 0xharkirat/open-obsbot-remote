@@ -41,37 +41,3 @@ OBSBOT's SDK ships with no LICENSE / EULA / NOTICE file, so default copyright ap
 
 Builds bundle `libdev.dylib` into the macOS `.app` for end-user convenience. That bundling is also a redistribution and needs OBSBOT's blessing before we hand a DMG to anyone outside the team.
 
-## Before going public
-
-When we eventually open the repo:
-
-1. Email OBSBOT for explicit redistribution wording (draft below).
-2. If approved, leave the build flow as-is and add a `THIRD_PARTY_NOTICES` file with their wording.
-3. If not approved, switch to BYOSDK (the install flow becomes "download DMG, drop libdev.dylib into a known path on first run").
-
-### Email draft to OBSBOT
-
-```
-Subject: Open-source OBSBOT controller — SDK redistribution / licensing question
-
-Hi OBSBOT developer team,
-
-I'm building a phone-based remote for OBSBOT cameras (starting with Tiny 2 Lite).
-Currently a private repo; I'd like to open-source it once a working demo is ready.
-
-You sent me the Camera SDK by email. The archive didn't include a LICENSE / EULA /
-NOTICE, so I want to confirm:
-
-1. Am I permitted to:
-   - Use libdev in personal / internal builds?
-   - Bundle libdev.dylib inside a notarized macOS .app or DMG I distribute?
-   - Include the SDK in a public open-source repo so other developers don't have
-     to email you?
-
-2. Do you have preferred attribution / wording for our README + a THIRD_PARTY_NOTICES
-   file?
-
-Happy to send source + a demo video for context. Thanks for the SDK.
-
-— <name>
-```
