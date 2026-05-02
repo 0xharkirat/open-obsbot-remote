@@ -4,8 +4,11 @@ A phone & tablet remote for OBSBOT cameras.
 
 Built for performers, presenters, and operators who need to control an OBSBOT camera from across the room — pan, tilt, zoom, recall preset positions, run a timed preset sequence — while their computer stays plugged in to the USB camera. Works over local Wi-Fi, no cloud, no account.
 
-> **Status:** private alpha — working end-to-end on a Tiny 2 Lite.
-> Phase A complete (auth, sequencer, simple mode, web client). Aiming for public release after notarization + OBSBOT licensing.
+> **Status:** feature-complete for Tiny 2 Lite. PIN auth, named saved sequences (loop / forward / ping-pong), simple mode for stage use, advanced mode for tuning, web + native clients, MJPEG live preview, auto-restart, single-instance enforcement.
+>
+> Replaces OBSBOT Center for daily use — only firmware updates still need their app (planned for a future release).
+>
+> macOS bundle ships ad-hoc-signed today; notarized DMG is the next step before wide release.
 
 ---
 
@@ -216,11 +219,19 @@ OBSBOT's official Mac app (OBSBOT Center) is great for tuning a camera at a desk
 
 The author plays tabla on stage during worship services and streams them. He needs to pan to different parts of the stage / audience while playing — without leaving his seat. The Sequencer with ping-pong loop was added so the camera can cycle through "wide stage → soloist → audience → soloist → wide" automatically.
 
-## Coexistence with OBSBOT Center
+## Do I need OBSBOT Center?
 
-The two apps mostly do different things and **can run simultaneously for video preview**, but they fight over camera control (PTZ / zoom / AI). Treat them as mutually exclusive for daily use. Quit OBSBOT Center before starting Open OBSBOT Bridge if you want PTZ to work.
+**No.** Open OBSBOT Bridge does everything OBSBOT Center does for daily use:
+- First-time setup (just plug in via USB; the bridge handles initialization)
+- Pan / tilt / zoom
+- Preset save + recall
+- AI tracking modes
+- HDR / FOV / image color tuning
+- Sleep / wake
 
-Use OBSBOT Center for first-time setup + firmware updates (only it can do those).
+The **only** thing it can't do today is **firmware updates** — those require OBSBOT Center. We plan to add firmware-update support in a future phase.
+
+If you have OBSBOT Center installed already, that's fine — but **quit it before launching Open OBSBOT Bridge**, otherwise the two apps will fight over the camera's control endpoint and PTZ commands will fail with `device_busy`.
 
 ## License
 

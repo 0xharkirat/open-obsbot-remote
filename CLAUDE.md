@@ -80,7 +80,7 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 16. **`WebSocketChannel.stream` is a single-subscription stream.** Don't cancel + re-listen — messages arriving in between are lost. The pair() flow uses a single subscription + a Completer matched by id.
 17. **flutter_mjpeg doesn't work on Flutter web.** `Image.network` doesn't decode multipart streams either. Use `HtmlElementView` + a real `<img>` element. Conditional import via `dart.library.js_interop`.
 18. **Crow returns 404 for paths > 3 segments** (we now have 4-segment routes for nested Flutter web assets). Add more if needed.
-19. **OBSBOT Center holds the camera control endpoint exclusively.** Quit it before launching our bridge or PTZ commands fail with `device_busy`.
+19. **OBSBOT Center is NOT required** for first-time setup or daily use — our bridge does everything except firmware updates. But if both are running at once, they fight over the camera control endpoint; PTZ commands return `device_busy`. Quit OBSBOT Center before launching our bridge.
 20. **AppDelegate single-instance** is needed because ad-hoc-signed dev builds occasionally slip through `LSMultipleInstancesProhibited`. Self-quit if a sibling exists.
 
 ## Conventions
@@ -111,9 +111,9 @@ If denied: UI shows a "Reset & retry" button that runs `tccutil reset Camera com
 5. Subsequent WS messages and MJPEG GETs carry the token. MJPEG uses `?t=<token>` query param.
 6. Bridge UI shows "N paired" count. "Reset pairing" deletes auth.json + restarts subprocess.
 
-## What's known to work (as of Phase A complete)
+## What's known to work
 
-See README.md "What works today" section.
+See README.md "What works today" section. Tiny 2 Lite is feature-complete for daily use — replaces OBSBOT Center for everything except firmware updates.
 
 ## Future-Claude operating tips
 

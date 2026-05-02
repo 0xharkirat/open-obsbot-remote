@@ -44,7 +44,7 @@ So when someone with a Tail Air shows up, they don't need to invent an architect
 ## Things that won't work without manufacturer cooperation
 
 - **iOS native build of the bridge.** The SDK ships only macOS / Linux / Windows binaries. No iOS slice. We'd need OBSBOT to compile an iOS-friendly libdev for an iPad-based bridge, or rewrite the camera control in-process via UVC commands (huge undertaking).
-- **Firmware updates.** Only OBSBOT Center can do those. Treat our bridge as read-only for firmware.
+- **Firmware updates.** Currently only OBSBOT Center can do those — planned for a future phase of this project (libdev exposes the right hooks; just hasn't been wired yet).
 
 ## A note on testing
 

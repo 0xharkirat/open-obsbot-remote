@@ -4,11 +4,31 @@ This document is the checklist between the current private demo and a public ope
 
 ## Status today
 
-✅ End-to-end working: PIN-paired phone control of a Tiny 2 Lite via a Mac bridge, web + native clients, sequencer with named libraries, live MJPEG preview, simple mode for stage use, advanced mode for tuning.
+✅ End-to-end working: PIN-paired phone control of a Tiny 2 Lite via a Mac bridge, web + native clients, sequencer with named libraries, live MJPEG preview, simple mode for stage use, advanced mode for tuning. Replaces OBSBOT Center for everything except firmware updates.
 
-✅ Repo is private at `0xharkirat/obsbot-control`, tagged `v0.3.1`.
+✅ Repo is private at `0xharkirat/obsbot-control`.
 
 ✅ SDK is gitignored. Built artifacts include `libdev.dylib` from the developer's local copy, copied into the .app at build time.
+
+## TL;DR — when can I make the repo public?
+
+**You can flip the repo public right now.** The SDK is gitignored, all source is Apache-2.0 + permissive third-party deps. Anyone cloning it would build from source and need their own SDK copy from OBSBOT. Standard BYOSDK pattern. **No legal exposure** in the source repo itself.
+
+**You can also publish a first Mac release right now**, with one of two choices:
+
+1. **Ship an ad-hoc-signed DMG.** Free. Gatekeeper warns "unidentified developer" on first launch; user right-clicks → Open. Fine for sharing with friends + early users. **The DMG would bundle `libdev.dylib`, which is OBSBOT's binary.** That's a redistribution. To be safe legally, send the email below first; if you ship before they reply, it's a calculated risk that nobody has been sued for in similar situations but isn't zero.
+
+2. **Ship a notarized DMG.** Requires $99/year Apple Developer Program + a 1-day setup of Developer ID Application cert + `notarytool submit`. Same SDK-redistribution caveat as #1.
+
+3. **BYOSDK release** (defensive). DMG ships **without** `libdev.dylib`. App on first launch checks `~/Library/Application Support/Open OBSBOT Bridge/sdk/libdev.dylib`; if missing, shows a screen with the obsbot.com download instructions. Legal posture is bulletproof — you're never redistributing their binary. Bad UX (extra step for non-devs) but acceptable for v1.
+
+### My recommendation
+
+1. **Today**: flip repo public + tag `v1.0.0-rc1`. Source is clean.
+2. **This week**: send the OBSBOT email (draft in [docs/GETTING_THE_SDK.md](GETTING_THE_SDK.md)) asking explicitly:
+   - "May we bundle libdev.dylib in our DMG distribution on GitHub Releases?"
+   - "Preferred attribution wording in our README?"
+3. **Next week**: depending on reply, either ship ad-hoc / notarized DMG with libdev included (best path), or fall back to BYOSDK first-run flow.
 
 ## Pre-public checklist
 

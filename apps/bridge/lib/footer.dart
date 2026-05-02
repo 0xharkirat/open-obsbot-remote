@@ -32,7 +32,7 @@ class AppFooter extends StatelessWidget {
               text: 'Hark Singh',
               style: linkStyle,
               recognizer: TapGestureRecognizer()
-                ..onTap = () => _open('https://github.com/0xharkirat'),
+                ..onTap = () => _open('https://harksingh.com'),
             ),
             const TextSpan(text: '  •  Powered by '),
             TextSpan(
