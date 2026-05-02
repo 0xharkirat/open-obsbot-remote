@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'bridge_supervisor.dart';
+import 'footer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -257,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            const AppFooter(),
           ],
         ),
       ),

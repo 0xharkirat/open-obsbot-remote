@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'cache_menu.dart';
+import 'footer.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
 import 'ws_client.dart';
@@ -83,11 +84,19 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         ),
         if (s.sequence.running) _seqBar(ctx, s),
         Expanded(child: _presetGrid(ctx, s, columns: 2)),
+        const AppFooter(),
       ],
     );
   }
 
   Widget _landscape(BuildContext ctx, CameraState s) {
+    return Column(children: <Widget>[
+      Expanded(child: _landscapeRow(ctx, s)),
+      const AppFooter(),
+    ]);
+  }
+
+  Widget _landscapeRow(BuildContext ctx, CameraState s) {
     return Row(
       children: <Widget>[
         Expanded(

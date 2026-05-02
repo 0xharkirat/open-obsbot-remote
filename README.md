@@ -103,28 +103,112 @@ The OBSBOT C++ SDK lives only on your local disk at `third_party/obsbot-sdk/`. I
 
 If you're a new dev on this repo, see [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md) for how to obtain a copy from OBSBOT and where to drop it.
 
-## Quick start (Tiny 2 Lite, macOS Apple Silicon, any phone)
+## Install — for end users
+
+> **Currently only macOS Apple Silicon is shipped.** Windows + Linux bridge builds are planned (the C++ + Flutter stack works on those platforms; we just haven't packaged it yet). If you're on Windows or Linux today, see "Build from source" below — it's the same project, different build target.
+
+### Mac (.app bundle)
+
+1. Download `Open OBSBOT Bridge.dmg` from the [Releases](https://github.com/0xharkirat/obsbot-control/releases) page (coming once notarized).
+2. Drag **Open OBSBOT Bridge.app** to `/Applications`.
+3. Plug in your OBSBOT camera over USB.
+4. Open the app. macOS will prompt for **Camera** + **Local Network** access — click Allow on both.
+5. The bridge window shows status + a "Reveal" button. Click it to see your 6-digit pairing PIN and a QR code.
+6. On your phone, scan the QR or open `http://<mac-ip>:8765/` in any browser. Type the PIN once. You're in.
+
+### Phone
+
+| | What | How |
+|---|---|---|
+| **Easiest** | Web (any phone, no install) | Open the bridge URL in Safari/Chrome → Add to Home Screen for fullscreen feel |
+| **Android** | Native APK | Download from Releases, sideload (settings → install unknown apps) |
+| **iOS** | Native (no App Store) | Sideload via Xcode (Free dev account works), or use the web app |
+
+---
+
+## Build from source — for developers + AI agents
+
+If you want to build for a platform we don't have a release for yet (Windows, Linux), or you want to hack on the code, do this. Suitable for a human or for handing the repo to an AI coding agent.
+
+### 1. Prerequisites
+
+- macOS 13+ Apple Silicon (only macOS is supported as a build host today)
+- [Flutter](https://flutter.dev/) 3.27+
+- Xcode 15+ with Command Line Tools (`xcode-select --install`)
+- Homebrew
 
 ```bash
-# 1) one-time setup
 brew install cmake asio
-./scripts/verify-sdk.sh                # confirms you have the local SDK
-
-# 2) build + launch the bridge
-./scripts/build-bridge-mac.sh
-open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
-# - First launch prompts for camera + local-network access — click Allow.
-# - Click "Reveal" in the bridge window to see the 6-digit PIN + QR.
-
-# 3) on your phone — pick one:
-#    a) Web (no install): scan the QR or open http://<mac-ip>:8765/
-#    b) Native APK: cd apps/rc && flutter build apk && adb install build/app/outputs/flutter-apk/app-release.apk
-#    c) iOS sideload: cd apps/rc && flutter run -d <iphone-id>
-
-# 4) On the phone, enter the 6-digit PIN. You're in.
 ```
 
-Full walkthrough with troubleshooting: [docs/RUN.md](docs/RUN.md).
+### 2. Get the OBSBOT SDK
+
+The project depends on OBSBOT's C++ SDK (`libdev`). It ships out-of-band, not in this repo, because OBSBOT distributes it directly.
+
+1. Go to <https://www.obsbot.com/> → **Support** / **Developer** section.
+2. Fill in the simple form requesting the **Camera SDK**. (Mention you're building a third-party controller; they reply within minutes-to-a-day.)
+3. Download the archive they email you. Unzip.
+4. Rename the extracted folder to **`obsbot-sdk`** and copy it into the repo:
+
+```bash
+# After cloning, drop the SDK in:
+mv ~/Downloads/Camera_SDK_v1.3.0  third_party/obsbot-sdk
+# Final layout must look like:
+#   third_party/obsbot-sdk/include/dev/dev.hpp
+#   third_party/obsbot-sdk/macos/arm64-release/libdev.dylib
+#   ... etc
+
+./scripts/verify-sdk.sh   # exits 0 if everything is in the right place
+```
+
+If you skip this step, the build aborts with a clear error pointing back here. See [docs/GETTING_THE_SDK.md](docs/GETTING_THE_SDK.md) for details.
+
+### 3. Build
+
+```bash
+git clone https://github.com/0xharkirat/obsbot-control
+cd obsbot-control
+# (drop the SDK as above)
+./scripts/build-bridge-mac.sh
+```
+
+This single script:
+1. Builds the C++ subprocess (`apps/bridge_cpp/`) with CMake.
+2. Builds the Flutter web bundle (`apps/rc/`).
+3. Builds the Flutter macOS .app (`apps/bridge/`).
+4. Bundles libdev.dylib + the obsbot-bridge subprocess + the web build into the .app.
+5. Ad-hoc signs the bundle.
+
+Output:
+```
+apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app
+```
+
+### 4. Launch + use
+
+```bash
+open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
+```
+
+Same install steps as the bundle path: allow camera + local network, click Reveal, type PIN on phone. Full walkthrough in [docs/RUN.md](docs/RUN.md).
+
+### 5. Build the phone apps separately (optional)
+
+```bash
+cd apps/rc
+flutter build apk --release   # Android APK
+flutter build ios --release   # iOS (requires Apple Developer account)
+flutter build web --release   # Web — usually you let build-bridge-mac.sh do this
+```
+
+### Doing this with an AI coding agent
+
+The repo is shaped for AI-assisted development. Any agent (Claude Code, Cursor, etc.) auto-loads [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) which contains:
+- Repo layout, conventions
+- 20+ specific gotchas hit during development
+- Build + run commands
+
+Just point the agent at the repo, tell it your goal, and it'll have enough context to be productive. The SDK acquisition step is the only manual gate.
 
 ## Why does this exist?
 
