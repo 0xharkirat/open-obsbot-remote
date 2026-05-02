@@ -1,9 +1,12 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'connect_screen.dart';
 import 'control_screen.dart';
+import 'host_autodetect_stub.dart'
+    if (dart.library.js_interop) 'host_autodetect_web.dart';
 import 'pin_entry_screen.dart';
 import 'simple_mode_screen.dart';
 import 'ws_client.dart';
@@ -35,6 +38,14 @@ class _ObsbotAppState extends State<ObsbotApp> {
       final m = p.getString('mode') ?? 'simple';
       if (mounted) setState(() => _simpleMode = m == 'simple');
     });
+    // On web, the page itself was served by the bridge, so we already
+    // know its address. Skip the connect screen and auto-dial.
+    if (kIsWeb) {
+      final hp = autoDetectHostPort();
+      if (hp != null && hp.isNotEmpty) {
+        client.connect(hp);
+      }
+    }
   }
 
   Future<void> _setMode(bool simple) async {
