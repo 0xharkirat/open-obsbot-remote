@@ -3,6 +3,8 @@
 #include "protocol.h"
 #include "log.h"
 #include "video_capture.h"
+#include "auth.h"
+#include <json.hpp>
 
 #include <crow_all.h>
 
@@ -60,12 +62,15 @@ static bool path_is_safe(const std::string& rel) {
 void run_ws_server(uint16_t port,
                    DeviceSession& session,
                    VideoCapture* video,
-                   const std::string& web_root) {
+                   const std::string& web_root,
+                   AuthStore& auth) {
     crow::SimpleApp app;
     app.loglevel(crow::LogLevel::Warning);
 
     std::mutex conn_mu;
     std::unordered_set<crow::websocket::connection*> conns;
+    // per-connection auth flag
+    std::unordered_set<crow::websocket::connection*> authed_conns;
 
     auto broadcast = [&](const std::string& payload) {
         std::lock_guard<std::mutex> g(conn_mu);
@@ -89,15 +94,90 @@ void run_ws_server(uint16_t port,
         .onclose([&](crow::websocket::connection& conn, const std::string& reason, uint16_t /*status*/) {
             std::lock_guard<std::mutex> g(conn_mu);
             conns.erase(&conn);
+            authed_conns.erase(&conn);
             LOGI("ws client disconnected: %s (total=%zu)", reason.c_str(), conns.size());
         })
         .onmessage([&](crow::websocket::connection& conn, const std::string& data, bool /*is_binary*/) {
+            // Auth gate: parse minimally to extract action + token.
+            std::string action;
+            std::string token;
+            std::string id = "?";
+            try {
+                auto msg = nlohmann::json::parse(data);
+                action = msg.value("action", "");
+                token  = msg.value("token", "");
+                id     = msg.value("id", "?");
+            } catch (...) {}
+
+            bool authed;
+            {
+                std::lock_guard<std::mutex> g(conn_mu);
+                authed = authed_conns.count(&conn) > 0;
+            }
+
+            // Open actions: ping, pair, hello (carries token if any)
+            const bool is_open_action = (action == "pair" || action == "ping" ||
+                                         action == "hello" || action == "subscribe" ||
+                                         action == "unsubscribe");
+
+            // Promote conn to authed if hello/pair carried a valid token or correct PIN.
+            if (!authed) {
+                if (action == "hello" && auth.is_valid_token(token)) {
+                    std::lock_guard<std::mutex> g(conn_mu);
+                    authed_conns.insert(&conn);
+                    authed = true;
+                } else if (action == "pair") {
+                    std::string pin;
+                    try { pin = nlohmann::json::parse(data).value("pin", std::string{}); } catch (...) {}
+                    auto t = auth.verify_pin_and_issue(pin);
+                    if (!t.empty()) {
+                        std::lock_guard<std::mutex> g(conn_mu);
+                        authed_conns.insert(&conn);
+                        nlohmann::json resp = ack_ok(id);
+                        resp["token"] = t;
+                        try { conn.send_text(resp.dump()); } catch (...) {}
+                    } else {
+                        try { conn.send_text(ack_err(id, "auth_failed", "wrong PIN").dump()); } catch (...) {}
+                    }
+                    return;  // pair handled here
+                }
+            }
+
+            if (!authed && !is_open_action) {
+                try { conn.send_text(ack_err(id, "auth_required",
+                    "send {action:'pair', pin:<6-digit>} or {action:'hello', token:<token>} first").dump()); } catch (...) {}
+                return;
+            }
+
             dispatch_message(session, data, [&conn](std::string out){
                 try { conn.send_text(out); } catch (...) {}
             });
         });
 
     CROW_ROUTE(app, "/health")([](){ return "ok"; });
+
+    // POST /pair  body: {"pin":"123456"}  →  {"ok":true,"token":"..."}
+    // Convenience HTTP endpoint for the web client (single round-trip).
+    CROW_ROUTE(app, "/pair").methods("POST"_method)
+    ([&auth](const crow::request& req, crow::response& res){
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Content-Type", "application/json");
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            std::string pin = j.value("pin", std::string{});
+            auto tok = auth.verify_pin_and_issue(pin);
+            if (tok.empty()) {
+                res.code = 401;
+                res.write("{\"ok\":false,\"err\":\"wrong PIN\"}");
+            } else {
+                res.write(std::string("{\"ok\":true,\"token\":\"") + tok + "\"}");
+            }
+        } catch (...) {
+            res.code = 400;
+            res.write("{\"ok\":false,\"err\":\"bad json\"}");
+        }
+        res.end();
+    });
 
     // Static file serving for the Flutter web bundle.
     bool serve_web = false;

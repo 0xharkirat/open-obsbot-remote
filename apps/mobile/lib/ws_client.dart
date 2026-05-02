@@ -5,6 +5,60 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+/// One saved preset on the camera (mirrored from the bridge state).
+class PresetEntry {
+  final int id;
+  final String name;
+  final double yaw, pitch, roll, zoom;
+  const PresetEntry({
+    required this.id,
+    required this.name,
+    required this.yaw,
+    required this.pitch,
+    required this.roll,
+    required this.zoom,
+  });
+  factory PresetEntry.fromJson(Map<String, dynamic> j) => PresetEntry(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        name: j['name'] as String? ?? '',
+        yaw: (j['yaw'] as num?)?.toDouble() ?? 0,
+        pitch: (j['pitch'] as num?)?.toDouble() ?? 0,
+        roll: (j['roll'] as num?)?.toDouble() ?? 0,
+        zoom: (j['zoom'] as num?)?.toDouble() ?? 1,
+      );
+}
+
+/// Sequencer state pushed by the bridge.
+class SequenceState {
+  final bool running;
+  final int stepIndex;
+  final int elapsedS;
+  final int totalS;
+  const SequenceState({
+    required this.running,
+    required this.stepIndex,
+    required this.elapsedS,
+    required this.totalS,
+  });
+  static const empty = SequenceState(
+      running: false, stepIndex: -1, elapsedS: 0, totalS: 0);
+  factory SequenceState.fromJson(Map<String, dynamic> j) => SequenceState(
+        running: j['running'] as bool? ?? false,
+        stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
+        elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
+        totalS: (j['total_s'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// One step in a sequence sent to the bridge.
+class SequenceStep {
+  final int presetId;
+  final int seconds;
+  const SequenceStep({required this.presetId, required this.seconds});
+  Map<String, dynamic> toJson() =>
+      <String, dynamic>{'preset_id': presetId, 'seconds': seconds};
+}
+
 /// Decoded device snapshot pushed by the bridge.
 class CameraState {
   final String sn;
@@ -37,6 +91,10 @@ class CameraState {
   final int manualFocus;
   final bool flipH;
 
+  final List<PresetEntry> presets;
+  final int activePresetId;
+  final SequenceState sequence;
+
   const CameraState({
     required this.sn,
     required this.modelDisplay,
@@ -63,34 +121,24 @@ class CameraState {
     required this.autoFocus,
     required this.manualFocus,
     required this.flipH,
+    required this.presets,
+    required this.activePresetId,
+    required this.sequence,
   });
 
   static const empty = CameraState(
-    sn: '',
-    modelDisplay: '',
-    firmware: '',
-    connected: false,
-    runStatus: 'unknown',
-    yaw: 0,
-    pitch: 0,
-    roll: 0,
-    zoom: 1,
-    zoomMin: 1,
-    zoomMax: 4,
-    aiMode: 'none',
-    aiSubMode: 'normal',
-    aiEnabled: false,
-    hdr: false,
-    fov: 86,
-    brightness: 50,
-    contrast: 50,
-    saturation: 50,
-    sharpness: 50,
-    faceAe: false,
-    faceFocus: false,
-    autoFocus: true,
-    manualFocus: 50,
+    sn: '', modelDisplay: '', firmware: '',
+    connected: false, runStatus: 'unknown',
+    yaw: 0, pitch: 0, roll: 0,
+    zoom: 1, zoomMin: 1, zoomMax: 2,
+    aiMode: 'none', aiSubMode: 'normal', aiEnabled: false,
+    hdr: false, fov: 86,
+    brightness: 50, contrast: 50, saturation: 50, sharpness: 50,
+    faceAe: false, faceFocus: false, autoFocus: true, manualFocus: 50,
     flipH: false,
+    presets: <PresetEntry>[],
+    activePresetId: -1,
+    sequence: SequenceState.empty,
   );
 
   factory CameraState.fromEvent(Map<String, dynamic> j) {
@@ -101,6 +149,12 @@ class CameraState {
     final img = (j['image'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     double d(dynamic v, [double def = 0]) => v is num ? v.toDouble() : def;
     int i(dynamic v, [int def = 0]) => v is num ? v.toInt() : def;
+    final List<dynamic> pl = (j['presets'] as List<dynamic>?) ?? const <dynamic>[];
+    final List<PresetEntry> presets = pl
+        .whereType<Map<String, dynamic>>()
+        .map((Map<String, dynamic> e) => PresetEntry.fromJson(e))
+        .toList();
+    final seqJson = (j['sequence'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     return CameraState(
       sn: dev['sn'] as String? ?? '',
       modelDisplay: dev['model_display'] as String? ?? '',
@@ -112,7 +166,7 @@ class CameraState {
       roll: d(ptz['roll']),
       zoom: d(zoom['value'], 1),
       zoomMin: d(zoom['min'], 1),
-      zoomMax: d(zoom['max'], 4),
+      zoomMax: d(zoom['max'], 2),
       aiMode: ai['mode'] as String? ?? 'none',
       aiSubMode: ai['sub_mode'] as String? ?? 'normal',
       aiEnabled: ai['enabled'] as bool? ?? false,
@@ -127,6 +181,9 @@ class CameraState {
       autoFocus: img['auto_focus'] as bool? ?? true,
       manualFocus: i(img['manual_focus'], 50),
       flipH: img['flip_h'] as bool? ?? false,
+      presets: presets,
+      activePresetId: i(j['active_preset_id'], -1),
+      sequence: SequenceState.fromJson(seqJson),
     );
   }
 }
@@ -136,20 +193,28 @@ class WsClient extends ChangeNotifier {
   StreamSubscription<dynamic>? _sub;
   int _msgId = 0;
   bool _connected = false;
+  bool _connecting = false;
+  bool _needsPairing = false;        // true after auth_required response
   String _serverUri = '';
   CameraState _state = CameraState.empty;
   String? _lastError;
+  String? _lastAuthError;
   int _lastLatencyMs = 0;
   DateTime? _lastPingSent;
+  String? _token;                    // bearer token after pairing
 
-  bool _connecting = false;
   bool get connected => _connected && _state.connected;
   bool get socketOpen => _connected;
   bool get connecting => _connecting;
+  bool get needsPairing => _needsPairing;
   String get serverUri => _serverUri;
+  String? get token => _token;
   CameraState get state => _state;
   String? get lastError => _lastError;
+  String? get lastAuthError => _lastAuthError;
   int get lastLatencyMs => _lastLatencyMs;
+
+  String _tokenKey(String hostPort) => 'token::$hostPort';
 
   Future<String?> loadLastServer() async {
     final SharedPreferences p = await SharedPreferences.getInstance();
@@ -161,12 +226,30 @@ class WsClient extends ChangeNotifier {
     await p.setString('last_server', uri);
   }
 
+  Future<String?> _loadToken(String hostPort) async {
+    final SharedPreferences p = await SharedPreferences.getInstance();
+    return p.getString(_tokenKey(hostPort));
+  }
+
+  Future<void> _saveToken(String hostPort, String tok) async {
+    final SharedPreferences p = await SharedPreferences.getInstance();
+    await p.setString(_tokenKey(hostPort), tok);
+  }
+
+  Future<void> _clearToken(String hostPort) async {
+    final SharedPreferences p = await SharedPreferences.getInstance();
+    await p.remove(_tokenKey(hostPort));
+  }
+
   Future<void> connect(String hostPort) async {
     await close();
     final uri = Uri.parse('ws://$hostPort/v1');
     _serverUri = hostPort;
     _connecting = true;
     _lastError = null;
+    _lastAuthError = null;
+    _needsPairing = false;
+    _token = await _loadToken(hostPort);
     notifyListeners();
     try {
       final ch = WebSocketChannel.connect(uri);
@@ -182,17 +265,14 @@ class WsClient extends ChangeNotifier {
         onDone: () {
           _connected = false;
           _connecting = false;
-          if (_lastError == null) {
-            _lastError = 'disconnected — bridge closed the socket or it was unreachable';
-          }
+          _lastError ??= 'disconnected — bridge closed the socket or it was unreachable';
           notifyListeners();
         },
       );
-      // wait for the underlying socket to actually be ready, with a timeout
       try {
         await ch.ready.timeout(const Duration(seconds: 6));
       } on TimeoutException {
-        _lastError = 'timed out — could not reach $hostPort. Check Mac firewall + IP.';
+        _lastError = 'timed out — could not reach $hostPort.';
         _connecting = false;
         notifyListeners();
         await close();
@@ -206,9 +286,14 @@ class WsClient extends ChangeNotifier {
       }
       _connected = true;
       _connecting = false;
-      _send({'action': 'hello', 'id': _id(), 'client': {
-        'name': 'Open OBSBOT Remote', 'version': '1.0.0'
-      }});
+      // hello carries the token if we have one. If not, server will
+      // reply with auth_required and the UI prompts for the PIN.
+      _send({
+        'action': 'hello',
+        'id': _id(),
+        if (_token != null) 'token': _token,
+        'client': {'name': 'Open OBSBOT Remote', 'version': '1.0.0'}
+      });
       _send({'action': 'subscribe', 'id': _id()});
       await _saveLastServer(hostPort);
       notifyListeners();
@@ -218,6 +303,83 @@ class WsClient extends ChangeNotifier {
       _connecting = false;
       notifyListeners();
     }
+  }
+
+  /// Pair using the 6-digit PIN displayed in the bridge UI.
+  /// Returns true on success, false on wrong PIN.
+  Future<bool> pair(String pin) async {
+    if (_ch == null) return false;
+    final id = _id();
+    final c = Completer<bool>();
+
+    // Override _onMessage briefly to catch the pair ack.
+    final waitId = id;
+    Timer? timeout;
+    void handler(dynamic raw) {
+      try {
+        final j = jsonDecode(raw as String) as Map<String, dynamic>;
+        if (j['type'] == 'ack' && j['id'] == waitId) {
+          if (j['ok'] == true && j['token'] is String) {
+            _token = j['token'] as String;
+            _saveToken(_serverUri, _token!);
+            _needsPairing = false;
+            _lastAuthError = null;
+            // re-send subscribe so we get a state snapshot now that we're authed
+            _send({'action': 'subscribe', 'id': _id()});
+            c.complete(true);
+          } else {
+            _lastAuthError = j['msg'] as String? ?? 'wrong PIN';
+            c.complete(false);
+          }
+          notifyListeners();
+        } else {
+          // forward to normal handler
+          _onMessage(raw);
+        }
+      } catch (_) {
+        _onMessage(raw);
+      }
+    }
+
+    // Swap subscription
+    final oldSub = _sub;
+    await oldSub?.cancel();
+    _sub = _ch!.stream.listen(handler);
+
+    _send({'action': 'pair', 'id': waitId, 'pin': pin});
+    timeout = Timer(const Duration(seconds: 6), () {
+      if (!c.isCompleted) {
+        _lastAuthError = 'timed out waiting for pair response';
+        c.complete(false);
+        notifyListeners();
+      }
+    });
+
+    final ok = await c.future;
+    timeout.cancel();
+
+    // Restore the normal handler
+    await _sub?.cancel();
+    _sub = _ch!.stream.listen(
+      _onMessage,
+      onError: (Object e) {
+        _lastError = 'connection error: $e';
+        _connected = false;
+        notifyListeners();
+      },
+      onDone: () {
+        _connected = false;
+        notifyListeners();
+      },
+    );
+    return ok;
+  }
+
+  Future<void> forgetToken() async {
+    await _clearToken(_serverUri);
+    _token = null;
+    _needsPairing = true;
+    notifyListeners();
   }
 
   Future<void> close() async {
@@ -242,6 +404,10 @@ class WsClient extends ChangeNotifier {
           _lastPingSent = null;
           notifyListeners();
         }
+      } else if (j['type'] == 'ack' && j['err'] == 'auth_required') {
+        _needsPairing = true;
+        _lastAuthError = j['msg'] as String?;
+        notifyListeners();
       }
     } catch (_) {}
   }
@@ -255,25 +421,22 @@ class WsClient extends ChangeNotifier {
   }
 
   // ---- commands ----
-
   void ping() {
     _lastPingSent = DateTime.now();
     _send({'action': 'ping', 'id': _id()});
   }
 
-  void ptzAngle({required double yaw, required double pitch}) {
-    _send({'action': 'ptz.angle', 'id': _id(), 'yaw': yaw, 'pitch': pitch});
-  }
+  void ptzAngle({required double yaw, required double pitch}) =>
+      _send({'action': 'ptz.angle', 'id': _id(), 'yaw': yaw, 'pitch': pitch});
 
-  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) {
-    _send({
-      'action': 'ptz.velocity',
-      'id': _id(),
-      'yaw_speed': yawSpeed,
-      'pitch_speed': pitchSpeed,
-      'roll_speed': 0,
-    });
-  }
+  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) =>
+      _send({
+        'action': 'ptz.velocity',
+        'id': _id(),
+        'yaw_speed': yawSpeed,
+        'pitch_speed': pitchSpeed,
+        'roll_speed': 0,
+      });
 
   void ptzStop() => _send({'action': 'ptz.stop', 'id': _id()});
   void ptzRecenter() => _send({'action': 'ptz.recenter', 'id': _id()});
@@ -287,15 +450,28 @@ class WsClient extends ChangeNotifier {
   void hdr(bool e) =>
       _send({'action': 'image.set_hdr', 'id': _id(), 'enabled': e});
 
-  void fov(int f) =>
-      _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
+  void fov(int f) => _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
 
-  void presetSave(int id, String name) =>
-      _send({'action': 'preset.save', 'id': _id(), 'preset_id': id, 'name': name});
+  void presetSave(int id, String name) => _send(
+      {'action': 'preset.save', 'id': _id(), 'preset_id': id, 'name': name});
 
   void presetRecall(int id) =>
       _send({'action': 'preset.recall', 'id': _id(), 'preset_id': id});
 
+  void presetDelete(int id) =>
+      _send({'action': 'preset.delete', 'id': _id(), 'preset_id': id});
+
   void runStatus(String s) =>
       _send({'action': 'system.run_status', 'id': _id(), 'status': s});
+
+  // ---- sequencer ----
+  void sequenceSet(List<SequenceStep> steps, {bool loop = true}) => _send({
+        'action': 'sequence.set',
+        'id': _id(),
+        'steps': steps.map((s) => s.toJson()).toList(),
+        'loop': loop,
+      });
+
+  void sequenceStart() => _send({'action': 'sequence.start', 'id': _id()});
+  void sequenceStop() => _send({'action': 'sequence.stop', 'id': _id()});
 }

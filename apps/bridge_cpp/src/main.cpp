@@ -2,11 +2,13 @@
 #include "ws_server.h"
 #include "video_capture.h"
 #include "mjpeg_server.h"
+#include "auth.h"
 #include "log.h"
 
 #include <atomic>
 #include <csignal>
 #include <cstdlib>
+#include <string>
 
 static std::atomic<bool> g_shutdown{false};
 
@@ -34,6 +36,16 @@ int main(int argc, char** argv) {
         if (env) web_root = env;
     }
 
+    // Auth store path (persists PIN + tokens across launches).
+    std::string auth_path;
+    if (const char* home = std::getenv("HOME")) {
+        auth_path = std::string(home) +
+            "/Library/Application Support/Open OBSBOT Bridge/auth.json";
+    } else {
+        auth_path = "/tmp/obsbot-bridge-auth.json";
+    }
+    obs::AuthStore auth(auth_path);
+
     obs::DeviceSession session;
 
     // Start UVC video capture in parallel (independent of libdev). This
@@ -48,9 +60,9 @@ int main(int argc, char** argv) {
     // MJPEG preview server runs on the next port up (default 8766).
     obs::MjpegServer mjpeg;
     if (video.running()) {
-        mjpeg.start((uint16_t)(port + 1), &video);
+        mjpeg.start((uint16_t)(port + 1), &video, &auth);
     }
 
-    obs::run_ws_server(port, session, &video, web_root);  // blocks
+    obs::run_ws_server(port, session, &video, web_root, auth);  // blocks
     return 0;
 }

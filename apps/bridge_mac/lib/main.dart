@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'bridge_supervisor.dart';
@@ -164,11 +165,14 @@ class HomeScreen extends StatelessWidget {
                 ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
                 : '— none plugged in —'),
             _row(context, 'Phone clients connected',
-                '${supervisor.wsClientCount}'),
+                '${supervisor.wsClientCount}  (${supervisor.pairedTokenCount} paired)'),
+            const SizedBox(height: 16),
+            _pinBlock(context),
             const SizedBox(height: 16),
             Text('Connect from your phone to:',
                 style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
+            if (lanIps.isNotEmpty) _qrCard(context, lanIps.first),
             ...lanIps.map((ip) => _ipPill(context, '$ip:8765')),
             if (lanIps.isEmpty)
               const Padding(
@@ -232,6 +236,133 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _qrCard(BuildContext ctx, String firstIp) {
+    final url = 'http://$firstIp:8765/';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        const SizedBox(width: 180),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: QrImageView(
+            data: url,
+            version: QrVersions.auto,
+            size: 110,
+            backgroundColor: Colors.white,
+            eyeStyle: const QrEyeStyle(
+              eyeShape: QrEyeShape.square,
+              color: Colors.black,
+            ),
+            dataModuleStyle: const QrDataModuleStyle(
+              dataModuleShape: QrDataModuleShape.square,
+              color: Colors.black,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Scan from any phone to open the web remote.\n'
+              'Or install the native APK / open Safari directly to:',
+              style: TextStyle(
+                color: Theme.of(ctx).colorScheme.outline,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _pinBlock(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    if (supervisor.pin.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text('Pairing PIN — generated on first launch',
+            style: TextStyle(color: theme.colorScheme.outline)),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: <Widget>[
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text('Pairing PIN',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
+                )),
+            const SizedBox(height: 2),
+            SelectableText(
+              supervisor.pin,
+              style: TextStyle(
+                fontFamily: 'Menlo',
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 6,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ],
+        ),
+        const Spacer(),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text('${supervisor.pairedTokenCount} paired',
+                style: theme.textTheme.labelSmall),
+            const SizedBox(height: 4),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.refresh, size: 14),
+              label: const Text('Reset pairing'),
+              style: OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: ctx,
+                  builder: (BuildContext c) => AlertDialog(
+                    title: const Text('Reset pairing?'),
+                    content: const Text(
+                        'This deletes the PIN and revokes every paired phone. '
+                        'A new PIN will be generated. Each phone has to re-enter it.'),
+                    actions: <Widget>[
+                      TextButton(onPressed: () => Navigator.of(c).pop(false),
+                          child: const Text('Cancel')),
+                      FilledButton(onPressed: () => Navigator.of(c).pop(true),
+                          child: const Text('Reset')),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  await supervisor.resetPairing();
+                }
+              },
+            ),
+          ],
+        ),
+      ]),
     );
   }
 

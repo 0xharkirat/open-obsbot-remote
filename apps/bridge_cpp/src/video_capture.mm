@@ -86,7 +86,7 @@ struct VideoCapture::Impl {
         return;
     }
 
-    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.40 };
+    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.55 };
     CGImageDestinationAddImage(dest, cgImage, (__bridge CFDictionaryRef)props);
     CGImageDestinationFinalize(dest);
     CFRelease(dest);

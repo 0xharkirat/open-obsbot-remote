@@ -9,10 +9,22 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 class Device;
 
 namespace obs {
+
+struct PresetInfo {
+    int id = 0;
+    std::string name;
+    float yaw = 0.f, pitch = 0.f, roll = 0.f, zoom = 1.f;
+};
+
+struct SequenceStep {
+    int preset_id = 0;
+    int seconds = 60;
+};
 
 struct DeviceSnapshot {
     std::string sn;
@@ -23,7 +35,21 @@ struct DeviceSnapshot {
 
     float yaw = 0.f, pitch = 0.f, roll = 0.f;
     float zoom = 1.0f;
-    float zoom_min = 1.0f, zoom_max = 4.0f;
+    // Tiny 2 Lite caps digital zoom at 2.0×. Tail Air / Tiny 2 = 4.0×.
+    // Bridge queries the actual range from libdev at connect time and overwrites.
+    float zoom_min = 1.0f, zoom_max = 2.0f;
+
+    // List of saved presets, refreshed from camera on connect / save / delete.
+    std::vector<PresetInfo> presets;
+
+    // The preset id last recalled. -1 once any manual PTZ command lands.
+    int active_preset_id = -1;
+
+    // Sequencer state (mirrored to clients via state event).
+    bool sequence_running = false;
+    int  sequence_step_index = -1;
+    int  sequence_elapsed_s = 0;
+    int  sequence_total_s = 0;
 
     std::string ai_mode = "none";
     std::string ai_sub_mode = "normal";
@@ -86,6 +112,12 @@ public:
     void cmd_system_run_status(const std::string& s, ReplyFn reply);
     void cmd_preset_recall(int id, ReplyFn reply);
     void cmd_preset_save(int id, const std::string& name, ReplyFn reply);
+    void cmd_preset_delete(int id, ReplyFn reply);
+
+    // Sequencer.
+    void cmd_sequence_set(const std::vector<SequenceStep>& steps, bool loop, ReplyFn reply);
+    void cmd_sequence_start(ReplyFn reply);
+    void cmd_sequence_stop(ReplyFn reply);
 
     // public so the C-style SDK trampoline can forward into us
     void on_dev_changed(const std::string& sn, bool plugged);
@@ -98,6 +130,21 @@ private:
 
     void worker_loop();
     void poll_status_locked();
+    void refresh_presets_locked();
+    void clear_active_preset_locked();
+    void sequence_loop();
+    void sequence_advance_locked(bool& should_run, std::chrono::steady_clock::time_point& step_started);
+
+    // Sequence state (worker thread reads, command thread writes).
+    std::vector<SequenceStep> seq_steps_;
+    bool seq_loop_ = true;
+    std::atomic<bool> seq_running_{false};
+    std::atomic<bool> seq_quit_{false};
+    std::thread seq_thr_;
+    std::condition_variable seq_cv_;
+    std::mutex seq_mu_;
+    int seq_step_index_ = 0;
+    std::chrono::steady_clock::time_point seq_step_started_{};
 
     // shared snapshot
     mutable std::mutex snap_mu_;

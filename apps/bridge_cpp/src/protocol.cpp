@@ -17,6 +17,13 @@ static int64_t now_ms() {
 }
 
 json build_state_event(const DeviceSnapshot& s) {
+    json presets = json::array();
+    for (auto& p : s.presets) {
+        presets.push_back({
+            {"id", p.id}, {"name", p.name},
+            {"yaw", p.yaw}, {"pitch", p.pitch}, {"roll", p.roll}, {"zoom", p.zoom},
+        });
+    }
     return json{
         {"event", "state"},
         {"ts", now_ms()},
@@ -55,7 +62,15 @@ json build_state_event(const DeviceSnapshot& s) {
             {"auto_focus", s.auto_focus},
             {"manual_focus", s.manual_focus},
             {"flip_h", s.flip_h}
-        }}
+        }},
+        {"presets", presets},
+        {"active_preset_id", s.active_preset_id},
+        {"sequence", {
+            {"running", s.sequence_running},
+            {"step_index", s.sequence_step_index},
+            {"elapsed_s", s.sequence_elapsed_s},
+            {"total_s", s.sequence_total_s},
+        }},
     };
 }
 
@@ -211,6 +226,35 @@ void dispatch_message(DeviceSession& session,
         int pid = msg.value("preset_id", 0);
         string name = msg.value("name", "");
         session.cmd_preset_save(pid, name, reply_cb);
+        return;
+    }
+    if (action == "preset.delete") {
+        int pid = msg.value("preset_id", 0);
+        session.cmd_preset_delete(pid, reply_cb);
+        return;
+    }
+
+    if (action == "sequence.set") {
+        std::vector<SequenceStep> steps;
+        if (msg.contains("steps") && msg["steps"].is_array()) {
+            for (auto& it : msg["steps"]) {
+                SequenceStep s;
+                s.preset_id = it.value("preset_id", 0);
+                s.seconds   = it.value("seconds", 60);
+                if (s.seconds < 3) s.seconds = 3;
+                steps.push_back(s);
+            }
+        }
+        bool loop = msg.value("loop", true);
+        session.cmd_sequence_set(steps, loop, reply_cb);
+        return;
+    }
+    if (action == "sequence.start") {
+        session.cmd_sequence_start(reply_cb);
+        return;
+    }
+    if (action == "sequence.stop") {
+        session.cmd_sequence_stop(reply_cb);
         return;
     }
 

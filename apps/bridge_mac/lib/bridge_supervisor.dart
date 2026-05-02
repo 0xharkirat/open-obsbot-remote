@@ -27,6 +27,8 @@ class BridgeSupervisor extends ChangeNotifier {
   String? _lastError;
   int _wsClientCount = 0;
   CameraPermission _cameraPermission = CameraPermission.unknown;
+  String _pin = '';   // 6-digit pairing PIN from bridge log
+  int    _pairedTokenCount = 0;
 
   // Disk log: ~/Library/Logs/OBSBOT Bridge/bridge.log
   IOSink? _logSink;
@@ -43,6 +45,8 @@ class BridgeSupervisor extends ChangeNotifier {
   String? get lastError => _lastError;
   int get wsClientCount => _wsClientCount;
   CameraPermission get cameraPermission => _cameraPermission;
+  String get pin => _pin;
+  int    get pairedTokenCount => _pairedTokenCount;
 
   /// Returns the path to the bundled obsbot-bridge binary inside the .app.
   /// Falls back to the dev-tree build path if running via `flutter run`.
@@ -190,6 +194,10 @@ class BridgeSupervisor extends ChangeNotifier {
   static final RegExp _videoDevicesRe = RegExp(r'video: \d+ capture devices visible');
   static final RegExp _videoDeniedRe = RegExp(r'video: camera permission denied|video: camera not authorized');
   static final RegExp _videoNoCamRe = RegExp(r'video: no matching capture device');
+  static final RegExp _pinRe        = RegExp(r'auth: pairing PIN = (\d{6})\s+\(tokens: (\d+)\)');
+  static final RegExp _tokenIssuedRe = RegExp(r'auth: token issued \(total: (\d+)\)');
+  static final RegExp _tokenRevokedRe = RegExp(r'auth: all tokens revoked');
+  static final RegExp _pinRotatedRe = RegExp(r'auth: PIN rotated, new PIN = (\d{6})');
 
   void _onLogLine(String line) {
     if (line.isEmpty) return;
@@ -213,6 +221,23 @@ class BridgeSupervisor extends ChangeNotifier {
       _wsClientCount = int.tryParse(c.group(1) ?? '0') ?? 0;
     }
 
+    final pm = _pinRe.firstMatch(line);
+    if (pm != null) {
+      _pin = pm.group(1) ?? '';
+      _pairedTokenCount = int.tryParse(pm.group(2) ?? '0') ?? 0;
+    }
+    final ti = _tokenIssuedRe.firstMatch(line);
+    if (ti != null) {
+      _pairedTokenCount = int.tryParse(ti.group(1) ?? '0') ?? 0;
+    }
+    if (_tokenRevokedRe.hasMatch(line)) {
+      _pairedTokenCount = 0;
+    }
+    final pr = _pinRotatedRe.firstMatch(line);
+    if (pr != null) {
+      _pin = pr.group(1) ?? '';
+    }
+
     if (_videoStartedRe.hasMatch(line) || _videoDevicesRe.hasMatch(line)) {
       _cameraPermission = CameraPermission.granted;
     } else if (_videoDeniedRe.hasMatch(line)) {
@@ -225,6 +250,22 @@ class BridgeSupervisor extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// Reset all pairing state — deletes auth.json (PIN + tokens) and
+  /// restarts the bridge subprocess so a fresh PIN is generated and
+  /// every previously-paired phone has to re-enter the PIN.
+  Future<void> resetPairing() async {
+    final home = Platform.environment['HOME'] ?? '';
+    if (home.isNotEmpty) {
+      final f = File('$home/Library/Application Support/Open OBSBOT Bridge/auth.json');
+      if (await f.exists()) await f.delete();
+    }
+    _pin = '';
+    _pairedTokenCount = 0;
+    await stop();
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await start();
   }
 
   /// Open System Settings → Privacy & Security → Camera so the user can

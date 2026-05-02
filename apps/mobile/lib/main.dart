@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'ws_client.dart';
-import 'control_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'connect_screen.dart';
+import 'control_screen.dart';
+import 'pin_entry_screen.dart';
+import 'simple_mode_screen.dart';
+import 'ws_client.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +26,22 @@ class ObsbotApp extends StatefulWidget {
 
 class _ObsbotAppState extends State<ObsbotApp> {
   final WsClient client = WsClient();
+  bool _simpleMode = true;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final m = p.getString('mode') ?? 'simple';
+      if (mounted) setState(() => _simpleMode = m == 'simple');
+    });
+  }
+
+  Future<void> _setMode(bool simple) async {
+    setState(() => _simpleMode = simple);
+    final p = await SharedPreferences.getInstance();
+    await p.setString('mode', simple ? 'simple' : 'advanced');
+  }
 
   @override
   void dispose() {
@@ -43,10 +63,25 @@ class _ObsbotAppState extends State<ObsbotApp> {
       home: AnimatedBuilder(
         animation: client,
         builder: (BuildContext context, _) {
-          if (client.connected) {
-            return ControlScreen(client: client);
+          // 1) not connected at all → connect screen
+          if (!client.socketOpen) {
+            return ConnectScreen(client: client);
           }
-          return ConnectScreen(client: client);
+          // 2) socket open but server demands PIN → pair screen
+          if (client.needsPairing || client.token == null) {
+            return PinEntryScreen(client: client);
+          }
+          // 3) authed + camera reporting state → control screens
+          if (_simpleMode) {
+            return SimpleModeScreen(
+              client: client,
+              onSwitchAdvanced: () => _setMode(false),
+            );
+          }
+          return ControlScreen(
+            client: client,
+            onSwitchSimple: () => _setMode(true),
+          );
         },
       ),
     );

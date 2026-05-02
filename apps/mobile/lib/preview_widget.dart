@@ -30,7 +30,8 @@ class PreviewWidget extends StatelessWidget {
     final wsPort = colon >= 0
         ? int.tryParse(host.substring(colon + 1)) ?? 8765
         : 8765;
-    final url = 'http://$hostOnly:${wsPort + 1}/preview.mjpeg';
+    final tok = client.token ?? '';
+    final url = 'http://$hostOnly:${wsPort + 1}/preview.mjpeg?t=$tok';
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),

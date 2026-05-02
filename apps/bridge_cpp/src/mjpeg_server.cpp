@@ -1,5 +1,6 @@
 #include "mjpeg_server.h"
 #include "video_capture.h"
+#include "auth.h"
 #include "log.h"
 
 #include <arpa/inet.h>
@@ -22,6 +23,7 @@ struct MjpegServer::Impl {
     std::atomic<bool> running{false};
     std::thread accept_thr;
     VideoCapture* video = nullptr;
+    AuthStore* auth = nullptr;
 };
 
 MjpegServer::MjpegServer() : impl_(new Impl) {}
@@ -37,12 +39,34 @@ static bool send_all(int fd, const char* data, size_t n) {
     return true;
 }
 
-static void serve_client(int fd, VideoCapture* video) {
-    // Read the request line + headers, ignore everything (we serve only one URL).
+static std::string extract_token_from_url(const char* req) {
+    // looking for `?t=...` in the request line
+    const char* p = std::strstr(req, "?t=");
+    if (!p) return "";
+    p += 3;
+    std::string out;
+    while (*p && *p != ' ' && *p != '&' && *p != '\r' && *p != '\n') { out += *p++; }
+    return out;
+}
+
+static void serve_client(int fd, VideoCapture* video, AuthStore* auth) {
     char buf[2048];
     ssize_t n = ::recv(fd, buf, sizeof(buf) - 1, 0);
     if (n <= 0) { ::close(fd); return; }
     buf[n] = 0;
+
+    // Allow CORS preflight
+    if (std::strstr(buf, "OPTIONS ") == buf) {
+        const char* resp =
+            "HTTP/1.1 204 No Content\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: *\r\n"
+            "Connection: close\r\n\r\n";
+        send_all(fd, resp, std::strlen(resp));
+        ::close(fd);
+        return;
+    }
 
     if (std::strstr(buf, "/preview.mjpeg") == nullptr) {
         const char* resp =
@@ -52,6 +76,21 @@ static void serve_client(int fd, VideoCapture* video) {
         send_all(fd, resp, std::strlen(resp));
         ::close(fd);
         return;
+    }
+
+    if (auth) {
+        std::string tok = extract_token_from_url(buf);
+        if (!auth->is_valid_token(tok)) {
+            const char* resp =
+                "HTTP/1.1 401 Unauthorized\r\n"
+                "Content-Type: text/plain\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Connection: close\r\n\r\n"
+                "missing or invalid ?t= token";
+            send_all(fd, resp, std::strlen(resp));
+            ::close(fd);
+            return;
+        }
     }
 
     if (!video || !video->running()) {
@@ -80,7 +119,7 @@ static void serve_client(int fd, VideoCapture* video) {
     LOGI("mjpeg: client connected fd=%d", fd);
 
     uint64_t last_seq = 0;
-    const auto period = std::chrono::milliseconds(80);  // ~12 fps
+    const auto period = std::chrono::milliseconds(50);  // ~20 fps
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(2);
 
     while (std::chrono::steady_clock::now() < deadline) {
@@ -110,9 +149,10 @@ static void serve_client(int fd, VideoCapture* video) {
     ::close(fd);
 }
 
-bool MjpegServer::start(uint16_t port, VideoCapture* video) {
+bool MjpegServer::start(uint16_t port, VideoCapture* video, AuthStore* auth) {
     if (impl_->running) return true;
     impl_->video = video;
+    impl_->auth = auth;
 
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { LOGE("mjpeg: socket failed: %s", strerror(errno)); return false; }
@@ -150,7 +190,7 @@ bool MjpegServer::start(uint16_t port, VideoCapture* video) {
                 }
                 break;
             }
-            std::thread(serve_client, c, impl_->video).detach();
+            std::thread(serve_client, c, impl_->video, impl_->auth).detach();
         }
     });
 

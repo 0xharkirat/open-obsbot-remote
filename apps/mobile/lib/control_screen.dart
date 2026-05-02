@@ -7,7 +7,8 @@ import 'ws_client.dart';
 
 class ControlScreen extends StatefulWidget {
   final WsClient client;
-  const ControlScreen({super.key, required this.client});
+  final VoidCallback? onSwitchSimple;
+  const ControlScreen({super.key, required this.client, this.onSwitchSimple});
 
   @override
   State<ControlScreen> createState() => _ControlScreenState();
@@ -46,6 +47,12 @@ class _ControlScreenState extends State<ControlScreen> {
                   child: Text('${widget.client.lastLatencyMs} ms'),
                 ),
               ),
+              if (widget.onSwitchSimple != null)
+                IconButton(
+                  tooltip: 'Simple mode',
+                  icon: const Icon(Icons.dashboard_customize),
+                  onPressed: widget.onSwitchSimple,
+                ),
               IconButton(
                 tooltip: 'Disconnect',
                 icon: const Icon(Icons.logout),

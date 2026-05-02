@@ -2,9 +2,14 @@
 #include "log.h"
 
 #include <dev/devs.hpp>
+#include <json.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
+#include <sys/stat.h>
 #include <utility>
 
 using namespace std::chrono;
@@ -54,6 +59,26 @@ void DeviceSession::on_dev_changed(const std::string& sn, bool plugged) {
                 }
                 LOGI("active device: %s (%s) fw=%s",
                      snap_.sn.c_str(), snap_.model.c_str(), snap_.firmware.c_str());
+
+                // Set zoom_max per product. Tiny 2 Lite digital zoom = 2.0×;
+                // larger models reach 4.0×. Tail2 family goes higher.
+                auto pt = d->productType();
+                float zmax = 2.0f;
+                if (pt == ObsbotProdTiny2 || pt == ObsbotProdTailAir ||
+                    pt == ObsbotProdTinySE || pt == ObsbotProdTiny3 ||
+                    pt == ObsbotProdTiny3Lite || pt == ObsbotProdTail2 ||
+                    pt == ObsbotProdTail2S) {
+                    zmax = 4.0f;
+                }
+                {
+                    std::lock_guard<std::mutex> g(snap_mu_);
+                    snap_.zoom_min = 1.0f;
+                    snap_.zoom_max = zmax;
+                }
+                LOGI("zoom range set to %.1f..%.1fx", 1.0f, zmax);
+
+                // Pull the camera's saved preset list so the UI can show names.
+                refresh_presets_locked();
             } else {
                 if (dev_ && dev_->devSn() == sn) {
                     dev_.reset();
@@ -86,6 +111,10 @@ void DeviceSession::start(StateCallback on_state) {
 void DeviceSession::stop() {
     if (!running_) return;
     running_ = false;
+    seq_quit_ = true;
+    seq_running_ = false;
+    seq_cv_.notify_all();
+    if (seq_thr_.joinable()) seq_thr_.join();
     q_cv_.notify_all();
     if (thr_.joinable()) thr_.join();
     Devices::get().close();
@@ -192,12 +221,20 @@ static CmdResult err(const char* code, const char* msg) { return {false, code, m
 #define REQUIRE_DEV() \
     if (!dev_) return err("not_connected", "no camera attached")
 
+void DeviceSession::clear_active_preset_locked() {
+    snap_.active_preset_id = -1;
+}
+
 void DeviceSession::cmd_ptz_angle(float yaw, float pitch, float roll, ReplyFn reply) {
     submit([this, yaw, pitch, roll]() -> CmdResult {
         REQUIRE_DEV();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
         int32_t r = dev_->aiSetGimbalMotorAngleR(pitch, yaw, roll);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            clear_active_preset_locked();
+        }
         return r == 0 ? ok() : err("device_busy", "aiSetGimbalMotorAngleR failed");
     }, std::move(reply));
 }
@@ -212,6 +249,10 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(pitch_speed, yaw_speed, roll_speed);
+        if (r == 0 && !stopping) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            clear_active_preset_locked();
+        }
         return r == 0 ? ok() : err("device_busy", "aiSetGimbalSpeedCtrlR failed");
     }, std::move(reply));
 }
@@ -228,6 +269,10 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
     submit([this]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->gimbalRstPosR();
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            clear_active_preset_locked();
+        }
         return r == 0 ? ok() : err("device_busy", "recenter failed");
     }, std::move(reply));
 }
@@ -378,6 +423,10 @@ void DeviceSession::cmd_preset_recall(int id, ReplyFn reply) {
     submit([this, id]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->aiTrgGimbalPresetR(id);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.active_preset_id = id;
+        }
         return r == 0 ? ok() : err("device_busy", "preset recall failed");
     }, std::move(reply));
 }
@@ -399,8 +448,219 @@ void DeviceSession::cmd_preset_save(int id, const std::string& name, ReplyFn rep
         std::memcpy(pi.name, n.c_str(), n.size());
         pi.name_len = (int32_t)n.size();
         int32_t r = dev_->aiAddGimbalPresetR(&pi);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            // overwrite-or-insert by id
+            bool found = false;
+            for (auto& p : snap_.presets) {
+                if (p.id == id) { p = {id, n, pi.yaw, pi.pitch, pi.roll, pi.zoom}; found = true; break; }
+            }
+            if (!found) snap_.presets.push_back({id, n, pi.yaw, pi.pitch, pi.roll, pi.zoom});
+            std::sort(snap_.presets.begin(), snap_.presets.end(),
+                      [](const PresetInfo& a, const PresetInfo& b){ return a.id < b.id; });
+            snap_.active_preset_id = id;
+        }
         return r == 0 ? ok() : err("device_busy", "preset save failed");
     }, std::move(reply));
+}
+
+void DeviceSession::cmd_preset_delete(int id, ReplyFn reply) {
+    submit([this, id]() -> CmdResult {
+        REQUIRE_DEV();
+        int32_t r = dev_->aiDelGimbalPresetR(id);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.presets.erase(std::remove_if(snap_.presets.begin(), snap_.presets.end(),
+                [id](const PresetInfo& p){ return p.id == id; }), snap_.presets.end());
+            if (snap_.active_preset_id == id) snap_.active_preset_id = -1;
+        }
+        return r == 0 ? ok() : err("device_busy", "preset delete failed");
+    }, std::move(reply));
+}
+
+void DeviceSession::refresh_presets_locked() {
+    if (!dev_) return;
+    Device::DevDataArray ids{};
+    if (dev_->aiGetGimbalPresetListR(&ids) != 0) {
+        LOGW("preset list query failed");
+        return;
+    }
+    int n = ids.len;
+    if (n < 0 || n > 16) n = 0;
+    std::vector<PresetInfo> out;
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        int32_t pid = ids.data_int32[i];
+        Device::PresetPosInfo info{};
+        if (dev_->aiGetGimbalPresetInfoWithIdR(&info, pid) == 0) {
+            std::string nm;
+            int nl = info.name_len;
+            if (nl < 0) nl = 0;
+            if (nl > (int)sizeof(info.name)) nl = sizeof(info.name);
+            nm.assign(info.name, info.name + nl);
+            out.push_back({pid, nm, info.yaw, info.pitch, info.roll, info.zoom});
+        }
+    }
+    std::sort(out.begin(), out.end(),
+              [](const PresetInfo& a, const PresetInfo& b){ return a.id < b.id; });
+    {
+        std::lock_guard<std::mutex> g(snap_mu_);
+        snap_.presets = std::move(out);
+    }
+    LOGI("presets loaded: %d entries", (int)snap_.presets.size());
+}
+
+// ----------------------------------------------------------------------------
+// Sequencer
+
+static std::string sequence_file_path() {
+    const char* home = std::getenv("HOME");
+    if (!home) return "";
+    std::string dir = std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
+    ::mkdir(dir.c_str(), 0755);
+    return dir + "/sequence.json";
+}
+
+static void persist_sequence(const std::vector<SequenceStep>& steps, bool loop) {
+    std::string path = sequence_file_path();
+    if (path.empty()) return;
+    nlohmann::json j;
+    j["loop"] = loop;
+    j["steps"] = nlohmann::json::array();
+    for (auto& s : steps) j["steps"].push_back({{"preset_id", s.preset_id}, {"seconds", s.seconds}});
+    std::ofstream f(path);
+    if (f) f << j.dump(2);
+}
+
+static void load_sequence(std::vector<SequenceStep>& steps, bool& loop) {
+    std::string path = sequence_file_path();
+    if (path.empty()) return;
+    std::ifstream f(path);
+    if (!f) return;
+    try {
+        nlohmann::json j; f >> j;
+        loop = j.value("loop", true);
+        steps.clear();
+        for (auto& it : j["steps"]) {
+            SequenceStep s;
+            s.preset_id = it.value("preset_id", 0);
+            s.seconds = it.value("seconds", 60);
+            if (s.seconds < 3) s.seconds = 3;
+            steps.push_back(s);
+        }
+    } catch (...) { /* ignore */ }
+}
+
+void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, bool loop, ReplyFn reply) {
+    submit([this, steps, loop]() -> CmdResult {
+        std::lock_guard<std::mutex> g(seq_mu_);
+        seq_steps_ = steps;
+        seq_loop_ = loop;
+        persist_sequence(seq_steps_, seq_loop_);
+        return ok();
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_sequence_start(ReplyFn reply) {
+    submit([this]() -> CmdResult {
+        if (seq_running_) return ok();
+        std::lock_guard<std::mutex> g(seq_mu_);
+        if (seq_steps_.empty()) return err("invalid_param", "no sequence configured");
+        seq_running_ = true;
+        seq_quit_ = false;
+        seq_step_index_ = 0;
+        if (seq_thr_.joinable()) seq_thr_.join();
+        seq_thr_ = std::thread(&DeviceSession::sequence_loop, this);
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.sequence_running = true;
+            snap_.sequence_step_index = 0;
+            snap_.sequence_total_s = seq_steps_[0].seconds;
+            snap_.sequence_elapsed_s = 0;
+        }
+        return ok();
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_sequence_stop(ReplyFn reply) {
+    submit([this]() -> CmdResult {
+        seq_running_ = false;
+        seq_quit_ = true;
+        seq_cv_.notify_all();
+        if (seq_thr_.joinable()) seq_thr_.join();
+        std::lock_guard<std::mutex> sg(snap_mu_);
+        snap_.sequence_running = false;
+        snap_.sequence_step_index = -1;
+        snap_.sequence_elapsed_s = 0;
+        snap_.sequence_total_s = 0;
+        return ok();
+    }, std::move(reply));
+}
+
+void DeviceSession::sequence_loop() {
+    LOGI("sequence: started");
+    auto step_started = std::chrono::steady_clock::now();
+
+    auto trigger_step = [&](int idx){
+        if (!dev_) return;
+        std::lock_guard<std::mutex> g(seq_mu_);
+        if (idx < 0 || idx >= (int)seq_steps_.size()) return;
+        int pid = seq_steps_[idx].preset_id;
+        int total = seq_steps_[idx].seconds;
+        dev_->aiTrgGimbalPresetR(pid);
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.active_preset_id = pid;
+            snap_.sequence_running = true;
+            snap_.sequence_step_index = idx;
+            snap_.sequence_total_s = total;
+            snap_.sequence_elapsed_s = 0;
+        }
+        LOGI("sequence: step %d → preset %d for %ds", idx, pid, total);
+    };
+
+    trigger_step(seq_step_index_);
+    step_started = std::chrono::steady_clock::now();
+
+    while (seq_running_ && !seq_quit_) {
+        std::unique_lock<std::mutex> lk(seq_mu_);
+        seq_cv_.wait_for(lk, std::chrono::milliseconds(500));
+        if (seq_quit_ || !seq_running_) break;
+
+        int idx = seq_step_index_;
+        if (idx < 0 || idx >= (int)seq_steps_.size()) break;
+        int total = seq_steps_[idx].seconds;
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - step_started).count();
+
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.sequence_elapsed_s = (int)elapsed;
+        }
+        if (on_state_) on_state_(snapshot());
+
+        if (elapsed >= total) {
+            int next = idx + 1;
+            if (next >= (int)seq_steps_.size()) {
+                if (seq_loop_) next = 0;
+                else { seq_running_ = false; break; }
+            }
+            seq_step_index_ = next;
+            lk.unlock();
+            trigger_step(next);
+            step_started = std::chrono::steady_clock::now();
+        }
+    }
+
+    LOGI("sequence: stopped");
+    {
+        std::lock_guard<std::mutex> sg(snap_mu_);
+        snap_.sequence_running = false;
+        snap_.sequence_step_index = -1;
+        snap_.sequence_elapsed_s = 0;
+        snap_.sequence_total_s = 0;
+    }
+    if (on_state_) on_state_(snapshot());
 }
 
 }  // namespace obs

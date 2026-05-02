@@ -3,24 +3,17 @@
 
 namespace obs {
 class VideoCapture;
+class AuthStore;
 
-// Tiny standalone HTTP server that streams JPEG frames from the given
-// VideoCapture as multipart/x-mixed-replace. Runs on its own thread;
-// accepts unlimited concurrent clients.
-//
-// Bound on 0.0.0.0:<port>. URL: http://<host>:<port>/preview.mjpeg
-//
-// Crow can't do true streaming responses (it buffers until the handler
-// returns), so we sidestep it with a hand-rolled server.
+// Tiny standalone HTTP server that streams JPEG frames as
+// multipart/x-mixed-replace. Token check via ?t=<token> in URL.
 class MjpegServer {
 public:
     MjpegServer();
     ~MjpegServer();
 
-    // Start in the background. `video` must outlive this server.
-    bool start(uint16_t port, VideoCapture* video);
+    bool start(uint16_t port, VideoCapture* video, AuthStore* auth);
     void stop();
-
     bool running() const;
 
 private:
