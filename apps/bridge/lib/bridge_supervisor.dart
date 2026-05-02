@@ -347,6 +347,14 @@ class BridgeSupervisor extends ChangeNotifier {
     ]);
   }
 
+  /// Open System Settings → Network → Firewall so the user can allow
+  /// incoming connections for the bridge if they dismissed the prompt.
+  Future<void> openSystemFirewallSettings() async {
+    await Process.run('open', <String>[
+      'x-apple.systempreferences:com.apple.preference.security?Firewall',
+    ]);
+  }
+
   /// Reset macOS camera-access decisions for THIS bundle so the prompt
   /// fires again next time the bridge subprocess tries to open the camera.
   /// Then restart the bridge to retrigger the prompt.

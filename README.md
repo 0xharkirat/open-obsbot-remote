@@ -16,10 +16,12 @@ This project is usable today for the tested camera path. The macOS release artif
 
 ## What You Get
 
-| App | Purpose |
-| --- | --- |
+| App                | Purpose                                                                                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Open OBSBOT Bridge | macOS app that talks to the camera over USB, exposes a local WebSocket API on `:8765`, serves the web remote at `http://<computer-ip>:8765/`, and serves MJPEG preview on `:8766`. |
-| Open OBSBOT Remote | Flutter phone/web controller for presets, PTZ, zoom, image controls, AI mode, and sequences. |
+| Open OBSBOT Remote | Flutter phone/web controller for presets, PTZ, zoom, image controls, AI mode, and sequences.                                                                                       |
+
+> **Just want to install it?** → [Skip to macOS Installation ↓](#install-the-macos-release)
 
 ```
 Phone / browser
@@ -62,20 +64,20 @@ OBSBOT camera
 
 Use this path if you just want to control a camera and do not need to build from source.
 
-> **Download the latest release →** [GitHub Releases](../../releases/latest)
+> **Download the latest release →** [GitHub Releases](https://github.com/0xharkirat/open-obsbot-remote/releases/latest)
 
 ---
 
 ### Step 1 — Download & open the app
 
-1. Download `Open-OBSBOT-Bridge-macOS-arm64-v<version>.zip` from the Releases page.
+1. Download `Open-OBSBOT-Bridge-macOS-arm64-v<version>.zip` from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest).
 2. Double-click the ZIP to unzip it.
 3. Drag `Open OBSBOT Bridge.app` to your **Applications** folder.
 4. Quit **OBSBOT Center** if it is running — both apps compete for the same camera endpoint.
 5. Plug the OBSBOT camera into the Mac over USB.
 6. Double-click **Open OBSBOT Bridge** in Applications.
 
-macOS will block it with the message *"Open OBSBOT Bridge.app" Not Opened*. This happens because the app is not notarized through Apple's paid developer programme. **Click Done — do not click Move to Bin.**
+macOS will block it with the message _"Open OBSBOT Bridge.app" Not Opened_. This happens because the app is not notarized through Apple's paid developer programme. **Click Done — do not click Move to Bin.**
 
 <img src="docs/images/step-1-click-done.png" alt="Gatekeeper blocks the app — click Done" width="260"/>
 
@@ -85,7 +87,7 @@ macOS will block it with the message *"Open OBSBOT Bridge.app" Not Opened*. This
 
 Open **System Settings → Privacy & Security** and scroll down to the **Security** section. You will see:
 
-> *"Open OBSBOT Bridge.app" was blocked to protect your Mac.*
+> _"Open OBSBOT Bridge.app" was blocked to protect your Mac._
 
 Click **Open Anyway**.
 
@@ -292,34 +294,34 @@ For C++ bridge-only iteration:
 
 Useful paths:
 
-| Path | Purpose |
-| --- | --- |
-| `apps/bridge_cpp/` | C++ bridge using OBSBOT `libdev`, Crow WebSocket/static HTTP, and a small BSD-socket MJPEG server. |
-| `apps/bridge/` | Flutter macOS wrapper app that supervises the C++ subprocess. |
-| `apps/rc/` | Flutter remote for web, Android, and iOS. |
-| `docs/PROTOCOL.md` | WebSocket and pairing protocol. |
-| `docs/ARCHITECTURE.md` | Runtime architecture and process boundaries. |
-| `docs/RUN.md` | Manual test and troubleshooting guide. |
+| Path                   | Purpose                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `apps/bridge_cpp/`     | C++ bridge using OBSBOT `libdev`, Crow WebSocket/static HTTP, and a small BSD-socket MJPEG server. |
+| `apps/bridge/`         | Flutter macOS wrapper app that supervises the C++ subprocess.                                      |
+| `apps/rc/`             | Flutter remote for web, Android, and iOS.                                                          |
+| `docs/PROTOCOL.md`     | WebSocket and pairing protocol.                                                                    |
+| `docs/ARCHITECTURE.md` | Runtime architecture and process boundaries.                                                       |
+| `docs/RUN.md`          | Manual test and troubleshooting guide.                                                             |
 
 Persisted runtime files:
 
-| File | Purpose |
-| --- | --- |
-| `~/Library/Logs/Open OBSBOT Bridge/bridge.log` | Bridge and SDK logs. |
-| `~/Library/Application Support/Open OBSBOT Bridge/auth.json` | Pairing PIN and issued tokens. |
-| `~/Library/Application Support/Open OBSBOT Bridge/sequence.json` | Last active sequence. |
-| `~/Library/Application Support/Open OBSBOT Bridge/sequences.json` | Saved sequence library. |
+| File                                                              | Purpose                        |
+| ----------------------------------------------------------------- | ------------------------------ |
+| `~/Library/Logs/Open OBSBOT Bridge/bridge.log`                    | Bridge and SDK logs.           |
+| `~/Library/Application Support/Open OBSBOT Bridge/auth.json`      | Pairing PIN and issued tokens. |
+| `~/Library/Application Support/Open OBSBOT Bridge/sequence.json`  | Last active sequence.          |
+| `~/Library/Application Support/Open OBSBOT Bridge/sequences.json` | Saved sequence library.        |
 
 ## Troubleshooting
 
-| Symptom | What to check |
-| --- | --- |
-| Phone cannot connect | Phone and bridge host must be on the same LAN. Check the bridge URL shown in the app. VPNs and guest Wi-Fi often block local devices. |
-| Preview is blank | Confirm macOS Camera permission for Open OBSBOT Bridge. Reopen the app after granting permission. |
-| PTZ commands fail with `device_busy` | Quit OBSBOT Center and any other app controlling the camera, then restart the bridge. |
-| Build cannot find SDK | Run `./scripts/verify-sdk.sh` and fix the `third_party/obsbot-sdk/` layout. |
-| Web app looks stale | Use the cache-clear menu in the remote, or reload the browser after restarting the bridge. |
-| Camera is not detected | Try another USB cable/port and wait for the camera boot sequence to finish. |
+| Symptom                              | What to check                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Phone cannot connect                 | Phone and bridge host must be on the same LAN. Check the bridge URL shown in the app. VPNs and guest Wi-Fi often block local devices. |
+| Preview is blank                     | Confirm macOS Camera permission for Open OBSBOT Bridge. Reopen the app after granting permission.                                     |
+| PTZ commands fail with `device_busy` | Quit OBSBOT Center and any other app controlling the camera, then restart the bridge.                                                 |
+| Build cannot find SDK                | Run `./scripts/verify-sdk.sh` and fix the `third_party/obsbot-sdk/` layout.                                                           |
+| Web app looks stale                  | Use the cache-clear menu in the remote, or reload the browser after restarting the bridge.                                            |
+| Camera is not detected               | Try another USB cable/port and wait for the camera boot sequence to finish.                                                           |
 
 ## Security
 
@@ -335,11 +337,11 @@ The current implementation is intentionally centered on the tested OBSBOT Tiny 2
 
 ## License
 
-| Component | License |
-| --- | --- |
-| Code in this repository | Apache 2.0. See [LICENSE](LICENSE). |
-| OBSBOT SDK headers/samples | Not committed to git. Developers obtain their own local copy from OBSBOT. |
-| OBSBOT SDK runtime dylib | Bundled in macOS release artifacts so the app runs without a local SDK install. |
+| Component                  | License                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| Code in this repository    | Apache 2.0. See [LICENSE](LICENSE).                                             |
+| OBSBOT SDK headers/samples | Not committed to git. Developers obtain their own local copy from OBSBOT.       |
+| OBSBOT SDK runtime dylib   | Bundled in macOS release artifacts so the app runs without a local SDK install. |
 
 Check OBSBOT's SDK terms before publishing release assets that include `libdev.dylib`.
 

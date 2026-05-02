@@ -191,6 +191,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
             _cameraPermissionRow(context),
+            _firewallRow(context),
             _row(
               context,
               'Camera',
@@ -603,6 +604,39 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           ?trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _firewallRow(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 180,
+            child: Text(
+              'Network firewall',
+              style: TextStyle(color: theme.colorScheme.outline),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'If phones cannot connect, allow incoming connections below.',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            ),
+            icon: const Icon(Icons.security, size: 14),
+            label: const Text('Open Firewall Settings'),
+            onPressed: supervisor.openSystemFirewallSettings,
+          ),
         ],
       ),
     );
