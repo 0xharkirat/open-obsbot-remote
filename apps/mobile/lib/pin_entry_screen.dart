@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'cache_menu.dart';
 import 'ws_client.dart';
 
 class PinEntryScreen extends StatefulWidget {
@@ -47,6 +48,9 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => widget.client.close(),
         ),
+        actions: <Widget>[
+          CacheMenu(onCleared: () => widget.client.close()),
+        ],
       ),
       body: AnimatedBuilder(
         animation: widget.client,

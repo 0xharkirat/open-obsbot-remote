@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'cache_menu.dart';
 import 'preview_widget.dart';
 import 'ws_client.dart';
 
@@ -59,6 +60,7 @@ class _ControlScreenState extends State<ControlScreen> {
                 icon: const Icon(Icons.logout),
                 onPressed: () => widget.client.close(),
               ),
+              CacheMenu(onCleared: () => widget.client.close()),
             ],
           ),
           body: SafeArea(

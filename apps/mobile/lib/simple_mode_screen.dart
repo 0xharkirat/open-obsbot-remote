@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'cache_menu.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
 import 'ws_client.dart';
@@ -57,6 +58,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
                 icon: const Icon(Icons.logout),
                 onPressed: () => client.close(),
               ),
+              CacheMenu(onCleared: () => client.close()),
             ],
           ),
           body: SafeArea(
