@@ -58,11 +58,24 @@ int main(int argc, char** argv) {
     }
 
     // MJPEG preview server runs on the next port up (default 8766).
+    // Best-effort — if the port is busy (e.g. previous instance dying),
+    // log + continue without preview rather than crash the whole bridge.
     obs::MjpegServer mjpeg;
     if (video.running()) {
-        mjpeg.start((uint16_t)(port + 1), &video, &auth);
+        try {
+            if (!mjpeg.start((uint16_t)(port + 1), &video, &auth)) {
+                obs::log("warn ", "mjpeg server failed to start (port busy?) — preview disabled");
+            }
+        } catch (const std::exception& e) {
+            obs::log("error", "mjpeg server crashed: %s", e.what());
+        }
     }
 
-    obs::run_ws_server(port, session, &video, web_root, auth);  // blocks
+    try {
+        obs::run_ws_server(port, session, &video, web_root, auth);  // blocks
+    } catch (const std::exception& e) {
+        obs::log("error", "ws server crashed: %s", e.what());
+        return 1;
+    }
     return 0;
 }

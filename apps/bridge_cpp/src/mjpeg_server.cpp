@@ -190,7 +190,12 @@ bool MjpegServer::start(uint16_t port, VideoCapture* video, AuthStore* auth) {
                 }
                 break;
             }
-            std::thread(serve_client, c, impl_->video, impl_->auth).detach();
+            try {
+                std::thread(serve_client, c, impl_->video, impl_->auth).detach();
+            } catch (const std::exception& e) {
+                LOGW("mjpeg: thread spawn failed: %s", e.what());
+                ::close(c);
+            }
         }
     });
 

@@ -103,6 +103,22 @@ class BridgeSupervisor extends ChangeNotifier {
     await Process.run('open', <String>['-R', f.path]);
   }
 
+  Future<void> _killStalePortsHolders() async {
+    // If a previous bridge subprocess is still listening (e.g. crash + restart),
+    // free the ports before we spawn a new one. Best-effort: lsof + kill -9.
+    for (final port in <int>[8765, 8766]) {
+      try {
+        final r = await Process.run('lsof', <String>['-nP', '-iTCP:$port', '-sTCP:LISTEN', '-t']);
+        for (final line in (r.stdout as String).split(RegExp(r'\s+'))) {
+          final pid = int.tryParse(line.trim());
+          if (pid != null && pid > 1) {
+            await Process.run('kill', <String>['-9', '$pid']);
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   Future<void> start() async {
     if (_status == BridgeStatus.running || _status == BridgeStatus.starting) {
       return;
@@ -110,6 +126,7 @@ class BridgeSupervisor extends ChangeNotifier {
     _setStatus(BridgeStatus.starting);
     _lastError = null;
     await _openLogFile();
+    await _killStalePortsHolders();
 
     final bin = await _bridgeBinaryPath();
     if (bin == null) {
