@@ -50,13 +50,45 @@ class SequenceState {
       );
 }
 
+/// Move-to-preset transition speed.
+enum MoveSpeed { instant, slow, medium, fast }
+
+String moveSpeedToWire(MoveSpeed s) => switch (s) {
+      MoveSpeed.instant => 'instant',
+      MoveSpeed.slow => 'slow',
+      MoveSpeed.medium => 'medium',
+      MoveSpeed.fast => 'fast',
+    };
+
+MoveSpeed moveSpeedFromWire(String s) => switch (s) {
+      'instant' => MoveSpeed.instant,
+      'slow' => MoveSpeed.slow,
+      'fast' => MoveSpeed.fast,
+      _ => MoveSpeed.medium,
+    };
+
+String moveSpeedLabel(MoveSpeed s) => switch (s) {
+      MoveSpeed.instant => 'Instant',
+      MoveSpeed.slow => 'Slow',
+      MoveSpeed.medium => 'Medium',
+      MoveSpeed.fast => 'Fast',
+    };
+
 /// One step in a sequence sent to the bridge.
 class SequenceStep {
   final int presetId;
   final int seconds;
-  const SequenceStep({required this.presetId, required this.seconds});
-  Map<String, dynamic> toJson() =>
-      <String, dynamic>{'preset_id': presetId, 'seconds': seconds};
+  final MoveSpeed speed;
+  const SequenceStep({
+    required this.presetId,
+    required this.seconds,
+    this.speed = MoveSpeed.medium,
+  });
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'preset_id': presetId,
+        'seconds': seconds,
+        'speed': moveSpeedToWire(speed),
+      };
 }
 
 /// Decoded device snapshot pushed by the bridge.
@@ -455,8 +487,12 @@ class WsClient extends ChangeNotifier {
   void presetSave(int id, String name) => _send(
       {'action': 'preset.save', 'id': _id(), 'preset_id': id, 'name': name});
 
-  void presetRecall(int id) =>
-      _send({'action': 'preset.recall', 'id': _id(), 'preset_id': id});
+  void presetRecall(int id, {MoveSpeed speed = MoveSpeed.medium}) => _send({
+        'action': 'preset.recall',
+        'id': _id(),
+        'preset_id': id,
+        'speed': moveSpeedToWire(speed),
+      });
 
   void presetDelete(int id) =>
       _send({'action': 'preset.delete', 'id': _id(), 'preset_id': id});

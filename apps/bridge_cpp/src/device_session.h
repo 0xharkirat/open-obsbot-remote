@@ -21,9 +21,15 @@ struct PresetInfo {
     float yaw = 0.f, pitch = 0.f, roll = 0.f, zoom = 1.f;
 };
 
+/// Move-to-preset transition speed. "instant" = libdev default
+/// (camera firmware decides), the rest map to s_yaw/s_pitch values for
+/// gimbalSetSpeedPositionR (deg/sec).
+enum class MoveSpeed { instant, slow, medium, fast };
+
 struct SequenceStep {
     int preset_id = 0;
     int seconds = 60;
+    MoveSpeed speed = MoveSpeed::medium;
 };
 
 struct DeviceSnapshot {
@@ -110,7 +116,7 @@ public:
     void cmd_image_set_face_focus(bool e, ReplyFn reply);
     void cmd_image_set_flip_h(bool e, ReplyFn reply);
     void cmd_system_run_status(const std::string& s, ReplyFn reply);
-    void cmd_preset_recall(int id, ReplyFn reply);
+    void cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply);
     void cmd_preset_save(int id, const std::string& name, ReplyFn reply);
     void cmd_preset_delete(int id, ReplyFn reply);
 

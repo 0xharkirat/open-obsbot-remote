@@ -219,7 +219,13 @@ void dispatch_message(DeviceSession& session,
 
     if (action == "preset.recall") {
         int pid = msg.value("preset_id", 0);
-        session.cmd_preset_recall(pid, reply_cb);
+        std::string sp = msg.value("speed", std::string("instant"));
+        MoveSpeed sm = MoveSpeed::medium;
+        if (sp == "slow") sm = MoveSpeed::slow;
+        else if (sp == "fast") sm = MoveSpeed::fast;
+        else if (sp == "instant") sm = MoveSpeed::instant;
+        else sm = MoveSpeed::medium;
+        session.cmd_preset_recall(pid, sm, reply_cb);
         return;
     }
     if (action == "preset.save") {
@@ -241,6 +247,11 @@ void dispatch_message(DeviceSession& session,
                 SequenceStep s;
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
+                std::string sp = it.value("speed", std::string("medium"));
+                if (sp == "slow") s.speed = MoveSpeed::slow;
+                else if (sp == "fast") s.speed = MoveSpeed::fast;
+                else if (sp == "instant") s.speed = MoveSpeed::instant;
+                else s.speed = MoveSpeed::medium;
                 if (s.seconds < 3) s.seconds = 3;
                 steps.push_back(s);
             }

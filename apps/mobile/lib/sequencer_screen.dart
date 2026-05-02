@@ -39,7 +39,11 @@ class _SequencerScreenState extends State<SequencerScreen> {
 
   void _save() {
     final list = _steps
-        .map((e) => SequenceStep(presetId: e.presetId, seconds: e.seconds))
+        .map((e) => SequenceStep(
+              presetId: e.presetId,
+              seconds: e.seconds,
+              speed: e.speed,
+            ))
         .toList();
     widget.client.sequenceSet(list, loop: _loop);
   }
@@ -204,6 +208,23 @@ class _SequencerScreenState extends State<SequencerScreen> {
             },
           ),
         ),
+        const SizedBox(width: 12),
+        const Text('move '),
+        DropdownButton<MoveSpeed>(
+          value: step.speed,
+          underline: const SizedBox.shrink(),
+          isDense: true,
+          items: <DropdownMenuItem<MoveSpeed>>[
+            for (final s in MoveSpeed.values)
+              DropdownMenuItem<MoveSpeed>(
+                value: s,
+                child: Text(moveSpeedLabel(s).toLowerCase()),
+              ),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => step.speed = v);
+          },
+        ),
       ]),
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline),
@@ -216,5 +237,10 @@ class _SequencerScreenState extends State<SequencerScreen> {
 class _EditStep {
   int presetId;
   int seconds;
-  _EditStep({required this.presetId, required this.seconds});
+  MoveSpeed speed;
+  _EditStep({
+    required this.presetId,
+    required this.seconds,
+    this.speed = MoveSpeed.medium,
+  });
 }

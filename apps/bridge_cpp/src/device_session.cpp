@@ -419,10 +419,52 @@ void DeviceSession::cmd_system_run_status(const std::string& s, ReplyFn reply) {
     }, std::move(reply));
 }
 
-void DeviceSession::cmd_preset_recall(int id, ReplyFn reply) {
-    submit([this, id]() -> CmdResult {
+// Map a MoveSpeed to (s_roll, s_pitch, s_yaw) in deg/sec for
+// gimbalSetSpeedPositionR. 0 lets libdev pick.
+static void speed_to_rates(MoveSpeed s, float& sr, float& sp, float& sy) {
+    switch (s) {
+        case MoveSpeed::slow:    sr = 10; sp = 15; sy = 20;  break;
+        case MoveSpeed::medium:  sr = 30; sp = 40; sy = 60;  break;
+        case MoveSpeed::fast:    sr = 60; sp = 80; sy = 120; break;
+        case MoveSpeed::instant: sr = 0;  sp = 0;  sy = 0;   break;
+    }
+}
+
+void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
+    submit([this, id, speed]() -> CmdResult {
         REQUIRE_DEV();
-        int32_t r = dev_->aiTrgGimbalPresetR(id);
+        int32_t r = -1;
+        if (speed == MoveSpeed::instant) {
+            r = dev_->aiTrgGimbalPresetR(id);
+        } else {
+            // Look up the preset's stored angles + speed, then move-with-speed.
+            PresetInfo p{};
+            bool found = false;
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                for (auto& it : snap_.presets) {
+                    if (it.id == id) { p = it; found = true; break; }
+                }
+            }
+            if (!found) {
+                // Fall back to instant — preset list may not be loaded yet.
+                r = dev_->aiTrgGimbalPresetR(id);
+            } else {
+                // AI must release the gimbal so we can drive it.
+                dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+                dev_->aiSetEnabledR(false);
+                float sr, sp, sy;
+                speed_to_rates(speed, sr, sp, sy);
+                r = dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
+                // Also restore zoom (preset has its own zoom value).
+                if (p.zoom > 0) {
+                    dev_->cameraSetZoomWithSpeedAbsoluteR(
+                        (uint32_t)(p.zoom * 100.f), 8);
+                    std::lock_guard<std::mutex> g(snap_mu_);
+                    snap_.zoom = p.zoom;
+                }
+            }
+        }
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.active_preset_id = id;
@@ -521,13 +563,36 @@ static std::string sequence_file_path() {
     return dir + "/sequence.json";
 }
 
+static const char* speed_str(MoveSpeed s) {
+    switch (s) {
+        case MoveSpeed::slow:    return "slow";
+        case MoveSpeed::medium:  return "medium";
+        case MoveSpeed::fast:    return "fast";
+        case MoveSpeed::instant: return "instant";
+    }
+    return "medium";
+}
+
+static MoveSpeed parse_speed(const std::string& s) {
+    if (s == "slow") return MoveSpeed::slow;
+    if (s == "fast") return MoveSpeed::fast;
+    if (s == "instant") return MoveSpeed::instant;
+    return MoveSpeed::medium;
+}
+
 static void persist_sequence(const std::vector<SequenceStep>& steps, bool loop) {
     std::string path = sequence_file_path();
     if (path.empty()) return;
     nlohmann::json j;
     j["loop"] = loop;
     j["steps"] = nlohmann::json::array();
-    for (auto& s : steps) j["steps"].push_back({{"preset_id", s.preset_id}, {"seconds", s.seconds}});
+    for (auto& s : steps) {
+        j["steps"].push_back({
+            {"preset_id", s.preset_id},
+            {"seconds",   s.seconds},
+            {"speed",     speed_str(s.speed)},
+        });
+    }
     std::ofstream f(path);
     if (f) f << j.dump(2);
 }
@@ -545,6 +610,7 @@ static void load_sequence(std::vector<SequenceStep>& steps, bool& loop) {
             SequenceStep s;
             s.preset_id = it.value("preset_id", 0);
             s.seconds = it.value("seconds", 60);
+            s.speed = parse_speed(it.value("speed", std::string("medium")));
             if (s.seconds < 3) s.seconds = 3;
             steps.push_back(s);
         }
@@ -603,11 +669,39 @@ void DeviceSession::sequence_loop() {
 
     auto trigger_step = [&](int idx){
         if (!dev_) return;
-        std::lock_guard<std::mutex> g(seq_mu_);
-        if (idx < 0 || idx >= (int)seq_steps_.size()) return;
-        int pid = seq_steps_[idx].preset_id;
-        int total = seq_steps_[idx].seconds;
-        dev_->aiTrgGimbalPresetR(pid);
+        SequenceStep step;
+        {
+            std::lock_guard<std::mutex> g(seq_mu_);
+            if (idx < 0 || idx >= (int)seq_steps_.size()) return;
+            step = seq_steps_[idx];
+        }
+        int pid = step.preset_id;
+        int total = step.seconds;
+        // honor per-step speed
+        if (step.speed == MoveSpeed::instant) {
+            dev_->aiTrgGimbalPresetR(pid);
+        } else {
+            PresetInfo p{};
+            bool found = false;
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                for (auto& it : snap_.presets) {
+                    if (it.id == pid) { p = it; found = true; break; }
+                }
+            }
+            if (found) {
+                dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+                dev_->aiSetEnabledR(false);
+                float sr, sp, sy; speed_to_rates(step.speed, sr, sp, sy);
+                dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
+                if (p.zoom > 0) {
+                    dev_->cameraSetZoomWithSpeedAbsoluteR(
+                        (uint32_t)(p.zoom * 100.f), 8);
+                }
+            } else {
+                dev_->aiTrgGimbalPresetR(pid);
+            }
+        }
         {
             std::lock_guard<std::mutex> sg(snap_mu_);
             snap_.active_preset_id = pid;

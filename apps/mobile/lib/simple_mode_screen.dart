@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
@@ -8,7 +9,7 @@ import 'ws_client.dart';
 /// Performer-mode UI: live preview at the top + a grid of named preset
 /// tiles. Big tap targets, no sliders, no PTZ pad. Optional running
 /// sequence overlay below presets.
-class SimpleModeScreen extends StatelessWidget {
+class SimpleModeScreen extends StatefulWidget {
   final WsClient client;
   final VoidCallback onSwitchAdvanced;
 
@@ -17,6 +18,30 @@ class SimpleModeScreen extends StatelessWidget {
     required this.client,
     required this.onSwitchAdvanced,
   });
+
+  @override
+  State<SimpleModeScreen> createState() => _SimpleModeScreenState();
+}
+
+class _SimpleModeScreenState extends State<SimpleModeScreen> {
+  MoveSpeed _speed = MoveSpeed.medium;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final s = p.getString('move_speed') ?? 'medium';
+      if (mounted) setState(() => _speed = moveSpeedFromWire(s));
+    });
+  }
+
+  Future<void> _setSpeed(MoveSpeed s) async {
+    setState(() => _speed = s);
+    final p = await SharedPreferences.getInstance();
+    await p.setString('move_speed', moveSpeedToWire(s));
+  }
+
+  WsClient get client => widget.client;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +53,7 @@ class SimpleModeScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(s.modelDisplay.isEmpty ? 'Open OBSBOT Remote' : s.modelDisplay),
             actions: <Widget>[
+              _speedMenu(context),
               IconButton(
                 tooltip: 'Sequence',
                 icon: Icon(s.sequence.running
@@ -42,7 +68,7 @@ class SimpleModeScreen extends StatelessWidget {
               IconButton(
                 tooltip: 'Advanced mode',
                 icon: const Icon(Icons.tune),
-                onPressed: onSwitchAdvanced,
+                onPressed: widget.onSwitchAdvanced,
               ),
               IconButton(
                 tooltip: 'Disconnect',
@@ -189,7 +215,7 @@ class SimpleModeScreen extends StatelessWidget {
       onTap: hasPreset
           ? () {
               HapticFeedback.lightImpact();
-              client.presetRecall(id);
+              client.presetRecall(id, speed: _speed);
             }
           : null,
       onLongPress: () async {
@@ -243,6 +269,32 @@ class SimpleModeScreen extends StatelessWidget {
           ),
         ]),
       ),
+    );
+  }
+
+  Widget _speedMenu(BuildContext ctx) {
+    IconData iconFor(MoveSpeed s) => switch (s) {
+          MoveSpeed.instant => Icons.flash_on,
+          MoveSpeed.slow => Icons.directions_walk,
+          MoveSpeed.medium => Icons.directions_run,
+          MoveSpeed.fast => Icons.bolt,
+        };
+    return PopupMenuButton<MoveSpeed>(
+      tooltip: 'Move speed',
+      icon: Icon(iconFor(_speed)),
+      onSelected: _setSpeed,
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<MoveSpeed>>[
+        for (final s in MoveSpeed.values)
+          CheckedPopupMenuItem<MoveSpeed>(
+            value: s,
+            checked: s == _speed,
+            child: Row(children: <Widget>[
+              Icon(iconFor(s), size: 16),
+              const SizedBox(width: 8),
+              Text(moveSpeedLabel(s)),
+            ]),
+          ),
+      ],
     );
   }
 

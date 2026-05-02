@@ -83,10 +83,39 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
   }
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final BridgeSupervisor supervisor;
   final List<String> lanIps;
   const HomeScreen({super.key, required this.supervisor, required this.lanIps});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  /// PIN + QR are hidden by default. User taps "Reveal" to show them long
+  /// enough to type / scan, then they auto-hide after 60s. This stops a
+  /// shoulder-surfer from grabbing the PIN off an idle Mac.
+  bool _revealed = false;
+  Timer? _hideTimer;
+
+  void _toggleReveal() {
+    setState(() => _revealed = !_revealed);
+    _hideTimer?.cancel();
+    if (_revealed) {
+      _hideTimer = Timer(const Duration(seconds: 60), () {
+        if (mounted) setState(() => _revealed = false);
+      });
+    }
+  }
+
+  BridgeSupervisor get supervisor => widget.supervisor;
+  List<String> get lanIps => widget.lanIps;
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
 
   Color _statusColor(BuildContext ctx) {
     switch (supervisor.status) {
@@ -137,7 +166,7 @@ class HomeScreen extends StatelessWidget {
             ),
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -167,13 +196,7 @@ class HomeScreen extends StatelessWidget {
             _row(context, 'Phone clients connected',
                 '${supervisor.wsClientCount}  (${supervisor.pairedTokenCount} paired)'),
             const SizedBox(height: 16),
-            _pinBlock(context),
-            const SizedBox(height: 16),
-            Text('Connect from your phone to:',
-                style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
-            if (lanIps.isNotEmpty) _qrCard(context, lanIps.first),
-            ...lanIps.map((ip) => _ipPill(context, '$ip:8765')),
+            _revealCard(context),
             if (lanIps.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 4),
@@ -212,7 +235,8 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            Expanded(
+            SizedBox(
+              height: 220,
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -239,44 +263,145 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  Widget _revealCard(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    if (!_revealed) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(children: <Widget>[
+          Icon(Icons.lock_outline, color: theme.colorScheme.outline),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Pairing PIN + QR hidden.\nReveal only when a phone is in front of you.',
+              style: TextStyle(color: theme.colorScheme.outline, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.icon(
+            icon: const Icon(Icons.visibility, size: 16),
+            label: const Text('Reveal'),
+            onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
+          ),
+        ]),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(children: <Widget>[
+          Expanded(child: _pinBlock(ctx)),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.visibility_off, size: 14),
+            label: const Text('Hide'),
+            onPressed: _toggleReveal,
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Text('Connect from your phone to:',
+            style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        if (lanIps.isNotEmpty) _qrCard(ctx, lanIps.first),
+        ...lanIps.map((ip) => _ipPill(ctx, '$ip:8765')),
+        const SizedBox(height: 4),
+        Text('Auto-hides in 60 seconds',
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.outline,
+            )),
+      ],
+    );
+  }
+
   Widget _qrCard(BuildContext ctx, String firstIp) {
     final url = 'http://$firstIp:8765/';
+    final theme = Theme.of(ctx);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-        const SizedBox(width: 180),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: QrImageView(
-            data: url,
-            version: QrVersions.auto,
-            size: 110,
-            backgroundColor: Colors.white,
-            eyeStyle: const QrEyeStyle(
-              eyeShape: QrEyeShape.square,
-              color: Colors.black,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: QrImageView(
+                data: url,
+                version: QrVersions.auto,
+                size: 140,
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+              ),
             ),
-            dataModuleStyle: const QrDataModuleStyle(
-              dataModuleShape: QrDataModuleShape.square,
-              color: Colors.black,
+            const SizedBox(height: 6),
+            // URL under QR — type if scanning is slow
+            SelectableText(
+              url,
+              style: const TextStyle(
+                fontFamily: 'Menlo',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
+            const SizedBox(height: 2),
+            TextButton.icon(
+              icon: const Icon(Icons.copy, size: 14),
+              label: const Text('Copy URL'),
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              ),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: url));
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text('URL copied'),
+                    duration: Duration(milliseconds: 700),
+                  ),
+                );
+              },
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 16),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Scan from any phone to open the web remote.\n'
-              'Or install the native APK / open Safari directly to:',
-              style: TextStyle(
-                color: Theme.of(ctx).colorScheme.outline,
-                fontSize: 12,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Scan or type the URL on any phone to open the web remote.',
+                  style: TextStyle(
+                    color: theme.colorScheme.outline,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'After the page loads, type the 6-digit PIN above to pair.',
+                  style: TextStyle(
+                    color: theme.colorScheme.outline,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
