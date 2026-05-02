@@ -30,6 +30,8 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>LSMultipleInstancesProhibited</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Stream the OBSBOT camera preview to your phone over Wi-Fi.</string>
 	<key>NSLocalNetworkUsageDescription</key>
