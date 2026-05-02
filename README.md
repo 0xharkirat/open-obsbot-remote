@@ -318,6 +318,32 @@ See [docs/CAMERAS.md](docs/CAMERAS.md).
 
 The current implementation is intentionally centered on the tested OBSBOT Tiny 2 Lite path. Other OBSBOT models should be possible because the SDK exposes broad camera support, but each model needs real hardware validation before it should be listed as supported.
 
+## Roadmap
+
+_(Items marked [Hark] are scoped for the next development session.)_
+
+### [Hark] Linux support
+- Replace `video_capture.mm` (AVFoundation) with a `video_capture_linux.cpp` using V4L2 for MJPEG capture.
+- Wire `third_party/obsbot-sdk/linux/` lib paths into `CMakeLists.txt` (`.so` binaries are already present).
+- Add Flutter Linux target to `apps/bridge/` (`flutter create --platforms=linux`).
+- Make `bridge_supervisor.dart` conditional - macOS-only calls (`tccutil`, TCC, codesign) must be guarded.
+- Write `scripts/build-bridge-linux.sh` and `scripts/package-linux-release.sh`.
+- Test using UTM (free macOS VM app at https://mac.getutm.app) with USB passthrough to an ARM Ubuntu VM.
+
+### [Hark] Windows support
+- Replace `video_capture.mm` with `video_capture_win.cpp` using Windows Media Foundation for capture.
+- Wire `third_party/obsbot-sdk/windows/win64-release/` (`.dll`/`.lib` already present) into `CMakeLists.txt`.
+- Add Flutter Windows target to `apps/bridge/`.
+- Conditional supervisor code for Windows paths (`%APPDATA%`, etc.).
+- Bundle `libdev.dll` + `w32-pthreads.dll` alongside the `.exe` in the release.
+- Test using UTM ARM Windows 11 evaluation image with USB passthrough.
+
+### Future
+- Notarize macOS release (requires paid Apple Developer account).
+- Native iOS/Android phone app on app stores.
+- Firmware update support (currently requires OBSBOT Center).
+- Multi-camera support.
+
 ## License
 
 | Component                  | License                                                                         |
