@@ -148,8 +148,8 @@ brew install cmake asio
 
 The project depends on OBSBOT's C++ SDK (`libdev`). It ships out-of-band, not in this repo, because OBSBOT distributes it directly.
 
-1. Go to <https://www.obsbot.com/> → **Support** / **Developer** section.
-2. Fill in the simple form requesting the **Camera SDK**. (Mention you're building a third-party controller; they reply within minutes-to-a-day.)
+1. Go to **<https://www.obsbot.com/sdk>**.
+2. Fill in the simple form requesting the **Camera SDK**. (Mention you're building a third-party controller; they typically reply within minutes.)
 3. Download the archive they email you. Unzip.
 4. Rename the extracted folder to **`obsbot-sdk`** and copy it into the repo:
 

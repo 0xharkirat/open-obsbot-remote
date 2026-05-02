@@ -1,64 +1,90 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// "Made by Hark Singh • OBSBOT SDK + Flutter" footer used in mobile + web.
+/// "Made by Hark Singh • Powered by OBSBOT SDK + Flutter" footer.
+///
+/// Uses real button widgets (not TextSpan recognizers) — TextSpan
+/// recognizers ignore taps inside Flutter web's <flt-platform-view>
+/// fallback path on small touch targets, and tap targets <44px fail
+/// iOS Safari heuristics.
 class AppFooter extends StatelessWidget {
   final EdgeInsets padding;
   const AppFooter({
     super.key,
-    this.padding = const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    this.padding = const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
   });
 
-  Future<void> _open(String url) async {
+  Future<void> _open(BuildContext ctx, String url) async {
     final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      // ignore: avoid_print
-      print('failed to open $url');
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('Could not open $url')),
+        );
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = theme.colorScheme.outline;
-    final style = TextStyle(fontSize: 11, color: color);
-    final linkStyle = style.copyWith(
-      color: theme.colorScheme.primary,
-      decoration: TextDecoration.underline,
-    );
+    final outline = theme.colorScheme.outline;
+    final small = TextStyle(fontSize: 12, color: outline);
+
+    Widget link(String label, String url) {
+      return TextButton(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          tapTargetSize: MaterialTapTargetSize.padded,
+          foregroundColor: theme.colorScheme.primary,
+          textStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+        onPressed: () => _open(context, url),
+        child: Text(label),
+      );
+    }
+
     return Padding(
       padding: padding,
       child: Center(
-        child: Text.rich(
-          TextSpan(children: <InlineSpan>[
-            const TextSpan(text: 'Made by '),
-            TextSpan(
-              text: 'Hark Singh',
-              style: linkStyle,
-              recognizer: TapGestureRecognizer()
-                ..onTap = () => _open('https://harksingh.com'),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text('Made by', style: small),
             ),
-            const TextSpan(text: '  •  Powered by '),
-            TextSpan(
-              text: 'OBSBOT SDK',
-              style: linkStyle,
-              recognizer: TapGestureRecognizer()
-                ..onTap = () => _open('https://www.obsbot.com/'),
+            link('Hark Singh', 'https://harksingh.com'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text('•  Powered by', style: small),
             ),
-            const TextSpan(text: ' + '),
-            TextSpan(
-              text: 'Flutter',
-              style: linkStyle,
-              recognizer: TapGestureRecognizer()
-                ..onTap = () => _open('https://flutter.dev/'),
+            link('OBSBOT SDK', 'https://www.obsbot.com/sdk'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text('+', style: small),
             ),
+            link('Flutter', 'https://flutter.dev/'),
             if (kIsWeb)
-              const TextSpan(text: '  •  Web'),
-          ]),
-          textAlign: TextAlign.center,
-          style: style,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text('•  Web', style: small),
+              ),
+          ],
         ),
       ),
     );

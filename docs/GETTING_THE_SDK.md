@@ -4,11 +4,11 @@ This repo doesn't include the OBSBOT SDK in git. Each developer keeps their own 
 
 ## How to get the SDK
 
-OBSBOT's developer team emails the SDK on request:
-
-1. Email **`developer@obsbot.com`** mentioning the OBSBOT camera you're working with.
-2. They reply with a download link or attachment within a few business days.
-3. Extract it to `third_party/obsbot-sdk/` at the root of this repo.
+1. Go to **<https://www.obsbot.com/sdk>**.
+2. Fill in the short form (camera model + your use case — "third-party controller for Tiny 2 Lite" is fine).
+3. They typically reply with a download link within minutes (sometimes hours, rarely longer).
+4. Download the archive, unzip, and rename the extracted folder to `obsbot-sdk`.
+5. Drop it into `third_party/` at the root of this repo so the path becomes `third_party/obsbot-sdk/include/dev/dev.hpp` etc.
 
 After extracting, the layout must be:
 
