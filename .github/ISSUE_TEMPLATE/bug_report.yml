@@ -1,0 +1,72 @@
+name: Bug report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing! Please attach the relevant section of `~/Library/Logs/Open OBSBOT Bridge/bridge.log` if the bridge is involved.
+
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model + firmware
+      description: Visible in the OBSBOT Bridge window after the camera connects.
+      placeholder: "Tiny 2 Lite, fw 6.2.6.5"
+    validations:
+      required: true
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone / browser
+      placeholder: "Moto g56 5G — Android 15 — Chrome 147"
+    validations:
+      required: true
+
+  - type: input
+    id: mac
+    attributes:
+      label: Mac / macOS / app version
+      placeholder: "MacBook Pro M5 — macOS 26.x — Open OBSBOT Bridge v0.3.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, what actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: 1, 2, 3 …
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Bridge log excerpt
+      description: |
+        Paste the last ~50 non-noise lines, e.g.
+        ```
+        grep -vE "sendMsgSync, cmd_id = 11; cmd_set = 3|x = .*; y = .*; z = " "$HOME/Library/Logs/Open OBSBOT Bridge/bridge.log" | tail -50
+        ```
+      render: shell
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "Crashes / data loss"
+        - "Feature broken, no workaround"
+        - "Feature broken, has workaround"
+        - "Cosmetic / nice-to-fix"
+    validations:
+      required: true

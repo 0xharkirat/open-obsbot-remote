@@ -71,6 +71,8 @@ json build_state_event(const DeviceSnapshot& s) {
             {"elapsed_s", s.sequence_elapsed_s},
             {"total_s", s.sequence_total_s},
             {"mode", s.sequence_mode},
+            {"available", s.available_sequences},
+            {"loaded", s.loaded_sequence},
         }},
     };
 }
@@ -277,6 +279,44 @@ void dispatch_message(DeviceSession& session,
     }
     if (action == "sequence.stop") {
         session.cmd_sequence_stop(reply_cb);
+        return;
+    }
+
+    // Sequence library
+    if (action == "sequence.save_as") {
+        std::string name = msg.value("name", std::string{});
+        std::vector<SequenceStep> steps;
+        if (msg.contains("steps") && msg["steps"].is_array()) {
+            for (auto& it : msg["steps"]) {
+                SequenceStep s;
+                s.preset_id = it.value("preset_id", 0);
+                s.seconds   = it.value("seconds", 60);
+                std::string sp = it.value("speed", std::string("medium"));
+                if (sp == "slow") s.speed = MoveSpeed::slow;
+                else if (sp == "fast") s.speed = MoveSpeed::fast;
+                else if (sp == "instant") s.speed = MoveSpeed::instant;
+                else s.speed = MoveSpeed::medium;
+                if (s.seconds < 3) s.seconds = 3;
+                steps.push_back(s);
+            }
+        }
+        LoopMode mode = LoopMode::forward;
+        if (msg.contains("mode") && msg["mode"].is_string()) {
+            std::string m = msg["mode"];
+            if (m == "once") mode = LoopMode::once;
+            else if (m == "ping_pong") mode = LoopMode::ping_pong;
+        }
+        session.cmd_sequence_save_as(name, steps, mode, reply_cb);
+        return;
+    }
+    if (action == "sequence.load") {
+        std::string name = msg.value("name", std::string{});
+        session.cmd_sequence_load(name, reply_cb);
+        return;
+    }
+    if (action == "sequence.delete") {
+        std::string name = msg.value("name", std::string{});
+        session.cmd_sequence_delete(name, reply_cb);
         return;
     }
 

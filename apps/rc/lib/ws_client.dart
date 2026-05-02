@@ -34,19 +34,29 @@ class SequenceState {
   final int stepIndex;
   final int elapsedS;
   final int totalS;
+  final List<String> available;
+  final String loaded;
   const SequenceState({
     required this.running,
     required this.stepIndex,
     required this.elapsedS,
     required this.totalS,
+    required this.available,
+    required this.loaded,
   });
   static const empty = SequenceState(
-      running: false, stepIndex: -1, elapsedS: 0, totalS: 0);
+    running: false, stepIndex: -1, elapsedS: 0, totalS: 0,
+    available: <String>[], loaded: '',
+  );
   factory SequenceState.fromJson(Map<String, dynamic> j) => SequenceState(
         running: j['running'] as bool? ?? false,
         stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
         elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
         totalS: (j['total_s'] as num?)?.toInt() ?? 0,
+        available: ((j['available'] as List<dynamic>?) ?? const <dynamic>[])
+            .map((e) => e.toString())
+            .toList(),
+        loaded: j['loaded'] as String? ?? '',
       );
 }
 
@@ -544,4 +554,19 @@ class WsClient extends ChangeNotifier {
 
   void sequenceStart() => _send({'action': 'sequence.start', 'id': _id()});
   void sequenceStop() => _send({'action': 'sequence.stop', 'id': _id()});
+
+  // Library
+  void sequenceSaveAs(String name, List<SequenceStep> steps,
+          {LoopMode mode = LoopMode.forward}) =>
+      _send({
+        'action': 'sequence.save_as',
+        'id': _id(),
+        'name': name,
+        'mode': loopModeToWire(mode),
+        'steps': steps.map((s) => s.toJson()).toList(),
+      });
+  void sequenceLoad(String name) =>
+      _send({'action': 'sequence.load', 'id': _id(), 'name': name});
+  void sequenceDelete(String name) =>
+      _send({'action': 'sequence.delete', 'id': _id(), 'name': name});
 }

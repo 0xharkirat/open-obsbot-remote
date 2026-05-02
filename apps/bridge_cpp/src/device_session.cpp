@@ -16,6 +16,10 @@ using namespace std::chrono;
 
 namespace obs {
 
+// forward decls — used by on_dev_changed before their bodies appear lower
+static nlohmann::json read_lib();
+static void write_lib(const nlohmann::json& j);
+
 static std::string product_name(ObsbotProductType t) {
     switch (t) {
         case ObsbotProdTiny: return "Tiny";
@@ -79,6 +83,17 @@ void DeviceSession::on_dev_changed(const std::string& sn, bool plugged) {
 
                 // Pull the camera's saved preset list so the UI can show names.
                 refresh_presets_locked();
+
+                // Hydrate sequence library list so the UI can populate the
+                // dropdown immediately on first state push.
+                {
+                    nlohmann::json lib = read_lib();
+                    std::vector<std::string> names;
+                    for (auto& it : lib.items()) names.push_back(it.key());
+                    std::sort(names.begin(), names.end());
+                    std::lock_guard<std::mutex> sg(snap_mu_);
+                    snap_.available_sequences = names;
+                }
             } else {
                 if (dev_ && dev_->devSn() == sn) {
                     dev_.reset();
@@ -580,6 +595,14 @@ static MoveSpeed parse_speed(const std::string& s) {
     return MoveSpeed::medium;
 }
 
+static std::string sequences_lib_path() {
+    const char* home = std::getenv("HOME");
+    if (!home) return "";
+    std::string dir = std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
+    ::mkdir(dir.c_str(), 0755);
+    return dir + "/sequences.json";
+}
+
 static const char* loop_mode_str(LoopMode m) {
     switch (m) {
         case LoopMode::once:      return "once";
@@ -622,11 +645,8 @@ void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, Loo
             std::lock_guard<std::mutex> g(seq_mu_);
             seq_steps_ = steps;
             seq_mode_ = mode;
-            // If editing mid-run, clamp current index. Sequencer thread
-            // picks up the new list at next step boundary.
             if (was_running) {
                 if (seq_steps_.empty()) {
-                    // empty list mid-run = stop
                     seq_running_ = false;
                     seq_quit_ = true;
                 } else if (seq_step_index_ >= (int)seq_steps_.size()) {
@@ -634,8 +654,132 @@ void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, Loo
                 }
             }
             persist_sequence(seq_steps_, seq_mode_);
+            // Editing scratch — drop the loaded-sequence label.
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.loaded_sequence = "";
         }
         seq_cv_.notify_all();
+        return ok();
+    }, std::move(reply));
+}
+
+// ----- saved sequence library -----
+
+static nlohmann::json read_lib() {
+    std::ifstream f(sequences_lib_path());
+    if (!f) return nlohmann::json::object();
+    try {
+        nlohmann::json j; f >> j;
+        if (j.is_object()) return j;
+    } catch (...) {}
+    return nlohmann::json::object();
+}
+static void write_lib(const nlohmann::json& j) {
+    std::ofstream f(sequences_lib_path());
+    if (f) f << j.dump(2);
+}
+
+static nlohmann::json sequence_to_json(const std::vector<SequenceStep>& steps,
+                                       LoopMode mode) {
+    nlohmann::json out;
+    out["mode"] = loop_mode_str(mode);
+    out["steps"] = nlohmann::json::array();
+    for (auto& s : steps) {
+        out["steps"].push_back({
+            {"preset_id", s.preset_id},
+            {"seconds",   s.seconds},
+            {"speed",     speed_str(s.speed)},
+        });
+    }
+    return out;
+}
+
+void DeviceSession::cmd_sequence_save_as(const std::string& name,
+                                         const std::vector<SequenceStep>& steps,
+                                         LoopMode mode, ReplyFn reply) {
+    submit([this, name, steps, mode]() -> CmdResult {
+        if (name.empty()) return err("invalid_param", "name required");
+        nlohmann::json lib = read_lib();
+        lib[name] = sequence_to_json(steps, mode);
+        write_lib(lib);
+        // also update active scratch + name
+        std::vector<std::string> names;
+        for (auto& it : lib.items()) names.push_back(it.key());
+        std::sort(names.begin(), names.end());
+        {
+            std::lock_guard<std::mutex> g(seq_mu_);
+            seq_steps_ = steps;
+            seq_mode_  = mode;
+            persist_sequence(seq_steps_, seq_mode_);
+        }
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.available_sequences = names;
+            snap_.loaded_sequence = name;
+        }
+        LOGI("sequence: saved as '%s' (%zu in library)", name.c_str(), names.size());
+        return ok();
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
+    submit([this, name]() -> CmdResult {
+        nlohmann::json lib = read_lib();
+        if (!lib.contains(name)) {
+            std::string m = "no sequence named '" + name + "'";
+            return CmdResult{false, "not_found", m};
+        }
+        auto& entry = lib[name];
+        std::vector<SequenceStep> steps;
+        for (auto& it : entry["steps"]) {
+            SequenceStep s;
+            s.preset_id = it.value("preset_id", 0);
+            s.seconds   = it.value("seconds", 60);
+            s.speed     = parse_speed(it.value("speed", std::string("medium")));
+            if (s.seconds < 3) s.seconds = 3;
+            steps.push_back(s);
+        }
+        LoopMode mode = parse_loop_mode(entry.value("mode", std::string("forward")));
+        bool was_running = seq_running_.load();
+        {
+            std::lock_guard<std::mutex> g(seq_mu_);
+            seq_steps_ = steps;
+            seq_mode_  = mode;
+            if (was_running) {
+                if (seq_step_index_ >= (int)seq_steps_.size()) {
+                    seq_step_index_ = (int)seq_steps_.size() - 1;
+                }
+            }
+            persist_sequence(seq_steps_, seq_mode_);
+        }
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.loaded_sequence = name;
+        }
+        seq_cv_.notify_all();
+        LOGI("sequence: loaded '%s'", name.c_str());
+        return ok();
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_sequence_delete(const std::string& name, ReplyFn reply) {
+    submit([this, name]() -> CmdResult {
+        nlohmann::json lib = read_lib();
+        if (!lib.contains(name)) {
+            std::string m = "no sequence named '" + name + "'";
+            return CmdResult{false, "not_found", m};
+        }
+        lib.erase(name);
+        write_lib(lib);
+        std::vector<std::string> names;
+        for (auto& it : lib.items()) names.push_back(it.key());
+        std::sort(names.begin(), names.end());
+        {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.available_sequences = names;
+            if (snap_.loaded_sequence == name) snap_.loaded_sequence = "";
+        }
+        LOGI("sequence: deleted '%s' (%zu left)", name.c_str(), names.size());
         return ok();
     }, std::move(reply));
 }

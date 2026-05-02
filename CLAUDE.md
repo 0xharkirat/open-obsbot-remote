@@ -1,17 +1,16 @@
 # CLAUDE.md — guidance for future Claude Code sessions in this repo
 
 This file is auto-loaded into every Claude Code session. Read it before doing anything substantive.
+A duplicate copy lives at `AGENTS.md` for non-Claude AI tools that follow that convention.
 
 ## What this project is
 
-Phone-based remote for OBSBOT cameras (currently Tiny 2 Lite). Performer / streamer has the camera + Mac on stage, and uses an Android or iOS app to pan/tilt/zoom/recall presets/toggle AI from across the room.
+Phone-based remote for OBSBOT cameras (Tiny 2 Lite is the only camera tested). The performer / streamer has the camera + Mac on stage, and uses an Android, iOS, or **web browser** on their phone to pan/tilt/zoom/recall presets/run a timed sequence — all from across the room.
 
 Two products:
 
-- **Open OBSBOT Bridge** — macOS .app the user installs once. Wraps the C++ bridge subprocess that talks to the camera over USB via OBSBOT's libdev SDK + serves a JSON-over-WebSocket control API + an MJPEG preview stream on the LAN.
-- **Open OBSBOT Remote** — Flutter mobile app (Android + iOS) the performer uses on their phone.
-
-The repo is **private** while we build a working demo. SDK is gitignored (`third_party/obsbot-sdk/`); see `docs/GETTING_THE_SDK.md`.
+- **Open OBSBOT Bridge** — macOS `.app` the user installs once. Wraps the C++ subprocess (`obsbot-bridge`) that talks to the camera over USB via OBSBOT's libdev SDK. Serves a JSON-over-WebSocket control API on `:8765`, an HTTP MJPEG preview on `:8766`, and the Flutter web build of the remote at `http://<mac>:8765/`.
+- **Open OBSBOT Remote** — Flutter app for the phone (iOS + Android + Web). Web build is bundled inside the Bridge .app and served directly, so users don't need an app-store install.
 
 ## Repo layout
 
@@ -19,66 +18,79 @@ The repo is **private** while we build a working demo. SDK is gitignored (`third
 .
 ├── apps/
 │   ├── rc/            "Open OBSBOT Remote" — Flutter app for the controller surface.
-│   │                   Targets iOS + Android + Web (served by the bridge). Bundle IDs:
+│   │                   Targets iOS + Android + Web. Bundle IDs:
 │   │                   com.harksingh.obsbotcontrol (iOS), com.harksingh.obsbot_control (Android).
 │   │                   Internal pubspec name still `obsbot_control` — don't rename, breaks imports.
 │   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge — links libdev + AVFoundation. Single
 │   │                   binary `obsbot-bridge`. Wrapped by apps/bridge/ as a subprocess.
 │   └── bridge/        "Open OBSBOT Bridge" — Flutter desktop app wrapping bridge_cpp.
-│                       Currently macOS only. Will grow Windows/Linux targets later.
+│                       Currently macOS only. Windows + Linux planned in same project.
 │                       Internal pubspec name still `obsbot_bridge_mac` — leave it.
 │                       Bundle ID: com.harksingh.obsbotbridge.
-├── packages/          (planned) shared Dart pkgs — empty stubs.
-├── docs/              ARCHITECTURE.md, PROTOCOL.md, SDK_EXPLORATION.md, GETTING_THE_SDK.md, RUN.md
+├── packages/                    (planned) shared Dart pkgs — empty stubs.
+├── docs/                        ARCHITECTURE, PROTOCOL, SDK_EXPLORATION, GETTING_THE_SDK,
+│                                RUN, ROADMAP.
 ├── scripts/
-│   ├── build-bridge-mac.sh    builds bridge_cpp → flutter build web (rc) → flutter build
-│   │                          macos (bridge) → bundles libdev + web build → ad-hoc sign.
+│   ├── build-bridge-mac.sh      builds bridge_cpp → flutter build web (rc) → flutter build
+│   │                            macos (bridge) → bundles libdev + web → ad-hoc signs.
 │   └── verify-sdk.sh
-├── third_party/obsbot-sdk/    GITIGNORED. SDK 1.3.0 from OBSBOT (received by email).
-└── run-bridge.sh              dev shortcut: runs the C++ bridge from Terminal (no .app wrapper).
+├── third_party/obsbot-sdk/      GITIGNORED. SDK 1.3.0 from OBSBOT (received by email).
+└── run-bridge.sh                dev shortcut: runs the C++ bridge from Terminal (no .app wrapper).
 ```
 
 ## Architecture in one sentence
 
-Phone (Flutter) → WebSocket (port 8765, JSON) → Bridge (C++ inside Mac .app) → libdev USB → Camera. Live preview is HTTP MJPEG on port 8766.
+Phone (Flutter, native or web) → WebSocket on `:8765/v1` (JSON, PIN-token-gated) → C++ subprocess inside the Mac .app → libdev USB → camera. Live preview is HTTP MJPEG on `:8766` (port = ws_port + 1) gated by `?t=<token>`. The Flutter web build of the phone app is served from `http://<mac>:8765/`.
 
-See `docs/ARCHITECTURE.md` and `docs/PROTOCOL.md` for the full spec.
+See `docs/ARCHITECTURE.md` and `docs/PROTOCOL.md`.
 
 ## Build & run
 
 ```bash
-# every time you change C++ or Flutter macOS code
+# every time you change C++, web, or Flutter macOS code
 ./scripts/build-bridge-mac.sh
 
 # launch the Mac app
 open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
 
-# launch the phone app (needs ANDROID_DEVICE_ID from `adb devices` or `flutter devices`)
-cd apps/rc && flutter run -d <device-id>
+# launch the phone app
+cd apps/rc && flutter run -d <device-id>          # native APK / iOS
+# OR phone browser → http://<mac-ip>:8765/         # web, served by bridge
 ```
 
 For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh` runs it from Terminal — but Terminal needs camera permission for that to work.
 
 ## Things that bit us, don't repeat
 
-1. **Crow's `response.write()` does not flush mid-handler.** It buffers the whole response until the handler returns. That makes multipart/x-mixed-replace impossible through Crow. We solved it with a hand-rolled BSD-socket server in `apps/bridge_cpp/src/mjpeg_server.cpp` listening on port+1.
-2. **Unsigned subprocess + macOS TCC.** The bundled `obsbot-bridge` subprocess won't inherit camera-access grants from the parent .app unless the whole bundle is code-signed. We ad-hoc sign in `build-bridge-mac.sh` (`codesign --force --deep --sign -`). Without that, preview silently fails after the user clicks Allow.
-3. **Bundle-ID changes break TCC.** Every time we change `PRODUCT_BUNDLE_IDENTIFIER`, macOS treats it as a new app and the camera/local-network prompt fires again. Don't rename bundle IDs casually.
-4. **Sandbox must be OFF.** App sandbox blocks raw USB and binding TCP listeners. We ship via Developer ID, not Mac App Store, so this is fine. Both `Debug.entitlements` and `Release.entitlements` set `com.apple.security.app-sandbox` to false.
-5. **Android cleartext traffic.** Bridge runs on `ws://` and `http://` over LAN, so the Android manifest needs `android:usesCleartextTraffic="true"`. iOS needs `NSAppTransportSecurity → NSAllowsLocalNetworking`. macOS clients need `com.apple.security.network.client`.
-6. **`flutter create --platforms=...`** — it ONLY adds the platforms listed. The user needs Android + iOS + macOS (probably more later). Always re-run with all platforms when scaffolding.
-7. **`MainActivity.kt` package must match `namespace` in `build.gradle.kts`** — moving Android `applicationId` is fine on its own, but if you change the `namespace` you must move the kotlin source under the matching `android/app/src/main/kotlin/<package-path>/`.
-8. **`CameraStatus` from libdev is a tagged union by `productType()`.** Read `cs.tiny.*` only if `productType() == ObsbotProdTiny2 || ObsbotProdTiny2Lite`. Mis-cast = junk.
-9. **AI tracking owns the gimbal.** Before sending a manual gimbal command, call `cameraSetAiModeU(AiWorkModeNone)` + `aiSetEnabledR(false)`. We do this in `device_session.cpp` already.
-10. **HDR + media-mode switches** need a 3-second debounce per the SDK comments. We enforce this in the bridge.
-11. **`flutter run` hot-reload doesn't always re-evaluate Dart logic in `build()`** — when changing widget logic, prefer hot RESTART (capital R).
+1. **Crow's `response.write()` does not flush mid-handler.** It buffers the whole response until the handler returns. Multipart/x-mixed-replace is impossible through Crow. We solved it with a hand-rolled BSD-socket server in `apps/bridge_cpp/src/mjpeg_server.cpp` listening on port+1.
+2. **Unsigned subprocess + macOS TCC.** The bundled `obsbot-bridge` won't inherit camera-access grants from the parent .app unless the whole bundle is code-signed. We ad-hoc sign in `build-bridge-mac.sh` (`codesign --force --deep --sign -`). Without that, preview silently fails.
+3. **Bundle-ID changes break TCC.** Every time we rename `PRODUCT_BUNDLE_IDENTIFIER`, macOS treats it as a new app and the camera/local-network prompts re-fire. Don't rename casually.
+4. **Sandbox must be OFF.** App Sandbox blocks raw USB and binding TCP listeners. We ship via Developer ID (eventually), not Mac App Store, so `com.apple.security.app-sandbox = false` in both entitlements files is fine.
+5. **Android cleartext traffic.** Bridge runs on `ws://` and `http://` over LAN. Android needs `android:usesCleartextTraffic="true"`. iOS needs `NSAppTransportSecurity → NSAllowsLocalNetworking`. macOS clients need `com.apple.security.network.client`.
+6. **Tiny 2 Lite digital-zoom max is 2.0×, not 4.0×.** The slider's `zoomMax` came back as `4.0` from a default; out-of-range commands silently clamped, looking broken. Bridge now picks `2.0` for Tiny 2 Lite via product type and snaps `snap_.zoom` immediately on set so phone UI feels instant instead of waiting for the 500ms poll.
+7. **Use `cameraSetZoomWithSpeedAbsoluteR`, not `cameraSetZoomAbsoluteR`** — the vendor sample uses the former; the latter sometimes silently fails.
+8. **`cameraSetAiModeU(AiWorkModeNone)` before any manual gimbal command.** AI tracking owns the gimbal otherwise. `device_session.cpp::cmd_ptz_*` already does this.
+9. **HDR + media-mode switches** need a 3-second debounce per the SDK comments. Bridge enforces this.
+10. **`flutter run` hot-reload doesn't always re-evaluate Dart logic in `build()`** — when changing widget logic, prefer hot RESTART (capital R).
+11. **`MainActivity.kt` package must match `namespace` in `build.gradle.kts`** — moving `applicationId` is fine, but if you change `namespace` you must move the kotlin source under the matching directory.
+12. **`CameraStatus` from libdev is a tagged union by `productType()`.** Read `cs.tiny.*` only if `productType() == ObsbotProdTiny2 || ObsbotProdTiny2Lite`. Mis-cast = junk.
+13. **SIGPIPE kills the bridge on phone disconnect** unless you `signal(SIGPIPE, SIG_IGN)` at startup. Browsers / phones drop sockets uncleanly all the time.
+14. **libdev's `DevicesPrivate::~DevicesPrivate()` throws on shutdown** → `std::terminate`. Use `_Exit(0)` from signal handler to skip global destructors.
+15. **Stable `TextEditingController` per row** — recreating a controller every parent rebuild kills cursor + focus. Was the bug behind "can't type seconds in sequencer". Each `_EditStep` now owns its controller.
+16. **`WebSocketChannel.stream` is a single-subscription stream.** Don't cancel + re-listen — messages arriving in between are lost. The pair() flow uses a single subscription + a Completer matched by id.
+17. **flutter_mjpeg doesn't work on Flutter web.** `Image.network` doesn't decode multipart streams either. Use `HtmlElementView` + a real `<img>` element. Conditional import via `dart.library.js_interop`.
+18. **Crow returns 404 for paths > 3 segments** (we now have 4-segment routes for nested Flutter web assets). Add more if needed.
+19. **OBSBOT Center holds the camera control endpoint exclusively.** Quit it before launching our bridge or PTZ commands fail with `device_busy`.
+20. **AppDelegate single-instance** is needed because ad-hoc-signed dev builds occasionally slip through `LSMultipleInstancesProhibited`. Self-quit if a sibling exists.
 
 ## Conventions
 
-- WS port 8765, MJPEG port 8766 (always WS-port + 1). Both are configurable but everywhere assumes the +1 relationship.
+- WS port 8765, MJPEG port 8766 (always WS-port + 1). Both configurable but everywhere assumes the +1 relationship.
 - Logs persist at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
-- Caveman / terse responses by default — user prefers brevity.
-- macOS app is *not* sandboxed and *not* notarized yet. Distribution is dev-only. Notarization is a future task.
+- Auth state at `~/Library/Application Support/Open OBSBOT Bridge/auth.json` (PIN + tokens).
+- Sequence persists at `~/Library/Application Support/Open OBSBOT Bridge/sequence.json`.
+- Caveman / terse responses preferred — user explicitly likes brevity. Switch to clearer prose for security/legal/permission topics.
+- macOS app is *not* sandboxed and *not* notarized yet. Distribution is dev-only.
 
 ## Camera permission flow
 
@@ -90,35 +102,18 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 
 If denied: UI shows a "Reset & retry" button that runs `tccutil reset Camera com.harksingh.obsbotbridge` and restarts the subprocess to retrigger the prompt.
 
-## What's known to work (as of 2026-05-01)
+## PIN-paired auth flow
 
-- USB camera detection via libdev (Tiny 2 Lite, fw 6.2.6.5)
-- PTZ velocity + absolute angle, gimbal recenter
-- Zoom set
-- Preset save / recall / delete (4 slots in mobile UI)
-- AI mode toggle (Human / None)
-- HDR / FOV / brightness / contrast / saturation / sharpness / face AE / face focus / flip
-- Sleep / wake
-- Live preview at ~12 fps, ~56 KB/frame, ~5 Mbps (downscaled to 960px max long-side, JPEG q=0.40)
-- macOS .app + bundled bridge subprocess + libdev
-- Phone connects over LAN; tested with Moto g56 5G
+1. Bridge generates a random 6-digit PIN on first launch (or after "Reset pairing"). Stored at `~/Library/Application Support/Open OBSBOT Bridge/auth.json` along with issued tokens.
+2. Bridge UI hides PIN+QR by default. User clicks "Reveal" → shows for 60s, auto-hides.
+3. Phone connects to WS, sends `{"action":"hello","token":<saved>}` if it has one. If token missing or invalid, server replies `auth_required` and phone shows pair screen.
+4. Phone sends `{"action":"pair","pin":"123456"}`. Bridge replies with `{"ok":true,"token":"<32-byte-hex>"}` on match. Phone saves token.
+5. Subsequent WS messages and MJPEG GETs carry the token. MJPEG uses `?t=<token>` query param.
+6. Bridge UI shows "N paired" count. "Reset pairing" deletes auth.json + restarts subprocess.
 
-## What's pending
+## What's known to work (as of Phase A complete)
 
-- WebRTC preview (alongside MJPEG, not replacing)
-- Preset-first mobile UI redesign (preview big, preset buttons big, advanced sliders behind a sheet)
-- Pigeon → Swift rewrite of bridge_cpp into bridge_mac (single-process .app, no subprocess)
-- mDNS auto-discovery (currently manual IP entry)
-- Notarized DMG + iOS TestFlight + Play internal track
-- Other OBSBOT cameras (Tiny 2, Tiny SE, Meet, Tail Air...)
-- OBSBOT licensing email — see `docs/GETTING_THE_SDK.md`
-
-## Coexistence with the official OBSBOT Center app
-
-- **Video preview:** macOS supports multiple AVCaptureSession consumers per camera, so our preview and the official app can both stream simultaneously without fighting.
-- **Camera control (PTZ / zoom / AI mode):** libdev claims a UVC extension unit + HID control endpoint. These are typically *exclusive* — only one app can issue control commands at a time. If the official OBSBOT Center app is open and connected, our bridge will likely see `device_busy` errors when sending commands.
-- **Firmware updates:** only the official app can do those. Use it for first-time setup, then quit it before launching Open OBSBOT Bridge.
-- **In practice:** treat the two apps as mutually exclusive for daily use. Bridge log will print "device unplugged" or busy errors if the user has both running.
+See README.md "What works today" section.
 
 ## Future-Claude operating tips
 
@@ -127,3 +122,4 @@ If denied: UI shows a "Reset & retry" button that runs `tccutil reset Camera com
 - The user accepts terse caveman-style responses but switches to clearer prose for security/legal/permission topics. Match accordingly.
 - Don't rewrite working code unless asked. Add features behind toggles, keep the demo path intact.
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
+- When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.

@@ -63,6 +63,44 @@ class _SequencerScreenState extends State<SequencerScreen> {
 
   void _stop() => widget.client.sequenceStop();
 
+  Future<void> _saveAs(BuildContext ctx) async {
+    final loaded = widget.client.state.sequence.loaded;
+    final ctrl = TextEditingController(text: loaded);
+    final name = await showDialog<String>(
+      context: ctx,
+      builder: (BuildContext c) => AlertDialog(
+        title: const Text('Save sequence'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 60,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Morning service, Vocalist rehearsal',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    final list = _steps
+        .map((e) => SequenceStep(
+              presetId: e.presetId,
+              seconds: e.seconds,
+              speed: e.speed,
+            ))
+        .toList();
+    widget.client.sequenceSaveAs(name, list, mode: _mode);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -72,8 +110,13 @@ class _SequencerScreenState extends State<SequencerScreen> {
         final running = s.sequence.running;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Sequence'),
+            title: Text(s.sequence.loaded.isEmpty ? 'Sequence' : s.sequence.loaded),
             actions: <Widget>[
+              IconButton(
+                tooltip: 'Save sequence as…',
+                icon: const Icon(Icons.bookmark_add_outlined),
+                onPressed: () => _saveAs(context),
+              ),
               if (running)
                 IconButton(
                   tooltip: 'Stop',
@@ -90,6 +133,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
           ),
           body: SafeArea(
             child: Column(children: <Widget>[
+              _libraryBar(context, s),
               if (running) _runningBar(context, s),
               Expanded(
                 child: _steps.isEmpty
@@ -170,6 +214,92 @@ class _SequencerScreenState extends State<SequencerScreen> {
       },
     );
   }
+
+  Widget _libraryBar(BuildContext ctx, CameraState s) {
+    final theme = Theme.of(ctx);
+    final lib = s.sequence.available;
+    if (lib.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(children: <Widget>[
+          Icon(Icons.bookmark_outline,
+              size: 16, color: theme.colorScheme.outline),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('No saved sequences yet — tap the bookmark to save this one.',
+                style: TextStyle(
+                    fontSize: 12, color: theme.colorScheme.outline)),
+          ),
+        ]),
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: <Widget>[
+        Icon(Icons.bookmark, size: 16, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: DropdownButton<String>(
+            isExpanded: true,
+            underline: const SizedBox.shrink(),
+            value: s.sequence.loaded.isEmpty ? null : s.sequence.loaded,
+            hint: const Text('Load saved sequence…'),
+            items: <DropdownMenuItem<String>>[
+              for (final n in lib)
+                DropdownMenuItem<String>(value: n, child: Text(n)),
+            ],
+            onChanged: (n) {
+              if (n != null) widget.client.sequenceLoad(n);
+            },
+          ),
+        ),
+        if (s.sequence.loaded.isNotEmpty)
+          IconButton(
+            tooltip: 'Delete saved sequence',
+            icon: const Icon(Icons.delete_outline, size: 18),
+            onPressed: () async {
+              final ok = await showDialog<bool>(
+                context: ctx,
+                builder: (BuildContext c) => AlertDialog(
+                  title: Text('Delete "${s.sequence.loaded}"?'),
+                  content: const Text('This removes the saved sequence from the bridge. The current edit stays.'),
+                  actions: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.of(c).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(c).pop(true),
+                      child: const Text('Delete'),
+                    ),
+                  ],
+                ),
+              );
+              if (ok == true) widget.client.sequenceDelete(s.sequence.loaded);
+            },
+          ),
+      ]),
+    );
+  }
+
+  /// On state events that include the loaded-sequence name + steps, sync
+  /// the editor view. Called when user picks from the library dropdown.
+  /// We compare what's loaded on bridge vs our local _steps; if different,
+  /// rebuild from snapshot's presets/steps. The bridge persists the active
+  /// scratch in sequence.json, but the LIST of steps comes via state.
+  /// Currently the state event ships sequence.{step_index,total_s,...} but
+  /// not the steps list per se — so we tolerate "load triggered" by
+  /// listening for loaded_sequence change and pulling the current snapshot.
 
   Widget _modeSelector(BuildContext ctx) {
     final theme = Theme.of(ctx);

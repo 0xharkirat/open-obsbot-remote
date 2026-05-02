@@ -60,6 +60,12 @@ struct DeviceSnapshot {
     int  sequence_total_s = 0;
     std::string sequence_mode = "forward";  // once | forward | ping_pong
 
+    // Library of saved sequences. Keys are user-chosen names (e.g.
+    // "Morning service", "Vocalist rehearsal"). The currently-loaded
+    // sequence's name (or empty if unsaved) is tracked separately.
+    std::vector<std::string> available_sequences;
+    std::string              loaded_sequence;  // empty = unsaved scratch
+
     std::string ai_mode = "none";
     std::string ai_sub_mode = "normal";
     bool ai_enabled = false;
@@ -127,6 +133,13 @@ public:
     void cmd_sequence_set(const std::vector<SequenceStep>& steps, LoopMode mode, ReplyFn reply);
     void cmd_sequence_start(ReplyFn reply);
     void cmd_sequence_stop(ReplyFn reply);
+
+    // Sequence library.
+    void cmd_sequence_save_as(const std::string& name,
+                              const std::vector<SequenceStep>& steps,
+                              LoopMode mode, ReplyFn reply);
+    void cmd_sequence_load(const std::string& name, ReplyFn reply);
+    void cmd_sequence_delete(const std::string& name, ReplyFn reply);
 
     // public so the C-style SDK trampoline can forward into us
     void on_dev_changed(const std::string& sn, bool plugged);
