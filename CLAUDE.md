@@ -1,4 +1,4 @@
-# CLAUDE.md — guidance for future Claude Code sessions in this repo
+# CLAUDE.md - guidance for future Claude Code sessions in this repo
 
 This file is auto-loaded into every Claude Code session. Read it before doing anything substantive.
 A duplicate copy lives at `AGENTS.md` for non-Claude AI tools that follow that convention.
@@ -9,25 +9,25 @@ Phone-based remote for OBSBOT cameras (Tiny 2 Lite is the only camera tested). A
 
 Two products:
 
-- **Open OBSBOT Bridge** — macOS `.app` the user installs once. Wraps the C++ subprocess (`obsbot-bridge`) that talks to the camera over USB via OBSBOT's libdev SDK. Serves a JSON-over-WebSocket control API on `:8765`, an HTTP MJPEG preview on `:8766`, and the Flutter web build of the remote at `http://<mac>:8765/`.
-- **Open OBSBOT Remote** — Flutter app for the phone (iOS + Android + Web). Web build is bundled inside the Bridge .app and served directly, so users don't need an app-store install.
+- **Open OBSBOT Bridge** - macOS `.app` the user installs once. Wraps the C++ subprocess (`obsbot-bridge`) that talks to the camera over USB via OBSBOT's libdev SDK. Serves a JSON-over-WebSocket control API on `:8765`, an HTTP MJPEG preview on `:8766`, and the Flutter web build of the remote at `http://<mac>:8765/`.
+- **Open OBSBOT Remote** - Flutter app for the phone (iOS + Android + Web). Web build is bundled inside the Bridge .app and served directly, so users don't need an app-store install.
 
 ## Repo layout
 
 ```
 .
 ├── apps/
-│   ├── rc/            "Open OBSBOT Remote" — Flutter app for the controller surface.
+│   ├── rc/            "Open OBSBOT Remote" - Flutter app for the controller surface.
 │   │                   Targets iOS + Android + Web. Bundle IDs:
 │   │                   com.harksingh.obsbotcontrol (iOS), com.harksingh.obsbot_control (Android).
-│   │                   Internal pubspec name still `obsbot_control` — don't rename, breaks imports.
-│   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge — links libdev + AVFoundation. Single
+│   │                   Internal pubspec name still `obsbot_control` - don't rename, breaks imports.
+│   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge - links libdev + AVFoundation. Single
 │   │                   binary `obsbot-bridge`. Wrapped by apps/bridge/ as a subprocess.
-│   └── bridge/        "Open OBSBOT Bridge" — Flutter desktop app wrapping bridge_cpp.
+│   └── bridge/        "Open OBSBOT Bridge" - Flutter desktop app wrapping bridge_cpp.
 │                       Currently macOS only. Windows + Linux planned in same project.
-│                       Internal pubspec name still `obsbot_bridge_mac` — leave it.
+│                       Internal pubspec name still `obsbot_bridge_mac` - leave it.
 │                       Bundle ID: com.harksingh.obsbotbridge.
-├── packages/                    (planned) shared Dart pkgs — empty stubs.
+├── packages/                    (planned) shared Dart pkgs - empty stubs.
 ├── docs/                        ARCHITECTURE, PROTOCOL, SDK_EXPLORATION, GETTING_THE_SDK,
 │                                RUN, CAMERAS.
 ├── scripts/
@@ -58,7 +58,7 @@ cd apps/rc && flutter run -d <device-id>          # native APK / iOS
 # OR phone browser → http://<mac-ip>:8765/         # web, served by bridge
 ```
 
-For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh` runs it from Terminal — but Terminal needs camera permission for that to work.
+For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh` runs it from Terminal - but Terminal needs camera permission for that to work.
 
 ## Things that bit us, don't repeat
 
@@ -68,19 +68,19 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 4. **Sandbox must be OFF.** App Sandbox blocks raw USB and binding TCP listeners. We ship via Developer ID (eventually), not Mac App Store, so `com.apple.security.app-sandbox = false` in both entitlements files is fine.
 5. **Android cleartext traffic.** Bridge runs on `ws://` and `http://` over LAN. Android needs `android:usesCleartextTraffic="true"`. iOS needs `NSAppTransportSecurity → NSAllowsLocalNetworking`. macOS clients need `com.apple.security.network.client`.
 6. **Tiny 2 Lite digital-zoom max is 2.0×, not 4.0×.** The slider's `zoomMax` came back as `4.0` from a default; out-of-range commands silently clamped, looking broken. Bridge now picks `2.0` for Tiny 2 Lite via product type and snaps `snap_.zoom` immediately on set so phone UI feels instant instead of waiting for the 500ms poll.
-7. **Use `cameraSetZoomWithSpeedAbsoluteR`, not `cameraSetZoomAbsoluteR`** — the vendor sample uses the former; the latter sometimes silently fails.
+7. **Use `cameraSetZoomWithSpeedAbsoluteR`, not `cameraSetZoomAbsoluteR`** - the vendor sample uses the former; the latter sometimes silently fails.
 8. **`cameraSetAiModeU(AiWorkModeNone)` before any manual gimbal command.** AI tracking owns the gimbal otherwise. `device_session.cpp::cmd_ptz_*` already does this.
 9. **HDR + media-mode switches** need a 3-second debounce per the SDK comments. Bridge enforces this.
-10. **`flutter run` hot-reload doesn't always re-evaluate Dart logic in `build()`** — when changing widget logic, prefer hot RESTART (capital R).
-11. **`MainActivity.kt` package must match `namespace` in `build.gradle.kts`** — moving `applicationId` is fine, but if you change `namespace` you must move the kotlin source under the matching directory.
+10. **`flutter run` hot-reload doesn't always re-evaluate Dart logic in `build()`** - when changing widget logic, prefer hot RESTART (capital R).
+11. **`MainActivity.kt` package must match `namespace` in `build.gradle.kts`** - moving `applicationId` is fine, but if you change `namespace` you must move the kotlin source under the matching directory.
 12. **`CameraStatus` from libdev is a tagged union by `productType()`.** Read `cs.tiny.*` only if `productType() == ObsbotProdTiny2 || ObsbotProdTiny2Lite`. Mis-cast = junk.
 13. **SIGPIPE kills the bridge on phone disconnect** unless you `signal(SIGPIPE, SIG_IGN)` at startup. Browsers / phones drop sockets uncleanly all the time.
 14. **libdev's `DevicesPrivate::~DevicesPrivate()` throws on shutdown** → `std::terminate`. Use `_Exit(0)` from signal handler to skip global destructors.
-15. **Stable `TextEditingController` per row** — recreating a controller every parent rebuild kills cursor + focus. Was the bug behind "can't type seconds in sequencer". Each `_EditStep` now owns its controller.
-16. **`WebSocketChannel.stream` is a single-subscription stream.** Don't cancel + re-listen — messages arriving in between are lost. The pair() flow uses a single subscription + a Completer matched by id.
+15. **Stable `TextEditingController` per row** - recreating a controller every parent rebuild kills cursor + focus. Was the bug behind "can't type seconds in sequencer". Each `_EditStep` now owns its controller.
+16. **`WebSocketChannel.stream` is a single-subscription stream.** Don't cancel + re-listen - messages arriving in between are lost. The pair() flow uses a single subscription + a Completer matched by id.
 17. **flutter_mjpeg doesn't work on Flutter web.** `Image.network` doesn't decode multipart streams either. Use `HtmlElementView` + a real `<img>` element. Conditional import via `dart.library.js_interop`.
 18. **Crow returns 404 for paths > 3 segments** (we now have 4-segment routes for nested Flutter web assets). Add more if needed.
-19. **OBSBOT Center is NOT required** for first-time setup or daily use — our bridge does everything except firmware updates. But if both are running at once, they fight over the camera control endpoint; PTZ commands return `device_busy`. Quit OBSBOT Center before launching our bridge.
+19. **OBSBOT Center is NOT required** for first-time setup or daily use - our bridge does everything except firmware updates. But if both are running at once, they fight over the camera control endpoint; PTZ commands return `device_busy`. Quit OBSBOT Center before launching our bridge.
 20. **AppDelegate single-instance** is needed because ad-hoc-signed dev builds occasionally slip through `LSMultipleInstancesProhibited`. Self-quit if a sibling exists.
 
 ## Conventions
@@ -92,6 +92,7 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 - Saved sequence library persists at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`.
 - Keep responses concise. Use clearer prose for security, legal, and permission topics.
 - macOS app is *not* sandboxed and *not* notarized yet. Distribution is GitHub Release ZIP or source build.
+- **Never use em dashes (—) in any file in this repo.** Use a plain hyphen surrounded by spaces ( - ) instead.
 
 ## Camera permission flow
 

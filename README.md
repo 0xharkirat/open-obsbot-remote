@@ -23,8 +23,6 @@ This project is usable today for the tested camera path. The macOS release artif
 | Open OBSBOT Bridge | macOS app that talks to the camera over USB, exposes a local WebSocket API on `:8765`, serves the web remote at `http://<computer-ip>:8765/`, and serves MJPEG preview on `:8766`. |
 | Open OBSBOT Remote | Flutter phone/web controller for presets, PTZ, zoom, image controls, AI mode, and sequences.                                                                                       |
 
-
-
 ```
 Phone / browser
   |
@@ -64,24 +62,21 @@ OBSBOT camera
 
 ## Install The macOS Release
 
-Use this path if you just want to control a camera and do not need to build from source.
 
-> **Download the latest release →** [GitHub Releases](https://github.com/0xharkirat/open-obsbot-remote/releases/latest)
-
-### Step 1 — Download & open the app
+### Step 1 - Download & open the app
 
 1. Download `Open-OBSBOT-Bridge-macOS-arm64-v<version>.zip` from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest).
 2. Double-click the ZIP to unzip it.
 3. Drag `Open OBSBOT Bridge.app` to your **Applications** folder.
-4. Quit **OBSBOT Center** if it is running — both apps compete for the same camera endpoint.
+4. (Optional) Quit **OBSBOT Center** if it is running - both apps compete for the same camera endpoint. 
 5. Plug the OBSBOT camera into the Mac over USB.
 6. Double-click **Open OBSBOT Bridge** in Applications.
 
-macOS will block it with the message _"Open OBSBOT Bridge.app" Not Opened_. This happens because the app is not notarized through Apple's paid developer programme. **Click Done — do not click Move to Bin.**
+macOS will block it with the message _"Open OBSBOT Bridge.app" Not Opened_. This happens because the app is not notarized through Apple's paid developer programme. **Click Done - do not click Move to Bin.**
 
-<img src="docs/images/step-1-click-done.png" alt="Gatekeeper blocks the app — click Done" width="260"/>
+<img src="docs/images/step-1-click-done.png" alt="Gatekeeper blocks the app - click Done" width="260"/>
 
-### Step 2 — Allow the app in Privacy & Security
+### Step 2 - Allow the app in Privacy & Security
 
 Open **System Settings → Privacy & Security** and scroll down to the **Security** section. You will see:
 
@@ -89,36 +84,36 @@ Open **System Settings → Privacy & Security** and scroll down to the **Securit
 
 Click **Open Anyway**.
 
-<img src="docs/images/step-2-settings-privacy-security-open-anyway.png" alt="Privacy & Security — Open Anyway" width="500"/>
+<img src="docs/images/step-2-settings-privacy-security-open-anyway.png" alt="Privacy & Security - Open Anyway" width="500"/>
 
-### Step 3 — Confirm open
+### Step 3 - Confirm open
 
 macOS asks one more time. Click **Open Anyway** (not Move to Bin).
 
-<img src="docs/images/step-3-open-anyway-again.png" alt="Second confirmation — Open Anyway" width="280"/>
+<img src="docs/images/step-3-open-anyway-again.png" alt="Second confirmation - Open Anyway" width="280"/>
 
 You may be asked for your Mac password. Enter it to continue. The app will open. You only need to do steps 1–3 once.
 
-### Step 4 — Allow Camera access
+### Step 4 - Allow Camera access
 
 When the app launches it will ask for Camera access. Click **Allow**.
 
 <img src="docs/images/step-4-allow-camera.png" alt="Allow Camera access" width="400"/>
 
-### Step 5 — Allow network connections
+### Step 5 - Allow network connections
 
 macOS Firewall will ask if `obsbot-bridge` can accept incoming connections. Click **Allow**.
 
 <img src="docs/images/step-5-allow-incoming-connections.png" alt="Allow incoming network connections" width="400"/>
 
-### Step 6 — Connect your phone
+### Step 6 - Connect your phone
 
 In the bridge window, click **Reveal** to show the pairing PIN and QR code. On any phone or laptop on the same Wi-Fi:
 
 - Scan the QR code, **or**
 - Open `http://<your-mac-ip>:8765/` in a browser.
 
-Enter the 6-digit PIN once. The remote saves a token — future connects are automatic.
+Enter the 6-digit PIN once. The remote saves a token - future connects are automatic.
 
 The release ZIP includes the bridge app, the C++ bridge subprocess, the Flutter web remote, and the OBSBOT SDK runtime dylib. It does not include the full SDK source.
 
