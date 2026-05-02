@@ -1,6 +1,6 @@
 # Contributing to Open OBSBOT Control
 
-Thanks for considering a contribution. The repo is private during the demo phase but we plan to flip it public after the OBSBOT licensing question is answered (see [docs/ROADMAP.md](docs/ROADMAP.md)). What follows applies whenever the repo is public.
+Thanks for considering a contribution. Bug reports, feature ideas, and PRs are welcome.
 
 ## Quick orientation
 
@@ -21,8 +21,8 @@ You will need:
 - Flutter 3.27+
 
 ```bash
-git clone https://github.com/0xharkirat/obsbot-control
-cd obsbot-control
+git clone https://github.com/0xharkirat/open-obsbot-remote
+cd open-obsbot-remote
 # drop the SDK into third_party/obsbot-sdk/ first
 ./scripts/verify-sdk.sh
 ./scripts/build-bridge-mac.sh

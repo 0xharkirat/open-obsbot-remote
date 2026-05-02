@@ -8,10 +8,12 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 - **Saved sequence library** — name + persist sequences, switch between them via dropdown. Bridge stores them at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`. New WS actions `sequence.save_as / sequence.load / sequence.delete`. State event ships `sequence.available` + `sequence.loaded`.
 - **AGENTS.md** symlink to CLAUDE.md so non-Claude AI tools find the same guidance.
 - **CHANGELOG.md** (this file).
-- **CONTRIBUTING.md**, **CODE_OF_CONDUCT.md**, **docs/ROADMAP.md**, GitHub issue + PR templates.
+- **CONTRIBUTING.md**, **CODE_OF_CONDUCT.md**, GitHub issue + PR templates.
+- **Footers** in both apps crediting Hark Singh + OBSBOT SDK + Flutter.
 
 ### Changed
 - Folder rename: `apps/bridge_mac → apps/bridge`, `apps/mobile → apps/rc`. Internal pubspec names unchanged.
+- Repo renamed `obsbot-control → open-obsbot-remote`.
 
 ## [0.3.1] - 2026-05-02
 
@@ -68,8 +70,8 @@ Initial demo working end-to-end on a Tiny 2 Lite.
 - Logs persist at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
 - Camera permission wired through Info.plist + entitlements; first-launch prompt under "OBSBOT Bridge" name.
 
-[Unreleased]: https://github.com/0xharkirat/obsbot-control/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/0xharkirat/obsbot-control/compare/v0.3...v0.3.1
-[0.3.0]: https://github.com/0xharkirat/obsbot-control/compare/v0.2...v0.3
-[0.2.0]: https://github.com/0xharkirat/obsbot-control/compare/v0.1...v0.2
-[0.1.0]: https://github.com/0xharkirat/obsbot-control/releases/tag/demo-v0.1
+[Unreleased]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.3...v0.3.1
+[0.3.0]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.2...v0.3
+[0.2.0]: https://github.com/0xharkirat/open-obsbot-remote/compare/v0.1...v0.2
+[0.1.0]: https://github.com/0xharkirat/open-obsbot-remote/releases/tag/demo-v0.1

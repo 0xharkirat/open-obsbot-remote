@@ -64,8 +64,6 @@ Built for performers, presenters, and operators who need to control an OBSBOT ca
 - Other OBSBOT cameras (Tail Air, Tiny SE, Meet series, …)
 - Pigeon → Swift → libdev rewrite of the bridge (single-process .app)
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to public release.
-
 ---
 
 ## Repo layout
@@ -87,7 +85,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the path to public release.
 │   ├── SDK_EXPLORATION.md       libdev surface, per-camera matrix
 │   ├── GETTING_THE_SDK.md       how to obtain the SDK
 │   ├── RUN.md                   step-by-step usage
-│   └── ROADMAP.md               path to public release
+│   └── CAMERAS.md               compatibility matrix per OBSBOT model
 ├── scripts/
 │   ├── build-bridge-mac.sh      builds C++ → builds rc web → builds bridge .app
 │   └── verify-sdk.sh            checks SDK files are in place
@@ -112,7 +110,7 @@ If you're a new dev on this repo, see [docs/GETTING_THE_SDK.md](docs/GETTING_THE
 
 ### Mac (.app bundle)
 
-1. Download `Open OBSBOT Bridge.dmg` from the [Releases](https://github.com/0xharkirat/obsbot-control/releases) page (coming once notarized).
+1. Download `Open OBSBOT Bridge.dmg` from the [Releases](https://github.com/0xharkirat/open-obsbot-remote/releases) page (coming once notarized).
 2. Drag **Open OBSBOT Bridge.app** to `/Applications`.
 3. Plug in your OBSBOT camera over USB.
 4. Open the app. macOS will prompt for **Camera** + **Local Network** access — click Allow on both.
@@ -169,8 +167,8 @@ If you skip this step, the build aborts with a clear error pointing back here. S
 ### 3. Build
 
 ```bash
-git clone https://github.com/0xharkirat/obsbot-control
-cd obsbot-control
+git clone https://github.com/0xharkirat/open-obsbot-remote
+cd open-obsbot-remote
 # (drop the SDK as above)
 ./scripts/build-bridge-mac.sh
 ```
@@ -244,9 +242,7 @@ Distributing a DMG that bundles `libdev.dylib` requires explicit written permiss
 
 ## Contributing
 
-Repo is private during the demo phase. After we get OBSBOT's licensing answer the repo will go public — see [docs/ROADMAP.md](docs/ROADMAP.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Bug reports and feature ideas welcome via GitHub issues once public.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports + feature ideas welcome via GitHub issues.
 
 ## Author + Credits
 
