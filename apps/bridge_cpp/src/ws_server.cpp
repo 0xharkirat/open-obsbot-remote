@@ -191,62 +191,66 @@ void run_ws_server(uint16_t port,
         }
     }
 
-    if (serve_web) {
-        CROW_ROUTE(app, "/")([web_root](const crow::request& /*req*/, crow::response& res){
-            std::string body;
-            if (!read_file(web_root + "/index.html", body)) {
-                res.code = 500; res.write("index.html missing"); res.end(); return;
-            }
-            res.set_header("Content-Type", "text/html; charset=utf-8");
+    auto serve_static = [web_root](const std::string& rel,
+                                   crow::response& res,
+                                   bool no_cache) {
+        if (!path_is_safe(rel)) { res.code = 400; res.end(); return; }
+        std::string body;
+        if (!read_file(web_root + "/" + rel, body)) {
+            res.code = 404; res.end(); return;
+        }
+        res.set_header("Content-Type", mime_for(rel));
+        // index.html: never cache (so updates ship). Everything else:
+        // cache for a year — Flutter web's asset filenames are hashed.
+        if (no_cache) {
             res.set_header("Cache-Control", "no-cache");
-            res.write(body);
-            res.end();
+        } else {
+            res.set_header("Cache-Control", "public, max-age=31536000, immutable");
+        }
+        res.write(body);
+        res.end();
+    };
+
+    if (serve_web) {
+        CROW_ROUTE(app, "/")([web_root, serve_static](const crow::request&,
+                                                     crow::response& res){
+            serve_static("index.html", res, /*no_cache=*/true);
         });
 
         CROW_ROUTE(app, "/<path>")
-        ([web_root](const crow::request& /*req*/, crow::response& res, std::string path){
-            // Reserved paths handled elsewhere — guard so we don't shadow them.
-            if (path == "v1" || path == "health" || path == "preview.mjpeg") {
+        ([web_root, serve_static](const crow::request& /*req*/,
+                                  crow::response& res, std::string path){
+            if (path == "v1" || path == "health" ||
+                path == "preview.mjpeg" || path == "pair") {
                 res.code = 404; res.end(); return;
             }
-            if (!path_is_safe(path)) { res.code = 400; res.end(); return; }
-            std::string body;
-            if (!read_file(web_root + "/" + path, body)) {
-                res.code = 404; res.end(); return;
-            }
-            res.set_header("Content-Type", mime_for(path));
-            res.write(body);
-            res.end();
+            // index.html and json manifests should not be hard-cached.
+            const bool no_cache = (path == "index.html" || path == "manifest.json" ||
+                                   path == "flutter_service_worker.js" ||
+                                   path == "version.json");
+            serve_static(path, res, no_cache);
         });
 
-        // Flutter web ships nested asset paths (assets/..., canvaskit/..., icons/...)
-        // — handle a single extra path segment depth.
         CROW_ROUTE(app, "/<path>/<path>")
-        ([web_root](const crow::request& /*req*/, crow::response& res,
-                    std::string a, std::string b){
-            std::string rel = a + "/" + b;
-            if (!path_is_safe(rel)) { res.code = 400; res.end(); return; }
-            std::string body;
-            if (!read_file(web_root + "/" + rel, body)) {
-                res.code = 404; res.end(); return;
-            }
-            res.set_header("Content-Type", mime_for(rel));
-            res.write(body);
-            res.end();
+        ([web_root, serve_static](const crow::request& /*req*/,
+                                  crow::response& res,
+                                  std::string a, std::string b){
+            serve_static(a + "/" + b, res, /*no_cache=*/false);
         });
 
         CROW_ROUTE(app, "/<path>/<path>/<path>")
-        ([web_root](const crow::request& /*req*/, crow::response& res,
-                    std::string a, std::string b, std::string c){
-            std::string rel = a + "/" + b + "/" + c;
-            if (!path_is_safe(rel)) { res.code = 400; res.end(); return; }
-            std::string body;
-            if (!read_file(web_root + "/" + rel, body)) {
-                res.code = 404; res.end(); return;
-            }
-            res.set_header("Content-Type", mime_for(rel));
-            res.write(body);
-            res.end();
+        ([web_root, serve_static](const crow::request& /*req*/,
+                                  crow::response& res,
+                                  std::string a, std::string b, std::string c){
+            serve_static(a + "/" + b + "/" + c, res, /*no_cache=*/false);
+        });
+
+        CROW_ROUTE(app, "/<path>/<path>/<path>/<path>")
+        ([web_root, serve_static](const crow::request& /*req*/,
+                                  crow::response& res,
+                                  std::string a, std::string b,
+                                  std::string c, std::string d){
+            serve_static(a + "/" + b + "/" + c + "/" + d, res, /*no_cache=*/false);
         });
     }
 

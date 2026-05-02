@@ -337,74 +337,32 @@ class WsClient extends ChangeNotifier {
     }
   }
 
+  // Pending pair() promise resolved by _onMessage when the matching ack
+  // lands. We keep a single WS subscription for the lifetime of the
+  // connection so we never miss messages mid-handler-swap.
+  Completer<bool>? _pendingPair;
+  String? _pendingPairId;
+
   /// Pair using the 6-digit PIN displayed in the bridge UI.
   /// Returns true on success, false on wrong PIN.
   Future<bool> pair(String pin) async {
     if (_ch == null) return false;
-    final id = _id();
-    final c = Completer<bool>();
-
-    // Override _onMessage briefly to catch the pair ack.
-    final waitId = id;
-    Timer? timeout;
-    void handler(dynamic raw) {
-      try {
-        final j = jsonDecode(raw as String) as Map<String, dynamic>;
-        if (j['type'] == 'ack' && j['id'] == waitId) {
-          if (j['ok'] == true && j['token'] is String) {
-            _token = j['token'] as String;
-            _saveToken(_serverUri, _token!);
-            _needsPairing = false;
-            _lastAuthError = null;
-            // re-send subscribe so we get a state snapshot now that we're authed
-            _send({'action': 'subscribe', 'id': _id()});
-            c.complete(true);
-          } else {
-            _lastAuthError = j['msg'] as String? ?? 'wrong PIN';
-            c.complete(false);
-          }
-          notifyListeners();
-        } else {
-          // forward to normal handler
-          _onMessage(raw);
-        }
-      } catch (_) {
-        _onMessage(raw);
-      }
+    // Cancel any earlier in-flight pair to keep state clean.
+    if (_pendingPair != null && !_pendingPair!.isCompleted) {
+      _pendingPair!.complete(false);
     }
+    _pendingPair = Completer<bool>();
+    _pendingPairId = _id();
+    _send({'action': 'pair', 'id': _pendingPairId, 'pin': pin});
 
-    // Swap subscription
-    final oldSub = _sub;
-    await oldSub?.cancel();
-    _sub = _ch!.stream.listen(handler);
-
-    _send({'action': 'pair', 'id': waitId, 'pin': pin});
-    timeout = Timer(const Duration(seconds: 6), () {
-      if (!c.isCompleted) {
+    Timer(const Duration(seconds: 6), () {
+      if (_pendingPair != null && !_pendingPair!.isCompleted) {
         _lastAuthError = 'timed out waiting for pair response';
-        c.complete(false);
+        _pendingPair!.complete(false);
         notifyListeners();
       }
     });
-
-    final ok = await c.future;
-    timeout.cancel();
-
-    // Restore the normal handler
-    await _sub?.cancel();
-    _sub = _ch!.stream.listen(
-      _onMessage,
-      onError: (Object e) {
-        _lastError = 'connection error: $e';
-        _connected = false;
-        notifyListeners();
-      },
-      onDone: () {
-        _connected = false;
-        notifyListeners();
-      },
-    );
-    return ok;
+    return _pendingPair!.future;
   }
 
   Future<void> forgetToken() async {
@@ -427,6 +385,30 @@ class WsClient extends ChangeNotifier {
     if (raw is! String) return;
     try {
       final j = jsonDecode(raw) as Map<String, dynamic>;
+
+      // Pair-ack (matched by id) — resolves any in-flight pair() future.
+      if (j['type'] == 'ack' &&
+          _pendingPair != null &&
+          !_pendingPair!.isCompleted &&
+          j['id'] == _pendingPairId) {
+        if (j['ok'] == true && j['token'] is String) {
+          _token = j['token'] as String;
+          _saveToken(_serverUri, _token!);
+          _needsPairing = false;
+          _lastAuthError = null;
+          // re-send subscribe so we get a state snapshot now that we're authed
+          _send({'action': 'subscribe', 'id': _id()});
+          _pendingPair!.complete(true);
+        } else {
+          _lastAuthError = j['msg'] as String? ?? 'wrong PIN';
+          _pendingPair!.complete(false);
+        }
+        _pendingPair = null;
+        _pendingPairId = null;
+        notifyListeners();
+        return;
+      }
+
       if (j['event'] == 'state') {
         _state = CameraState.fromEvent(j);
         notifyListeners();
