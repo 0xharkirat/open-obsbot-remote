@@ -71,4 +71,5 @@ Thumbs.db
 # Test / dev artifacts (Playwright screenshots, sentinel screencaps)
 .playwright-mcp/
 obsbot-*.png
+prod-*.png
 .claude/settings.local.json
