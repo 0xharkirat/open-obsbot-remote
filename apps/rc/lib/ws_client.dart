@@ -36,6 +36,8 @@ class SequenceState {
   final int totalS;
   final List<String> available;
   final String loaded;
+  final String mode;                 // forward | once | ping_pong
+  final List<SequenceStep> steps;    // active scratch — editor hydrates from this
   const SequenceState({
     required this.running,
     required this.stepIndex,
@@ -43,6 +45,8 @@ class SequenceState {
     required this.totalS,
     required this.available,
     required this.loaded,
+    required this.mode,
+    required this.steps,
   });
   static const empty = SequenceState(
     running: false,
@@ -51,17 +55,32 @@ class SequenceState {
     totalS: 0,
     available: <String>[],
     loaded: '',
+    mode: 'forward',
+    steps: <SequenceStep>[],
   );
-  factory SequenceState.fromJson(Map<String, dynamic> j) => SequenceState(
-    running: j['running'] as bool? ?? false,
-    stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
-    elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
-    totalS: (j['total_s'] as num?)?.toInt() ?? 0,
-    available: ((j['available'] as List<dynamic>?) ?? const <dynamic>[])
-        .map((e) => e.toString())
-        .toList(),
-    loaded: j['loaded'] as String? ?? '',
-  );
+  factory SequenceState.fromJson(Map<String, dynamic> j) {
+    final stepsRaw = (j['steps'] as List<dynamic>?) ?? const <dynamic>[];
+    final steps = stepsRaw
+        .whereType<Map<String, dynamic>>()
+        .map((Map<String, dynamic> e) => SequenceStep(
+              presetId: (e['preset_id'] as num?)?.toInt() ?? 0,
+              seconds: (e['seconds'] as num?)?.toInt() ?? 60,
+              speed: moveSpeedFromWire(e['speed'] as String? ?? 'medium'),
+            ))
+        .toList();
+    return SequenceState(
+      running: j['running'] as bool? ?? false,
+      stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
+      elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
+      totalS: (j['total_s'] as num?)?.toInt() ?? 0,
+      available: ((j['available'] as List<dynamic>?) ?? const <dynamic>[])
+          .map((e) => e.toString())
+          .toList(),
+      loaded: j['loaded'] as String? ?? '',
+      mode: j['mode'] as String? ?? 'forward',
+      steps: steps,
+    );
+  }
 }
 
 /// Move-to-preset transition speed.

@@ -50,6 +50,11 @@ struct DeviceSnapshot {
     // List of saved presets, refreshed from camera on connect / save / delete.
     std::vector<PresetInfo> presets;
 
+    // Active scratch sequence (steps + mode), mirrored to clients in
+    // state event so the editor can hydrate on reopen.
+    std::vector<SequenceStep> sequence_steps;
+    bool sequence_loop = true;          // legacy; mirrors mode != once
+
     // The preset id last recalled. -1 once any manual PTZ command lands.
     int active_preset_id = -1;
 
@@ -191,8 +196,16 @@ private:
     // velocity coalescing
     std::chrono::steady_clock::time_point last_velocity_apply_{};
 
+    // zoom coalescing (mid-drag updates)
+    std::chrono::steady_clock::time_point last_zoom_apply_{};
+
     // hdr debounce
     std::chrono::steady_clock::time_point last_hdr_apply_{};
+
+    // AI-mode-clear-on-first-manual flag — prevents flapping when user
+    // streams velocity ticks 10-30 Hz, each one hitting cameraSetAiModeU.
+    // Set on first manual ptz/preset, cleared by cmd_ai_set_mode/enabled.
+    bool ai_disabled_for_manual_ = false;
 };
 
 }

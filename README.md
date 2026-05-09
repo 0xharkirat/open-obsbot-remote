@@ -62,13 +62,12 @@ OBSBOT camera
 
 ## Install The macOS Release
 
-
 ### Step 1 - Download & open the app
 
 1. Download `Open-OBSBOT-Bridge-macOS-arm64-v<version>.zip` from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest).
 2. Double-click the ZIP to unzip it.
 3. Drag `Open OBSBOT Bridge.app` to your **Applications** folder.
-4. (Optional) Quit **OBSBOT Center** if it is running - both apps compete for the same camera endpoint. 
+4. (Optional) Quit **OBSBOT Center** if it is running - both apps compete for the same camera endpoint.
 5. Plug the OBSBOT camera into the Mac over USB.
 6. Double-click **Open OBSBOT Bridge** in Applications.
 
@@ -323,6 +322,7 @@ The current implementation is intentionally centered on the tested OBSBOT Tiny 2
 _(Items marked [Hark] are scoped for the next development session.)_
 
 ### [Hark] Linux support
+
 - Replace `video_capture.mm` (AVFoundation) with a `video_capture_linux.cpp` using V4L2 for MJPEG capture.
 - Wire `third_party/obsbot-sdk/linux/` lib paths into `CMakeLists.txt` (`.so` binaries are already present).
 - Add Flutter Linux target to `apps/bridge/` (`flutter create --platforms=linux`).
@@ -331,6 +331,7 @@ _(Items marked [Hark] are scoped for the next development session.)_
 - Test using UTM (free macOS VM app at https://mac.getutm.app) with USB passthrough to an ARM Ubuntu VM.
 
 ### [Hark] Windows support
+
 - Replace `video_capture.mm` with `video_capture_win.cpp` using Windows Media Foundation for capture.
 - Wire `third_party/obsbot-sdk/windows/win64-release/` (`.dll`/`.lib` already present) into `CMakeLists.txt`.
 - Add Flutter Windows target to `apps/bridge/`.
@@ -339,6 +340,7 @@ _(Items marked [Hark] are scoped for the next development session.)_
 - Test using UTM ARM Windows 11 evaluation image with USB passthrough.
 
 ### Future
+
 - Notarize macOS release (requires paid Apple Developer account).
 - Native iOS/Android phone app on app stores.
 - Firmware update support (currently requires OBSBOT Center).

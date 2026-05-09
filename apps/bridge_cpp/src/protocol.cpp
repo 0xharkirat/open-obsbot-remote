@@ -73,6 +73,24 @@ json build_state_event(const DeviceSnapshot& s) {
             {"mode", s.sequence_mode},
             {"available", s.available_sequences},
             {"loaded", s.loaded_sequence},
+            {"steps", [&]() {
+                json arr = json::array();
+                for (auto& st : s.sequence_steps) {
+                    const char* sp = "medium";
+                    switch (st.speed) {
+                        case MoveSpeed::slow:    sp = "slow"; break;
+                        case MoveSpeed::medium:  sp = "medium"; break;
+                        case MoveSpeed::fast:    sp = "fast"; break;
+                        case MoveSpeed::instant: sp = "instant"; break;
+                    }
+                    arr.push_back({
+                        {"preset_id", st.preset_id},
+                        {"seconds",   st.seconds},
+                        {"speed",     sp},
+                    });
+                }
+                return arr;
+            }()},
         }},
     };
 }

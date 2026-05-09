@@ -91,7 +91,7 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 - Active sequence persists at `~/Library/Application Support/Open OBSBOT Bridge/sequence.json`.
 - Saved sequence library persists at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`.
 - Keep responses concise. Use clearer prose for security, legal, and permission topics.
-- macOS app is *not* sandboxed and *not* notarized yet. Distribution is GitHub Release ZIP or source build.
+- macOS app is _not_ sandboxed and _not_ notarized yet. Distribution is GitHub Release ZIP or source build.
 - **Never use em dashes (—) in any file in this repo.** Use a plain hyphen surrounded by spaces ( - ) instead.
 
 ## Camera permission flow

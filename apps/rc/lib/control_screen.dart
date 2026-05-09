@@ -258,6 +258,40 @@ class _ControlScreenState extends State<ControlScreen> {
       ]),
       const SizedBox(height: 8),
       Row(children: <Widget>[
+        Expanded(child: _HoldDirBtn(
+          icon: Icons.keyboard_arrow_left,
+          label: 'Left',
+          client: widget.client,
+          yawSpeed: -80,
+          pitchSpeed: 0,
+        )),
+        const SizedBox(width: 8),
+        Expanded(child: _HoldDirBtn(
+          icon: Icons.keyboard_arrow_up,
+          label: 'Up',
+          client: widget.client,
+          yawSpeed: 0,
+          pitchSpeed: 40,
+        )),
+        const SizedBox(width: 8),
+        Expanded(child: _HoldDirBtn(
+          icon: Icons.keyboard_arrow_down,
+          label: 'Down',
+          client: widget.client,
+          yawSpeed: 0,
+          pitchSpeed: -40,
+        )),
+        const SizedBox(width: 8),
+        Expanded(child: _HoldDirBtn(
+          icon: Icons.keyboard_arrow_right,
+          label: 'Right',
+          client: widget.client,
+          yawSpeed: 80,
+          pitchSpeed: 0,
+        )),
+      ]),
+      const SizedBox(height: 8),
+      Row(children: <Widget>[
         Expanded(child: _presetBtn(0, 'P1', s)),
         const SizedBox(width: 8),
         Expanded(child: _presetBtn(1, 'P2', s)),
@@ -329,6 +363,95 @@ class _ControlScreenState extends State<ControlScreen> {
                   fontSize: 18, fontWeight: FontWeight.w700)),
               const Text('hold to save', style: TextStyle(fontSize: 9)),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+class _HoldDirBtn extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final WsClient client;
+  final double yawSpeed;
+  final double pitchSpeed;
+  const _HoldDirBtn({
+    required this.icon,
+    required this.label,
+    required this.client,
+    required this.yawSpeed,
+    required this.pitchSpeed,
+  });
+
+  @override
+  State<_HoldDirBtn> createState() => _HoldDirBtnState();
+}
+
+class _HoldDirBtnState extends State<_HoldDirBtn> {
+  Timer? _ticker;
+  bool _down = false;
+
+  void _start() {
+    if (_down) return;
+    _down = true;
+    HapticFeedback.selectionClick();
+    setState(() {});
+    widget.client.ptzVelocity(
+      yawSpeed: widget.yawSpeed,
+      pitchSpeed: widget.pitchSpeed,
+    );
+    _ticker = Timer.periodic(const Duration(milliseconds: 80), (_) {
+      widget.client.ptzVelocity(
+        yawSpeed: widget.yawSpeed,
+        pitchSpeed: widget.pitchSpeed,
+      );
+    });
+  }
+
+  void _end() {
+    if (!_down) return;
+    _down = false;
+    _ticker?.cancel();
+    _ticker = null;
+    widget.client.ptzStop();
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Listener(
+      onPointerDown: (_) => _start(),
+      onPointerUp: (_) => _end(),
+      onPointerCancel: (_) => _end(),
+      child: SizedBox(
+        height: 56,
+        child: Material(
+          color: _down ? cs.primary : cs.surfaceContainerHighest,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(widget.icon, size: 24,
+                    color: _down ? cs.onPrimary : cs.onSurface),
+                Text(widget.label, style: TextStyle(
+                  fontSize: 11,
+                  color: _down ? cs.onPrimary : cs.onSurface,
+                )),
+              ],
+            ),
           ),
         ),
       ),
@@ -496,6 +619,8 @@ class ZoomSlider extends StatefulWidget {
 
 class _ZoomSliderState extends State<ZoomSlider> {
   double? _dragValue;
+  DateTime _lastSent = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _minSendGap = Duration(milliseconds: 100);
 
   @override
   Widget build(BuildContext context) {
@@ -513,11 +638,21 @@ class _ZoomSliderState extends State<ZoomSlider> {
               min: s.zoomMin,
               max: s.zoomMax,
               value: v.clamp(s.zoomMin, s.zoomMax),
+              // Mid-drag updates: send throttled live so the lens follows
+              // your finger smoothly. Bridge coalesces server-side too
+              // (see cmd_zoom_set).
               onChanged: (double nv) {
                 setState(() => _dragValue = nv);
+                final now = DateTime.now();
+                if (now.difference(_lastSent) >= _minSendGap) {
+                  widget.client.zoomSet(nv);
+                  _lastSent = now;
+                }
               },
               onChangeEnd: (double nv) {
+                // Always send terminal value so we never end on a stale tick.
                 widget.client.zoomSet(nv);
+                _lastSent = DateTime.now();
                 Future<void>.delayed(const Duration(milliseconds: 200),
                     () => mounted ? setState(() => _dragValue = null) : null);
                 HapticFeedback.lightImpact();

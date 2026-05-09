@@ -262,8 +262,15 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
         bool stopping = (yaw_speed == 0.f && pitch_speed == 0.f && roll_speed == 0.f);
         if (!stopping && (now - last_velocity_apply_ < milliseconds(30))) return ok();
         last_velocity_apply_ = now;
-        dev_->cameraSetAiModeU(Device::AiWorkModeNone);
-        dev_->aiSetEnabledR(false);
+        // Only disable AI on the first manual command. Repeating
+        // cameraSetAiModeU/aiSetEnabledR every velocity tick (10-30 Hz)
+        // makes the SDK flap and the camera's AI status oscillate —
+        // user sees AI "connecting/disconnecting" rapidly.
+        if (!ai_disabled_for_manual_) {
+            dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+            dev_->aiSetEnabledR(false);
+            ai_disabled_for_manual_ = true;
+        }
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(pitch_speed, yaw_speed, roll_speed);
         if (r == 0 && !stopping) {
             std::lock_guard<std::mutex> g(snap_mu_);
@@ -296,7 +303,8 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
 }
 
 void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
-    submit([this, value]() -> CmdResult {
+    auto now = steady_clock::now();
+    submit([this, value, now]() -> CmdResult {
         REQUIRE_DEV();
         float zmin = 1.0f, zmax = 4.0f;
         {
@@ -304,14 +312,22 @@ void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
             zmin = snap_.zoom_min;
             zmax = snap_.zoom_max;
         }
-        if (value < zmin || value > zmax) {
-            return err("invalid_param", "zoom out of camera range");
-        }
+        float v = value;
+        if (v < zmin) v = zmin;
+        if (v > zmax) v = zmax;
+        // Coalesce mid-drag zoom updates: if a previous zoom landed within
+        // 80ms, drop this one (user's slider is dragging fast). Always
+        // accept terminal values (=zmin or =zmax) so the user can pin.
+        bool terminal = (v == zmin || v == zmax);
+        if (!terminal && (now - last_zoom_apply_) < milliseconds(80)) return ok();
+        last_zoom_apply_ = now;
+        // Lower speed (4) when mid-drag = smoother; speed 10 only on terminal.
+        uint32_t speed = terminal ? 10u : 4u;
         int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR(
-            (uint32_t)(value * 100.f), 10);
+            (uint32_t)(v * 100.f), speed);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
-            snap_.zoom = value;
+            snap_.zoom = v;
         }
         return r == 0 ? ok() : err("device_busy", "zoom failed");
     }, std::move(reply));
@@ -342,6 +358,9 @@ void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
 void DeviceSession::cmd_ai_set_mode(const std::string& mode, const std::string& sub, ReplyFn reply) {
     submit([this, mode, sub]() -> CmdResult {
         REQUIRE_DEV();
+        // User explicitly set an AI mode → drop the manual-disable latch
+        // so the next ptz command will properly turn AI off again.
+        ai_disabled_for_manual_ = (mode == "none");
         Device::AiWorkModeType m = Device::AiWorkModeNone;
         if (mode == "none") m = Device::AiWorkModeNone;
         else if (mode == "human") m = Device::AiWorkModeHuman;
@@ -368,6 +387,7 @@ void DeviceSession::cmd_ai_set_mode(const std::string& mode, const std::string& 
 void DeviceSession::cmd_ai_set_enabled(bool enabled, ReplyFn reply) {
     submit([this, enabled]() -> CmdResult {
         REQUIRE_DEV();
+        ai_disabled_for_manual_ = !enabled;
         int32_t r = dev_->aiSetEnabledR(enabled);
         return r == 0 ? ok() : err("device_busy", "ai enable failed");
     }, std::move(reply));
@@ -527,37 +547,56 @@ static void speed_to_rates(MoveSpeed s, float& sr, float& sp, float& sy) {
 void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
     submit([this, id, speed]() -> CmdResult {
         REQUIRE_DEV();
-        dev_->cameraSetAiModeU(Device::AiWorkModeNone);
-        dev_->aiSetEnabledR(false);
-        int32_t r = -1;
-        if (speed == MoveSpeed::instant) {
-            r = dev_->aiTrgGimbalPresetR(id);
-        } else {
-            // Look up the preset's stored angles + speed, then move-with-speed.
-            PresetInfo p{};
-            bool found = false;
-            {
-                std::lock_guard<std::mutex> g(snap_mu_);
-                for (auto& it : snap_.presets) {
-                    if (it.id == id) { p = it; found = true; break; }
-                }
-            }
-            if (!found) {
-                // Fall back to instant — preset list may not be loaded yet.
-                r = dev_->aiTrgGimbalPresetR(id);
-            } else {
-                float sr, sp, sy;
-                speed_to_rates(speed, sr, sp, sy);
-                r = dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
-                // Also restore zoom (preset has its own zoom value).
-                if (p.zoom > 0) {
-                    dev_->cameraSetZoomWithSpeedAbsoluteR(
-                        (uint32_t)(p.zoom * 100.f), 8);
-                    std::lock_guard<std::mutex> g(snap_mu_);
-                    snap_.zoom = p.zoom;
-                }
+        if (!ai_disabled_for_manual_) {
+            dev_->cameraSetAiModeU(Device::AiWorkModeNone);
+            dev_->aiSetEnabledR(false);
+            ai_disabled_for_manual_ = true;
+        }
+
+        // Look up the preset (we cache it in snap_.presets). Camera-side
+        // firmware presets reliably store yaw/pitch/roll BUT zoom field
+        // often comes back as 1.0 — so we keep our own zoom in PresetInfo
+        // and explicitly restore on every recall, regardless of speed.
+        PresetInfo p{};
+        bool found = false;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            for (auto& it : snap_.presets) {
+                if (it.id == id) { p = it; found = true; break; }
             }
         }
+
+        int32_t r = -1;
+        if (speed == MoveSpeed::instant) {
+            // Hardware preset recall — fastest path for angles.
+            r = dev_->aiTrgGimbalPresetR(id);
+        } else if (found) {
+            float sr, sp, sy;
+            speed_to_rates(speed, sr, sp, sy);
+            r = dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
+        } else {
+            // Preset list not hydrated yet; fall back to instant.
+            r = dev_->aiTrgGimbalPresetR(id);
+        }
+
+        // ALWAYS restore zoom from the cached preset value, even on
+        // instant mode. Camera-side preset.zoom is unreliable (1.0 always
+        // on Tiny 2 Lite). Speed for zoom matches the gimbal's:
+        // instant → speed=10 (max), slow→3, medium→6, fast→9.
+        if (r == 0 && found && p.zoom > 0.5f) {
+            uint32_t zspeed = 10;
+            switch (speed) {
+                case MoveSpeed::slow:    zspeed = 3; break;
+                case MoveSpeed::medium:  zspeed = 6; break;
+                case MoveSpeed::fast:    zspeed = 9; break;
+                case MoveSpeed::instant: zspeed = 10; break;
+            }
+            dev_->cameraSetZoomWithSpeedAbsoluteR(
+                (uint32_t)(p.zoom * 100.f), zspeed);
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.zoom = p.zoom;
+        }
+
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.active_preset_id = id;
@@ -576,8 +615,15 @@ void DeviceSession::cmd_preset_save(int id, const std::string& name, ReplyFn rep
         pi.yaw = gi.yaw_motor;
         pi.pitch = gi.pitch_motor;
         pi.roll = gi.roll_motor;
-        float z = 1.0f;
-        dev_->cameraGetZoomAbsoluteR(z);
+        // Zoom: read OUR snapshot (which we update inline on every zoom set),
+        // not cameraGetZoomAbsoluteR, which reports a stale value right after
+        // a zoom command and made every saved preset come back as zoom=1.0.
+        float z;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            z = snap_.zoom;
+        }
+        if (z < 1.0f) z = 1.0f;
         pi.zoom = z;
         std::string n = name.substr(0, 60);
         std::memcpy(pi.name, n.c_str(), n.size());
@@ -732,9 +778,13 @@ void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, Loo
                 }
             }
             persist_sequence(seq_steps_, seq_mode_);
-            // Editing scratch — drop the loaded-sequence label.
+            // Mirror to snapshot so clients see the new steps immediately
+            // (sequencer editor hydrates from state.sequence.steps on
+            // open / when 'loaded' changes).
             std::lock_guard<std::mutex> sg(snap_mu_);
-            snap_.loaded_sequence = "";
+            snap_.sequence_steps = steps;
+            snap_.sequence_loop = (mode != LoopMode::once);
+            snap_.loaded_sequence = "";   // editing scratch
         }
         seq_cv_.notify_all();
         return ok();
@@ -794,6 +844,9 @@ void DeviceSession::cmd_sequence_save_as(const std::string& name,
             std::lock_guard<std::mutex> sg(snap_mu_);
             snap_.available_sequences = names;
             snap_.loaded_sequence = name;
+            snap_.sequence_steps = steps;
+            snap_.sequence_mode = loop_mode_str(mode);
+            snap_.sequence_loop = (mode != LoopMode::once);
         }
         LOGI("sequence: saved as '%s' (%zu in library)", name.c_str(), names.size());
         return ok();
@@ -833,9 +886,12 @@ void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
         {
             std::lock_guard<std::mutex> sg(snap_mu_);
             snap_.loaded_sequence = name;
+            snap_.sequence_steps = steps;
+            snap_.sequence_mode = loop_mode_str(mode);
+            snap_.sequence_loop = (mode != LoopMode::once);
         }
         seq_cv_.notify_all();
-        LOGI("sequence: loaded '%s'", name.c_str());
+        LOGI("sequence: loaded '%s' (%zu steps)", name.c_str(), steps.size());
         return ok();
     }, std::move(reply));
 }

@@ -16,24 +16,62 @@ class SequencerScreen extends StatefulWidget {
 class _SequencerScreenState extends State<SequencerScreen> {
   final List<_EditStep> _steps = <_EditStep>[];
   LoopMode _mode = LoopMode.forward;
+  String _lastHydratedFrom = '__none__';   // signature of state we last hydrated
 
   @override
   void initState() {
     super.initState();
-    final s = widget.client.state;
-    if (s.presets.isNotEmpty) {
-      _steps.add(_EditStep(presetId: s.presets.first.id, seconds: 60));
-    } else {
-      _steps.add(_EditStep(presetId: 0, seconds: 60));
-    }
+    _hydrateFromState();
+    widget.client.addListener(_onClientChange);
   }
 
   @override
   void dispose() {
+    widget.client.removeListener(_onClientChange);
     for (final s in _steps) {
       s.secondsCtrl.dispose();
     }
     super.dispose();
+  }
+
+  void _onClientChange() {
+    // If the loaded sequence name changed (user picked a different one
+    // from the library) OR the state's steps differ from ours, re-hydrate.
+    final s = widget.client.state.sequence;
+    final sig = '${s.loaded}::${s.mode}::${s.steps.length}::'
+        '${s.steps.map((e) => "${e.presetId}/${e.seconds}/${moveSpeedToWire(e.speed)}").join(",")}';
+    if (sig != _lastHydratedFrom) {
+      _hydrateFromState();
+    }
+  }
+
+  void _hydrateFromState() {
+    final s = widget.client.state;
+    final seq = s.sequence;
+    // Dispose old controllers before replacing.
+    for (final st in _steps) {
+      st.secondsCtrl.dispose();
+    }
+    _steps.clear();
+    if (seq.steps.isNotEmpty) {
+      // Bridge already has a scratch / loaded sequence — show it.
+      for (final src in seq.steps) {
+        _steps.add(_EditStep(
+          presetId: src.presetId,
+          seconds: src.seconds,
+          speed: src.speed,
+        ));
+      }
+      _mode = loopModeFromWire(seq.mode);
+    } else {
+      // Brand new — seed with one default step.
+      final firstId = s.presets.isNotEmpty ? s.presets.first.id : 0;
+      _steps.add(_EditStep(presetId: firstId, seconds: 60));
+      _mode = LoopMode.forward;
+    }
+    _lastHydratedFrom = '${seq.loaded}::${seq.mode}::${seq.steps.length}::'
+        '${seq.steps.map((e) => "${e.presetId}/${e.seconds}/${moveSpeedToWire(e.speed)}").join(",")}';
+    if (mounted) setState(() {});
   }
 
   void _addStep() {
@@ -497,9 +535,13 @@ class _SequencerScreenState extends State<SequencerScreen> {
 class _EditStep {
   int presetId;
   int seconds;
-  MoveSpeed speed = MoveSpeed.medium;
+  MoveSpeed speed;
   late TextEditingController secondsCtrl;
-  _EditStep({required this.presetId, required this.seconds}) {
+  _EditStep({
+    required this.presetId,
+    required this.seconds,
+    this.speed = MoveSpeed.medium,
+  }) {
     secondsCtrl = TextEditingController(text: '$seconds');
   }
 }
