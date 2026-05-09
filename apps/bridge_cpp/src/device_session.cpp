@@ -195,7 +195,21 @@ void DeviceSession::poll_status_locked() {
     float z = 1.0f;
     if (dev_->cameraGetZoomAbsoluteR(z) == 0) {
         std::lock_guard<std::mutex> g(snap_mu_);
-        snap_.zoom = z;
+        // Pending-target semantics: while we're waiting for the camera to
+        // reach the most-recently-commanded zoom, don't overwrite snap_.zoom
+        // with the camera's transient reading. Clear pending once the
+        // camera has caught up (within 0.05x). Without this, slow zoom
+        // moves (speed=4 mid-drag, or preset recall) cause state events to
+        // visibly snap back to the old value because the poller wins.
+        if (pending_zoom_ > 0.5f) {
+            if (std::abs(z - pending_zoom_) < 0.05f) {
+                pending_zoom_ = 0.0f;        // camera reached target
+                snap_.zoom = z;
+            }
+            // else: keep snap_.zoom at the commanded value
+        } else {
+            snap_.zoom = z;
+        }
     }
 
     auto cs = dev_->cameraStatus();
@@ -210,22 +224,40 @@ void DeviceSession::poll_status_locked() {
         snap_.manual_focus = cs.tiny.manual_focus_value;
         snap_.run_status = cs.tiny.dev_status;
         snap_.flip_h = cs.tiny.image_flip_hor != 0;
+        // AI mode poll uses pending-target semantics like zoom. While
+        // pending_ai_mode_ is set, only update snap_.ai_mode from the
+        // camera read if it matches what we commanded — otherwise we'd
+        // flip back to the firmware's stale echo. Cleared once camera
+        // catches up.
+        std::string cam_mode;
         switch (cs.tiny.ai_mode) {
-            case Device::AiWorkModeNone: snap_.ai_mode = "none"; break;
-            case Device::AiWorkModeGroup: snap_.ai_mode = "group"; break;
-            case Device::AiWorkModeHuman: snap_.ai_mode = "human"; break;
-            case Device::AiWorkModeHand: snap_.ai_mode = "hand"; break;
-            case Device::AiWorkModeWhiteBoard: snap_.ai_mode = "whiteboard"; break;
-            case Device::AiWorkModeDesk: snap_.ai_mode = "desk"; break;
-            default: snap_.ai_mode = "none"; break;
+            case Device::AiWorkModeNone: cam_mode = "none"; break;
+            case Device::AiWorkModeGroup: cam_mode = "group"; break;
+            case Device::AiWorkModeHuman: cam_mode = "human"; break;
+            case Device::AiWorkModeHand: cam_mode = "hand"; break;
+            case Device::AiWorkModeWhiteBoard: cam_mode = "whiteboard"; break;
+            case Device::AiWorkModeDesk: cam_mode = "desk"; break;
+            default: cam_mode = "none"; break;
         }
-        switch (cs.tiny.ai_sub_mode) {
-            case Device::AiSubModeNormal: snap_.ai_sub_mode = "normal"; break;
-            case Device::AiSubModeUpperBody: snap_.ai_sub_mode = "upper_body"; break;
-            case Device::AiSubModeCloseUp: snap_.ai_sub_mode = "close_up"; break;
-            case Device::AiSubModeHeadHide: snap_.ai_sub_mode = "head_hide"; break;
-            case Device::AiSubModeLowerBody: snap_.ai_sub_mode = "lower_body"; break;
-            default: snap_.ai_sub_mode = "normal"; break;
+        if (!pending_ai_mode_.empty()) {
+            if (cam_mode == pending_ai_mode_) {
+                pending_ai_mode_.clear();        // camera caught up
+                snap_.ai_mode = cam_mode;
+            }
+            // else: keep snap_.ai_mode at the commanded value
+        } else {
+            snap_.ai_mode = cam_mode;
+        }
+        // sub_mode follows the same gate
+        if (pending_ai_mode_.empty()) {
+            switch (cs.tiny.ai_sub_mode) {
+                case Device::AiSubModeNormal: snap_.ai_sub_mode = "normal"; break;
+                case Device::AiSubModeUpperBody: snap_.ai_sub_mode = "upper_body"; break;
+                case Device::AiSubModeCloseUp: snap_.ai_sub_mode = "close_up"; break;
+                case Device::AiSubModeHeadHide: snap_.ai_sub_mode = "head_hide"; break;
+                case Device::AiSubModeLowerBody: snap_.ai_sub_mode = "lower_body"; break;
+                default: snap_.ai_sub_mode = "normal"; break;
+            }
         }
     }
 }
@@ -246,6 +278,12 @@ void DeviceSession::cmd_ptz_angle(float yaw, float pitch, float roll, ReplyFn re
         REQUIRE_DEV();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_mode = "none";
+            snap_.ai_enabled = false;
+            pending_ai_mode_ = "none";
+        }
         int32_t r = dev_->aiSetGimbalMotorAngleR(pitch, yaw, roll);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
@@ -270,6 +308,10 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
             dev_->cameraSetAiModeU(Device::AiWorkModeNone);
             dev_->aiSetEnabledR(false);
             ai_disabled_for_manual_ = true;
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_mode = "none";
+            snap_.ai_enabled = false;
+            pending_ai_mode_ = "none";
         }
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(pitch_speed, yaw_speed, roll_speed);
         if (r == 0 && !stopping) {
@@ -293,6 +335,12 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
         REQUIRE_DEV();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_mode = "none";
+            snap_.ai_enabled = false;
+            pending_ai_mode_ = "none";
+        }
         int32_t r = dev_->gimbalRstPosR();
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
@@ -307,19 +355,25 @@ void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
     submit([this, value, now]() -> CmdResult {
         REQUIRE_DEV();
         float zmin = 1.0f, zmax = 4.0f;
+        float prev_v = 1.0f;
         {
             std::lock_guard<std::mutex> g(snap_mu_);
             zmin = snap_.zoom_min;
             zmax = snap_.zoom_max;
+            prev_v = snap_.zoom;
         }
         float v = value;
         if (v < zmin) v = zmin;
         if (v > zmax) v = zmax;
-        // Coalesce mid-drag zoom updates: if a previous zoom landed within
-        // 80ms, drop this one (user's slider is dragging fast). Always
-        // accept terminal values (=zmin or =zmax) so the user can pin.
-        bool terminal = (v == zmin || v == zmax);
-        if (!terminal && (now - last_zoom_apply_) < milliseconds(80)) return ok();
+        // Mid-drag coalesce: only drop a duplicate if the value barely
+        // changed AND the previous apply was very recent. Without the
+        // value check, two sequential commands like 1.0→1.7 within 80ms
+        // (e.g. between two test cases) would silently drop the second
+        // one and the camera would never zoom. Always accept terminal
+        // values (=zmin or =zmax).
+        const bool terminal = (v == zmin || v == zmax);
+        const bool tiny_step = std::abs(v - prev_v) < 0.1f;
+        if (!terminal && tiny_step && (now - last_zoom_apply_) < milliseconds(80)) return ok();
         last_zoom_apply_ = now;
         // Lower speed (4) when mid-drag = smoother; speed 10 only on terminal.
         uint32_t speed = terminal ? 10u : 4u;
@@ -328,6 +382,7 @@ void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = v;
+            pending_zoom_ = v;
         }
         return r == 0 ? ok() : err("device_busy", "zoom failed");
     }, std::move(reply));
@@ -350,6 +405,7 @@ void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = value;
+            pending_zoom_ = value;
         }
         return r == 0 ? ok() : err("device_busy", "zoom_smooth failed");
     }, std::move(reply));
@@ -380,6 +436,18 @@ void DeviceSession::cmd_ai_set_mode(const std::string& mode, const std::string& 
             else                          s = Device::AiSubModeNormal;
         }
         int32_t r = dev_->cameraSetAiModeU(m, s);
+        if (r == 0) {
+            // Stamp snapshot inline so clients see the new mode on the next
+            // state event without waiting for the camera-firmware poller
+            // (~500ms cadence) to catch up. Set pending_ai_mode_ so the
+            // poller doesn't flip snap_.ai_mode back to the stale echo.
+            last_ai_apply_ = steady_clock::now();
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_mode = mode;
+            snap_.ai_sub_mode = (m == Device::AiWorkModeHuman) ? sub : std::string("normal");
+            snap_.ai_enabled = (m != Device::AiWorkModeNone);
+            pending_ai_mode_ = mode;
+        }
         return r == 0 ? ok() : err("device_busy", "set ai mode failed");
     }, std::move(reply));
 }
@@ -389,6 +457,10 @@ void DeviceSession::cmd_ai_set_enabled(bool enabled, ReplyFn reply) {
         REQUIRE_DEV();
         ai_disabled_for_manual_ = !enabled;
         int32_t r = dev_->aiSetEnabledR(enabled);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_enabled = enabled;
+        }
         return r == 0 ? ok() : err("device_busy", "ai enable failed");
     }, std::move(reply));
 }
@@ -551,6 +623,10 @@ void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
             dev_->cameraSetAiModeU(Device::AiWorkModeNone);
             dev_->aiSetEnabledR(false);
             ai_disabled_for_manual_ = true;
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_mode = "none";
+            snap_.ai_enabled = false;
+            pending_ai_mode_ = "none";
         }
 
         // Look up the preset (we cache it in snap_.presets). Camera-side
@@ -595,6 +671,7 @@ void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
                 (uint32_t)(p.zoom * 100.f), zspeed);
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = p.zoom;
+            pending_zoom_ = p.zoom;
         }
 
         if (r == 0) {
@@ -976,6 +1053,12 @@ void DeviceSession::sequence_loop() {
         // honor per-step speed
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ai_mode = "none";
+            snap_.ai_enabled = false;
+            pending_ai_mode_ = "none";
+        }
         if (step.speed == MoveSpeed::instant) {
             dev_->aiTrgGimbalPresetR(pid);
         } else {

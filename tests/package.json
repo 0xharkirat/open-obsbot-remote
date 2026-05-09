@@ -1,0 +1,11 @@
+{
+  "name": "obsbot-bridge-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node bridge_smoke.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

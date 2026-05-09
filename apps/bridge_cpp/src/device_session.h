@@ -199,6 +199,24 @@ private:
     // zoom coalescing (mid-drag updates)
     std::chrono::steady_clock::time_point last_zoom_apply_{};
 
+    // Pending zoom target — when set, the periodic poller refuses to
+    // overwrite snap_.zoom until the camera-reported value reaches this
+    // value (within tolerance). Otherwise the camera's slow firmware echo
+    // would clobber the value cmd_zoom_set / cmd_preset_recall just
+    // stamped, and clients would see zoom visibly snap back. Cleared once
+    // the camera catches up.
+    float pending_zoom_ = 0.0f;  // 0 = no pending target
+
+    // AI mode set timestamp — used to give camera firmware time to register
+    // the new mode before the periodic poller re-reads cs.tiny.ai_mode.
+    std::chrono::steady_clock::time_point last_ai_apply_{};
+
+    // Pending AI mode target — same pattern as pending_zoom_. The camera
+    // firmware echo for ai_mode lags the cmd by hundreds of ms; without
+    // this gate the poller reads the old value and flips snap_.ai_mode
+    // back. Cleared once the camera reports the commanded mode.
+    std::string pending_ai_mode_;
+
     // hdr debounce
     std::chrono::steady_clock::time_point last_hdr_apply_{};
 
