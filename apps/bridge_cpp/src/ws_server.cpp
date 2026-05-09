@@ -202,7 +202,9 @@ void run_ws_server(uint16_t port,
         // index.html: never cache (so updates ship). Everything else:
         // cache for a year — Flutter web's asset filenames are hashed.
         if (no_cache) {
-            res.set_header("Cache-Control", "no-cache");
+            res.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            res.set_header("Pragma", "no-cache");
+            res.set_header("Expires", "0");
         } else {
             res.set_header("Cache-Control", "public, max-age=31536000, immutable");
         }
@@ -211,9 +213,30 @@ void run_ws_server(uint16_t port,
     };
 
     if (serve_web) {
-        CROW_ROUTE(app, "/")([web_root, serve_static](const crow::request&,
-                                                     crow::response& res){
-            serve_static("index.html", res, /*no_cache=*/true);
+        CROW_ROUTE(app, "/")([web_root](const crow::request&,
+                                        crow::response& res){
+            // Rewrite index.html to add cache-bust query to bootstrap URL.
+            // Without this, Chromium serves stale flutter_bootstrap.js from
+            // its profile-level disk cache, which then loads stale main.dart.js.
+            std::string body;
+            if (!read_file(web_root + "/index.html", body)) {
+                res.code = 404; res.end(); return;
+            }
+            struct stat st;
+            long long mtime = 0;
+            if (::stat((web_root + "/main.dart.js").c_str(), &st) == 0) {
+                mtime = (long long)st.st_mtime;
+            }
+            std::string from = "src=\"flutter_bootstrap.js\"";
+            std::string to   = "src=\"flutter_bootstrap.js?v=" + std::to_string(mtime) + "\"";
+            size_t p = body.find(from);
+            if (p != std::string::npos) body.replace(p, from.size(), to);
+            res.set_header("Content-Type", "text/html");
+            res.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            res.set_header("Pragma", "no-cache");
+            res.set_header("Expires", "0");
+            res.write(body);
+            res.end();
         });
 
         CROW_ROUTE(app, "/<path>")
@@ -223,10 +246,67 @@ void run_ws_server(uint16_t port,
                 path == "preview.mjpeg" || path == "pair") {
                 res.code = 404; res.end(); return;
             }
+            // Rewrite flutter_bootstrap.js to add a cache-buster to the
+            // main.dart.js URL it loads. Without this, Chromium aggressively
+            // serves stale main.dart.js from its profile-level disk cache
+            // even when Cache-Control:no-store is set, because the URL is
+            // identical across builds. The buster is the file's mtime.
+            if (path == "flutter_bootstrap.js") {
+                std::string body;
+                if (!read_file(web_root + "/flutter_bootstrap.js", body)) {
+                    res.code = 404; res.end(); return;
+                }
+                struct stat st;
+                long long mtime = 0;
+                if (::stat((web_root + "/main.dart.js").c_str(), &st) == 0) {
+                    mtime = (long long)st.st_mtime;
+                }
+                std::string from = "\"main.dart.js\"";
+                std::string to   = "\"main.dart.js?v=" + std::to_string(mtime) + "\"";
+                size_t p = 0;
+                while ((p = body.find(from, p)) != std::string::npos) {
+                    body.replace(p, from.size(), to);
+                    p += to.size();
+                }
+                res.set_header("Content-Type", "application/javascript");
+                res.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+                res.set_header("Pragma", "no-cache");
+                res.set_header("Expires", "0");
+                res.write(body);
+                res.end(); return;
+            }
+            // Replace Flutter's service worker with a self-unregistering
+            // stub. Flutter SW caches main.dart.js aggressively and old
+            // builds keep shipping invisible. Bridge serves over LAN
+            // localhost — offline cache is wrong tradeoff anyway.
+            if (path == "flutter_service_worker.js") {
+                res.set_header("Content-Type", "application/javascript");
+                res.set_header("Cache-Control", "no-store");
+                res.write(
+                    "self.addEventListener('install',e=>self.skipWaiting());"
+                    "self.addEventListener('activate',e=>{"
+                    "e.waitUntil((async()=>{"
+                    "const ks=await caches.keys();"
+                    "await Promise.all(ks.map(k=>caches.delete(k)));"
+                    "await self.registration.unregister();"
+                    "const cs=await self.clients.matchAll();"
+                    "cs.forEach(c=>c.navigate(c.url));"
+                    "})());"
+                    "});"
+                );
+                res.end(); return;
+            }
             // index.html and json manifests should not be hard-cached.
+            // main.dart.js + flutter_bootstrap.js are unhashed top-level
+            // entry points — must not be served as immutable, otherwise
+            // every code change ships invisible until users hard-reload.
             const bool no_cache = (path == "index.html" || path == "manifest.json" ||
                                    path == "flutter_service_worker.js" ||
-                                   path == "version.json");
+                                   path == "version.json" ||
+                                   path == "main.dart.js" ||
+                                   path == "flutter_bootstrap.js" ||
+                                   path == "main.dart.mjs" ||
+                                   path == "main.dart.wasm");
             serve_static(path, res, no_cache);
         });
 

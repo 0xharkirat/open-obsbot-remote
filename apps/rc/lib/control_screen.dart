@@ -106,35 +106,43 @@ class _ControlScreenState extends State<ControlScreen> {
   }
 
   Widget _buildPortrait(CameraState s) {
-    return Column(
-      children: <Widget>[
-        _statusBar(s),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: PreviewWidget(client: widget.client),
-        ),
-        Expanded(
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: PtzPad(client: widget.client),
-                ),
-              ),
-              SizedBox(
-                width: 80,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: ZoomSlider(client: widget.client, state: s),
-                ),
-              ),
-            ],
+    // Mobile-portrait layout. Whole page scrolls vertically so small phones
+    // (390x844 etc.) can reach every control without cramming everything
+    // into a single viewport.
+    return SingleChildScrollView(
+      child: Column(
+        children: <Widget>[
+          _statusBar(s),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: PreviewWidget(client: widget.client),
           ),
-        ),
-        _bottomBar(s),
-      ],
+          // Joystick + zoom slider get a fixed slice of vertical space
+          // (~280px) so the bottom controls always stay reachable below.
+          SizedBox(
+            height: 280,
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  flex: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: PtzPad(client: widget.client),
+                  ),
+                ),
+                SizedBox(
+                  width: 80,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: ZoomSlider(client: widget.client, state: s),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _bottomBar(s),
+        ],
+      ),
     );
   }
 
@@ -429,29 +437,27 @@ class _HoldDirBtnState extends State<_HoldDirBtn> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Listener(
-      onPointerDown: (_) => _start(),
-      onPointerUp: (_) => _end(),
-      onPointerCancel: (_) => _end(),
-      child: SizedBox(
-        height: 56,
-        child: Material(
-          color: _down ? cs.primary : cs.surfaceContainerHighest,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Icon(widget.icon, size: 24,
-                    color: _down ? cs.onPrimary : cs.onSurface),
-                Text(widget.label, style: TextStyle(
-                  fontSize: 11,
-                  color: _down ? cs.onPrimary : cs.onSurface,
-                )),
-              ],
-            ),
+    return SizedBox(
+      height: 56,
+      child: FilledButton.tonal(
+        style: FilledButton.styleFrom(
+          backgroundColor: _down ? cs.primary : cs.surfaceContainerHighest,
+          foregroundColor: _down ? cs.onPrimary : cs.onSurface,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        ),
+        onPressed: () {},
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => _start(),
+          onPointerUp: (_) => _end(),
+          onPointerCancel: (_) => _end(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(widget.icon, size: 22),
+              Text(widget.label, style: const TextStyle(fontSize: 11)),
+            ],
           ),
         ),
       ),
