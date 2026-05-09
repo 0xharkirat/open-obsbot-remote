@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
+#include <thread>
 #include <utility>
 
 using namespace std::chrono;
@@ -278,6 +279,7 @@ void DeviceSession::cmd_ptz_angle(float yaw, float pitch, float roll, ReplyFn re
         REQUIRE_DEV();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
+        ai_disabled_for_manual_ = true;
         {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.ai_mode = "none";
@@ -308,10 +310,18 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
             dev_->cameraSetAiModeU(Device::AiWorkModeNone);
             dev_->aiSetEnabledR(false);
             ai_disabled_for_manual_ = true;
-            std::lock_guard<std::mutex> g(snap_mu_);
-            snap_.ai_mode = "none";
-            snap_.ai_enabled = false;
-            pending_ai_mode_ = "none";
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                snap_.ai_mode = "none";
+                snap_.ai_enabled = false;
+                pending_ai_mode_ = "none";
+            }
+            // Camera firmware needs ~50ms to register AI-off before it
+            // accepts manual gimbal-speed commands. Without this small
+            // delay the very first velocity tick after a cold start (or
+            // after AI was on) silently no-ops because the camera is
+            // still owned by the AI tracker.
+            std::this_thread::sleep_for(milliseconds(50));
         }
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(pitch_speed, yaw_speed, roll_speed);
         if (r == 0 && !stopping) {
@@ -335,6 +345,7 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
         REQUIRE_DEV();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
+        ai_disabled_for_manual_ = true;
         {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.ai_mode = "none";
@@ -472,6 +483,10 @@ void DeviceSession::cmd_image_set_hdr(bool enabled, ReplyFn reply) {
         if (now - last_hdr_apply_ < seconds(3)) return err("debounced", "wait 3s between HDR toggles");
         last_hdr_apply_ = now;
         int32_t r = dev_->cameraSetWdrR(enabled ? Device::DevWdrModeDol2TO1 : Device::DevWdrModeNone);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.hdr = enabled;
+        }
         return r == 0 ? ok() : err("device_busy", "hdr failed");
     }, std::move(reply));
 }
@@ -485,6 +500,13 @@ void DeviceSession::cmd_image_set_fov(int fov, ReplyFn reply) {
         else if (fov == 65) f = Device::FovType65;
         else return err("invalid_param", "fov must be 86, 78, or 65");
         int32_t r = dev_->cameraSetFovU(f);
+        if (r == 0) {
+            // Camera firmware can take ~1s to echo new FOV in cs.tiny.fov;
+            // stamp snap_ inline so the very next state event already
+            // shows the new value to clients (UI feels instant).
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.fov = fov;
+        }
         return r == 0 ? ok() : err("device_busy", "fov failed");
     }, std::move(reply));
 }
@@ -573,6 +595,10 @@ void DeviceSession::cmd_image_set_face_ae(bool e, ReplyFn reply) {
     submit([this, e]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->cameraSetFaceAER(e ? 1 : 0);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.face_ae = e;
+        }
         return r == 0 ? ok() : err("device_busy", "face ae failed");
     }, std::move(reply));
 }
@@ -581,6 +607,10 @@ void DeviceSession::cmd_image_set_face_focus(bool e, ReplyFn reply) {
     submit([this, e]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->cameraSetFaceFocusR(e);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.face_focus = e;
+        }
         return r == 0 ? ok() : err("device_busy", "face focus failed");
     }, std::move(reply));
 }
@@ -589,6 +619,10 @@ void DeviceSession::cmd_image_set_flip_h(bool e, ReplyFn reply) {
     submit([this, e]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->cameraSetImageFlipHorizonU(e ? 1 : 0);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.flip_h = e;
+        }
         return r == 0 ? ok() : err("device_busy", "flip failed");
     }, std::move(reply));
 }
