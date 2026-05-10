@@ -85,13 +85,19 @@ class SequenceState {
 
 /// Move-to-preset transition speed.
 ///
-/// Tier ordering reflects gimbal motor rate. `cinema` is the slowest
-/// supported tier (~3°/s yaw) — useful for wedding-style slow pans
-/// where snappier tiers feel jarring on camera.
-enum MoveSpeed { instant, cinema, slow, medium, fast }
+/// Tier ordering reflects gimbal motor rate.
+///   instant : SDK hardware path (camera firmware decides, ~0.5s).
+///   ultra   : Bridge-driven cinematographer-grade slow (~5min for 90° pan).
+///   cinema  : Wedding-pan slow (~22s for 90° pan).
+///   slow / medium / fast : SDK direct rates (1..90 deg/s).
+///
+/// `ultra` and `cinema` go through the bridge MotionPlanner which
+/// drives waypoints below the SDK's own floor.
+enum MoveSpeed { instant, ultra, cinema, slow, medium, fast }
 
 String moveSpeedToWire(MoveSpeed s) => switch (s) {
   MoveSpeed.instant => 'instant',
+  MoveSpeed.ultra => 'ultra',
   MoveSpeed.cinema => 'cinema',
   MoveSpeed.slow => 'slow',
   MoveSpeed.medium => 'medium',
@@ -100,6 +106,7 @@ String moveSpeedToWire(MoveSpeed s) => switch (s) {
 
 MoveSpeed moveSpeedFromWire(String s) => switch (s) {
   'instant' => MoveSpeed.instant,
+  'ultra' => MoveSpeed.ultra,
   'cinema' => MoveSpeed.cinema,
   'slow' => MoveSpeed.slow,
   'fast' => MoveSpeed.fast,
@@ -108,6 +115,7 @@ MoveSpeed moveSpeedFromWire(String s) => switch (s) {
 
 String moveSpeedLabel(MoveSpeed s) => switch (s) {
   MoveSpeed.instant => 'Instant',
+  MoveSpeed.ultra => 'Ultra',
   MoveSpeed.cinema => 'Cinema',
   MoveSpeed.slow => 'Slow',
   MoveSpeed.medium => 'Medium',
@@ -563,25 +571,31 @@ class WsClient extends ChangeNotifier {
     _send({'action': 'ping', 'id': _id()});
   }
 
-  void ptzAngle({required double yaw, required double pitch}) =>
-      _send({'action': 'ptz.angle', 'id': _id(), 'yaw': yaw, 'pitch': pitch});
+  void ptzAngle({required double yaw, required double pitch, MoveSpeed? speed}) =>
+      _send({
+        'action': 'ptz.angle', 'id': _id(),
+        'yaw': yaw, 'pitch': pitch,
+        'speed': moveSpeedToWire(speed ?? _moveSpeed),
+      });
 
-  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) => _send({
+  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0, MoveSpeed? speed}) => _send({
     'action': 'ptz.velocity',
     'id': _id(),
     'yaw_speed': yawSpeed,
     'pitch_speed': pitchSpeed,
     'roll_speed': 0,
+    'speed': moveSpeedToWire(speed ?? _moveSpeed),
   });
 
   void ptzStop() => _send({'action': 'ptz.stop', 'id': _id()});
   void ptzRecenter() => _send({'action': 'ptz.recenter', 'id': _id()});
 
-  void zoomSet(double value, {bool terminal = false}) => _send({
+  void zoomSet(double value, {bool terminal = false, MoveSpeed? speed}) => _send({
     'action': 'zoom.set',
     'id': _id(),
     'value': value,
     if (terminal) 'final': true,
+    'speed': moveSpeedToWire(speed ?? _moveSpeed),
   });
 
   void aiSetMode(String mode, [String sub = 'normal']) => _send({

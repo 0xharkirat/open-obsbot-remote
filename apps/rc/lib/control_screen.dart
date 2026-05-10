@@ -82,6 +82,7 @@ class _ControlScreenState extends State<ControlScreen> {
     final cur = widget.client.moveSpeed;
     IconData iconFor(MoveSpeed s) => switch (s) {
           MoveSpeed.instant => Icons.flash_on,
+          MoveSpeed.ultra => Icons.hourglass_empty,
           MoveSpeed.cinema => Icons.movie_creation_outlined,
           MoveSpeed.slow => Icons.directions_walk,
           MoveSpeed.medium => Icons.directions_run,

@@ -78,6 +78,7 @@ json build_state_event(const DeviceSnapshot& s) {
                 for (auto& st : s.sequence_steps) {
                     const char* sp = "medium";
                     switch (st.speed) {
+                        case MoveSpeed::ultra:   sp = "ultra"; break;
                         case MoveSpeed::cinema:  sp = "cinema"; break;
                         case MoveSpeed::slow:    sp = "slow"; break;
                         case MoveSpeed::medium:  sp = "medium"; break;
@@ -163,18 +164,34 @@ void dispatch_message(DeviceSession& session,
 
     // ---- camera commands ----
 
+    // Helper: parse the optional `speed` field on PTZ / zoom actions.
+    // Default = instant for ptz.angle (immediate move), medium for
+    // ptz.velocity (no clamp), instant for zoom.set (one-shot SDK path).
+    auto parse_speed = [](const json& m, MoveSpeed defv) -> MoveSpeed {
+        std::string sp = m.value("speed", std::string{});
+        if (sp == "instant") return MoveSpeed::instant;
+        if (sp == "ultra")   return MoveSpeed::ultra;
+        if (sp == "cinema")  return MoveSpeed::cinema;
+        if (sp == "slow")    return MoveSpeed::slow;
+        if (sp == "medium")  return MoveSpeed::medium;
+        if (sp == "fast")    return MoveSpeed::fast;
+        return defv;
+    };
+
     if (action == "ptz.angle") {
         float yaw = msg.value("yaw", 0.0f);
         float pitch = msg.value("pitch", 0.0f);
         float roll = msg.value("roll", -1000.0f);
-        session.cmd_ptz_angle(yaw, pitch, roll, reply_cb);
+        MoveSpeed sm = parse_speed(msg, MoveSpeed::instant);
+        session.cmd_ptz_angle(yaw, pitch, roll, sm, reply_cb);
         return;
     }
     if (action == "ptz.velocity") {
         float ys = msg.value("yaw_speed", 0.0f);
         float ps = msg.value("pitch_speed", 0.0f);
         float rs = msg.value("roll_speed", 0.0f);
-        session.cmd_ptz_velocity(ys, ps, rs, reply_cb);
+        MoveSpeed sm = parse_speed(msg, MoveSpeed::medium);
+        session.cmd_ptz_velocity(ys, ps, rs, sm, reply_cb);
         return;
     }
     if (action == "ptz.stop")     { session.cmd_ptz_stop(reply_cb); return; }
@@ -183,7 +200,8 @@ void dispatch_message(DeviceSession& session,
     if (action == "zoom.set") {
         float v = msg.value("value", 1.0f);
         bool terminal = msg.value("final", false);
-        session.cmd_zoom_set(v, terminal, reply_cb);
+        MoveSpeed sm = parse_speed(msg, MoveSpeed::instant);
+        session.cmd_zoom_set(v, terminal, sm, reply_cb);
         return;
     }
     if (action == "zoom.set_smooth") {
@@ -242,7 +260,8 @@ void dispatch_message(DeviceSession& session,
         int pid = msg.value("preset_id", 0);
         std::string sp = msg.value("speed", std::string("instant"));
         MoveSpeed sm = MoveSpeed::medium;
-        if (sp == "cinema") sm = MoveSpeed::cinema;
+        if (sp == "ultra") sm = MoveSpeed::ultra;
+        else if (sp == "cinema") sm = MoveSpeed::cinema;
         else if (sp == "slow") sm = MoveSpeed::slow;
         else if (sp == "fast") sm = MoveSpeed::fast;
         else if (sp == "instant") sm = MoveSpeed::instant;
@@ -270,7 +289,8 @@ void dispatch_message(DeviceSession& session,
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
                 std::string sp = it.value("speed", std::string("medium"));
-                if (sp == "cinema") s.speed = MoveSpeed::cinema;
+                if (sp == "ultra") s.speed = MoveSpeed::ultra;
+                else if (sp == "cinema") s.speed = MoveSpeed::cinema;
                 else if (sp == "slow") s.speed = MoveSpeed::slow;
                 else if (sp == "fast") s.speed = MoveSpeed::fast;
                 else if (sp == "instant") s.speed = MoveSpeed::instant;
@@ -312,7 +332,8 @@ void dispatch_message(DeviceSession& session,
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
                 std::string sp = it.value("speed", std::string("medium"));
-                if (sp == "cinema") s.speed = MoveSpeed::cinema;
+                if (sp == "ultra") s.speed = MoveSpeed::ultra;
+                else if (sp == "cinema") s.speed = MoveSpeed::cinema;
                 else if (sp == "slow") s.speed = MoveSpeed::slow;
                 else if (sp == "fast") s.speed = MoveSpeed::fast;
                 else if (sp == "instant") s.speed = MoveSpeed::instant;
