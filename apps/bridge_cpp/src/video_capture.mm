@@ -47,18 +47,33 @@ struct VideoCapture::Impl {
     CVImageBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     if (!pixelBuffer) return;
 
-    CIImage* ci = [CIImage imageWithCVPixelBuffer:pixelBuffer];
-    if (!ci) return;
+    // Force sRGB color space on the input. Without this, CIImage adopts
+    // whatever ICC profile the camera buffer carries (some Tiny 2 Lite
+    // streams report BT.709 with limited-range pixels), which Core Image
+    // then interprets as wide-gamut → preview gets a green/dark cast vs
+    // OBSBOT Center's tone-mapped output.
+    CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CIImage* ci = [CIImage imageWithCVPixelBuffer:pixelBuffer
+                                          options:@{ kCIImageColorSpace: (__bridge id)srgb }];
+    if (!ci) {
+        CGColorSpaceRelease(srgb);
+        return;
+    }
 
     static CIContext* ctx = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        ctx = [CIContext contextWithOptions:nil];
+        CGColorSpaceRef ws = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        ctx = [CIContext contextWithOptions:@{
+            kCIContextWorkingColorSpace: (__bridge id)ws,
+            kCIContextOutputColorSpace:  (__bridge id)ws,
+        }];
+        CGColorSpaceRelease(ws);
     });
 
-    // Downscale long-side to 960px so the JPEG fits in <120 KB at q=0.40.
-    // This is plenty for "where is the camera pointed" preview on a phone.
-    const CGFloat kTargetMaxDim = 960.0;
+    // Downscale long-side to 1280px. Higher quality than the previous
+    // 960px while still keeping JPEG payload reasonable on LAN.
+    const CGFloat kTargetMaxDim = 1280.0;
     CGFloat w = ci.extent.size.width;
     CGFloat h = ci.extent.size.height;
     if (w > 0 && h > 0) {
@@ -68,7 +83,11 @@ struct VideoCapture::Impl {
         }
     }
 
-    CGImageRef cgImage = [ctx createCGImage:ci fromRect:ci.extent];
+    CGImageRef cgImage = [ctx createCGImage:ci
+                                   fromRect:ci.extent
+                                     format:kCIFormatRGBA8
+                                 colorSpace:srgb];
+    CGColorSpaceRelease(srgb);
     if (!cgImage) return;
 
     NSMutableData* jpeg = [NSMutableData data];
@@ -86,7 +105,9 @@ struct VideoCapture::Impl {
         return;
     }
 
-    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.55 };
+    // q=0.80 → big quality jump from 0.55 with ~2x payload (still fine
+    // on LAN). Below 0.70 chroma artefacts visible on faces.
+    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.80 };
     CGImageDestinationAddImage(dest, cgImage, (__bridge CFDictionaryRef)props);
     CGImageDestinationFinalize(dest);
     CFRelease(dest);
@@ -185,7 +206,15 @@ bool VideoCapture::start(const std::string& name_substr) {
         }
 
         impl_->session = [[AVCaptureSession alloc] init];
-        impl_->session.sessionPreset = AVCaptureSessionPreset1280x720;
+        // Tiny 2 Lite native is 1080p; capturing at 720p forces a firmware
+        // downsample path that looks dimmer + less sharp than what OBSBOT
+        // Center shows. Use 1080p and let our own downscale (1280px long
+        // side) handle final preview size.
+        if ([impl_->session canSetSessionPreset:AVCaptureSessionPreset1920x1080]) {
+            impl_->session.sessionPreset = AVCaptureSessionPreset1920x1080;
+        } else {
+            impl_->session.sessionPreset = AVCaptureSessionPreset1280x720;
+        }
 
         if (![impl_->session canAddInput:impl_->input]) {
             LOGE("video: cannot add input");

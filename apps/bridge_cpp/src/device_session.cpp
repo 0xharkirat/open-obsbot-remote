@@ -82,6 +82,20 @@ void DeviceSession::on_dev_changed(const std::string& sn, bool plugged) {
                 }
                 LOGI("zoom range set to %.1f..%.1fx", 1.0f, zmax);
 
+                // Force HDR off on connect. Tiny 2 Lite ships HDR DOL2TO1
+                // raw frames over UVC; OBSBOT Center applies a tone-map
+                // before display. Our AVFoundation passthrough doesn't,
+                // so HDR ON in our pipeline produces a dark, low-contrast
+                // preview. Better to stream SDR until we add a tone-map
+                // CIFilter. cameraSetWdrR is cheap; this only fires on
+                // device-plugged so users can re-enable HDR mid-session
+                // if they want to experiment.
+                if (dev_->cameraSetWdrR(Device::DevWdrModeNone) == 0) {
+                    std::lock_guard<std::mutex> g(snap_mu_);
+                    snap_.hdr = false;
+                    LOGI("forced HDR off on connect (raw HDR not supported in MJPEG path)");
+                }
+
                 // Pull the camera's saved preset list so the UI can show names.
                 refresh_presets_locked();
 
