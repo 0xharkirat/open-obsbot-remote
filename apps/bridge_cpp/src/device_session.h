@@ -24,7 +24,11 @@ struct PresetInfo {
 /// Move-to-preset transition speed. "instant" = libdev default
 /// (camera firmware decides), the rest map to s_yaw/s_pitch values for
 /// gimbalSetSpeedPositionR (deg/sec).
-enum class MoveSpeed { instant, slow, medium, fast };
+// MoveSpeed tier — controls gimbal motor rate during preset recall and
+// sequencer steps. `cinema` is the floor (~3 deg/s yaw); useful for
+// wedding-style slow pans. SDK accepts 1..90 deg/s for s_yaw / s_pitch
+// / s_roll on gimbalSetSpeedPositionR; values below 1 jitter the motor.
+enum class MoveSpeed { instant, cinema, slow, medium, fast };
 
 struct SequenceStep {
     int preset_id = 0;
@@ -116,7 +120,7 @@ public:
     void cmd_ptz_velocity(float yaw_speed, float pitch_speed, float roll_speed, ReplyFn reply);
     void cmd_ptz_stop(ReplyFn reply);
     void cmd_ptz_recenter(ReplyFn reply);
-    void cmd_zoom_set(float value, ReplyFn reply);
+    void cmd_zoom_set(float value, bool terminal, ReplyFn reply);
     void cmd_zoom_set_smooth(float value, int speed, ReplyFn reply);
     void cmd_ai_set_mode(const std::string& mode, const std::string& sub, ReplyFn reply);
     void cmd_ai_set_enabled(bool enabled, ReplyFn reply);

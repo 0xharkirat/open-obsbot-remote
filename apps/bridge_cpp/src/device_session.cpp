@@ -5,6 +5,7 @@
 #include <json.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -337,7 +338,12 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
             // still owned by the AI tracker.
             std::this_thread::sleep_for(milliseconds(50));
         }
-        int32_t r = dev_->aiSetGimbalSpeedCtrlR(pitch_speed, yaw_speed, roll_speed);
+        // Sign convention (protocol): positive yaw_speed pans camera RIGHT
+        // in the viewer frame, positive pitch_speed tilts camera UP. The
+        // OBSBOT SDK's gimbal-frame convention is the opposite on both
+        // axes, so flip once here. Doing this in the bridge keeps every
+        // current and future client (web, native, third-party) consistent.
+        int32_t r = dev_->aiSetGimbalSpeedCtrlR(-pitch_speed, -yaw_speed, roll_speed);
         if (r == 0 && !stopping) {
             std::lock_guard<std::mutex> g(snap_mu_);
             clear_active_preset_locked();
@@ -375,9 +381,9 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
     }, std::move(reply));
 }
 
-void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
+void DeviceSession::cmd_zoom_set(float value, bool client_terminal, ReplyFn reply) {
     auto now = steady_clock::now();
-    submit([this, value, now]() -> CmdResult {
+    submit([this, value, client_terminal, now]() -> CmdResult {
         REQUIRE_DEV();
         float zmin = 1.0f, zmax = 4.0f;
         float prev_v = 1.0f;
@@ -391,16 +397,17 @@ void DeviceSession::cmd_zoom_set(float value, ReplyFn reply) {
         if (v < zmin) v = zmin;
         if (v > zmax) v = zmax;
         // Mid-drag coalesce: only drop a duplicate if the value barely
-        // changed AND the previous apply was very recent. Without the
-        // value check, two sequential commands like 1.0→1.7 within 80ms
-        // (e.g. between two test cases) would silently drop the second
-        // one and the camera would never zoom. Always accept terminal
-        // values (=zmin or =zmax).
-        const bool terminal = (v == zmin || v == zmax);
+        // changed AND the previous apply was very recent. Always accept
+        // edge values (=zmin or =zmax) and any value the client tagged as
+        // `final` (drag-end, button tap) so the camera always lands where
+        // the user released — even if the gap from the previous tick is
+        // tiny.
+        const bool edge = (v == zmin || v == zmax);
         const bool tiny_step = std::abs(v - prev_v) < 0.1f;
+        const bool terminal = edge || client_terminal;
         if (!terminal && tiny_step && (now - last_zoom_apply_) < milliseconds(80)) return ok();
         last_zoom_apply_ = now;
-        // Lower speed (4) when mid-drag = smoother; speed 10 only on terminal.
+        // Lower speed (4) when mid-drag = smoother; speed 10 on terminal.
         uint32_t speed = terminal ? 10u : 4u;
         int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR(
             (uint32_t)(v * 100.f), speed);
@@ -654,14 +661,55 @@ void DeviceSession::cmd_system_run_status(const std::string& s, ReplyFn reply) {
 }
 
 // Map a MoveSpeed to (s_roll, s_pitch, s_yaw) in deg/sec for
-// gimbalSetSpeedPositionR. 0 lets libdev pick.
+// gimbalSetSpeedPositionR. 0 lets libdev pick. SDK valid range: 1..90.
+//
+// `fast` previously used 120 which the SDK silently clamped to 90; capped
+// here for honesty. `cinema` is new — wedding-pan slow.
 static void speed_to_rates(MoveSpeed s, float& sr, float& sp, float& sy) {
     switch (s) {
+        case MoveSpeed::cinema:  sr = 2;  sp = 3;  sy = 4;   break;
         case MoveSpeed::slow:    sr = 10; sp = 15; sy = 20;  break;
         case MoveSpeed::medium:  sr = 30; sp = 40; sy = 60;  break;
-        case MoveSpeed::fast:    sr = 60; sp = 80; sy = 120; break;
+        case MoveSpeed::fast:    sr = 60; sp = 80; sy = 90;  break;
         case MoveSpeed::instant: sr = 0;  sp = 0;  sy = 0;   break;
     }
+}
+
+// Estimate how long the gimbal will take to reach a target attitude at
+// the given MoveSpeed. Used to pace the zoom-motor speed so a sequence
+// step's zoom finishes at roughly the same time as the pan/tilt move.
+// Returns ms; 0 means "instant" (camera firmware decides).
+static int gimbal_move_ms(float yaw_delta, float pitch_delta,
+                          float roll_delta, MoveSpeed s) {
+    if (s == MoveSpeed::instant) return 0;
+    float sr, sp, sy;
+    speed_to_rates(s, sr, sp, sy);
+    // Time to traverse each axis (deg / (deg/s) = s). Pick max axis
+    // (gimbal motors run in parallel so the slowest axis defines arrival).
+    const float ty = sy > 0 ? std::abs(yaw_delta)   / sy : 0.f;
+    const float tp = sp > 0 ? std::abs(pitch_delta) / sp : 0.f;
+    const float tr = sr > 0 ? std::abs(roll_delta)  / sr : 0.f;
+    const float t  = std::max({ty, tp, tr});
+    // Add a 200ms motor settle pad.
+    return (int)(t * 1000.f) + 200;
+}
+
+// Pick a zoom-motor speed that lands the zoom move at roughly the same
+// time as `gimbal_target_ms`. Camera zoom-speed enum is 1..10 where
+// 10 is fastest (~0.5s for 1.0×→2.0× full range). Slow zoom enums
+// stretch this linearly. Bias slower (zoom finishes after gimbal) since
+// the visual is way nicer that way.
+static uint32_t zoom_speed_for_duration(float zoom_delta, int gimbal_ms) {
+    const float dz = std::abs(zoom_delta);
+    if (dz < 0.05f) return 10;                  // no zoom move; use max
+    if (gimbal_ms <= 0) return 10;               // gimbal instant; zoom max
+    // Empirical: speed=10 covers 1.0× delta in ~500ms; speed=1 takes ~5s.
+    // Time(ms) ≈ 5000 / speed * dz.
+    const float target_ms = (float)gimbal_ms * 1.10f;  // bias 10% slower
+    float speed = (5000.f * dz) / target_ms;
+    if (speed < 1.f) speed = 1.f;
+    if (speed > 10.f) speed = 10.f;
+    return (uint32_t)std::round(speed);
 }
 
 void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
@@ -705,16 +753,22 @@ void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
 
         // ALWAYS restore zoom from the cached preset value, even on
         // instant mode. Camera-side preset.zoom is unreliable (1.0 always
-        // on Tiny 2 Lite). Speed for zoom matches the gimbal's:
-        // instant → speed=10 (max), slow→3, medium→6, fast→9.
+        // on Tiny 2 Lite). Pace zoom motor so zoom finishes at roughly
+        // the same time as the gimbal arrival — otherwise zoom snaps
+        // ahead of a slow pan and looks visually broken (the user's
+        // wedding-livestream feedback).
         if (r == 0 && found && p.zoom > 0.5f) {
-            uint32_t zspeed = 10;
-            switch (speed) {
-                case MoveSpeed::slow:    zspeed = 3; break;
-                case MoveSpeed::medium:  zspeed = 6; break;
-                case MoveSpeed::fast:    zspeed = 9; break;
-                case MoveSpeed::instant: zspeed = 10; break;
+            float cur_zoom = 1.0f, cur_yaw = 0.0f, cur_pitch = 0.0f, cur_roll = 0.0f;
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                cur_zoom  = snap_.zoom;
+                cur_yaw   = snap_.yaw;
+                cur_pitch = snap_.pitch;
+                cur_roll  = snap_.roll;
             }
+            const int gimbal_ms = gimbal_move_ms(
+                p.yaw - cur_yaw, p.pitch - cur_pitch, p.roll - cur_roll, speed);
+            uint32_t zspeed = zoom_speed_for_duration(p.zoom - cur_zoom, gimbal_ms);
             dev_->cameraSetZoomWithSpeedAbsoluteR(
                 (uint32_t)(p.zoom * 100.f), zspeed);
             std::lock_guard<std::mutex> g(snap_mu_);

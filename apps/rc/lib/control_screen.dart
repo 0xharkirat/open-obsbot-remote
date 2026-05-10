@@ -82,6 +82,7 @@ class _ControlScreenState extends State<ControlScreen> {
     final cur = widget.client.moveSpeed;
     IconData iconFor(MoveSpeed s) => switch (s) {
           MoveSpeed.instant => Icons.flash_on,
+          MoveSpeed.cinema => Icons.movie_creation_outlined,
           MoveSpeed.slow => Icons.directions_walk,
           MoveSpeed.medium => Icons.directions_run,
           MoveSpeed.fast => Icons.bolt,
@@ -106,43 +107,50 @@ class _ControlScreenState extends State<ControlScreen> {
   }
 
   Widget _buildPortrait(CameraState s) {
-    // Mobile-portrait layout. Whole page scrolls vertically so small phones
-    // (390x844 etc.) can reach every control without cramming everything
-    // into a single viewport.
-    return SingleChildScrollView(
-      child: Column(
-        children: <Widget>[
-          _statusBar(s),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: PreviewWidget(client: widget.client),
-          ),
-          // Joystick + zoom slider get a fixed slice of vertical space
-          // (~280px) so the bottom controls always stay reachable below.
-          SizedBox(
-            height: 280,
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  flex: 4,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: PtzPad(client: widget.client),
-                  ),
+    // Mobile-portrait layout. Hero controls (preview + joystick + zoom
+    // slider) are PINNED above a scrollable region; only the action
+    // rows scroll. This is the only layout that works on touch devices
+    // — wrapping the whole page in SingleChildScrollView lets the
+    // scroll view's GestureRecognizer win the gesture arena over the
+    // joystick's GestureDetector, so vertical-first joystick drags get
+    // eaten as scrolls and the camera doesn't move. See
+    // docs/TOUCH_FINDINGS_2026-05-10.md for the reproduction.
+    return Column(
+      children: <Widget>[
+        _statusBar(s),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: PreviewWidget(client: widget.client),
+        ),
+        // Joystick + zoom slider — fixed slice, NOT inside the scroll view.
+        SizedBox(
+          height: 280,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                flex: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: PtzPad(client: widget.client),
                 ),
-                SizedBox(
-                  width: 80,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: ZoomSlider(client: widget.client, state: s),
-                  ),
+              ),
+              SizedBox(
+                width: 80,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: ZoomSlider(client: widget.client, state: s),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          _bottomBar(s),
-        ],
-      ),
+        ),
+        // Bottom action rows scroll on small phones where they don't fit.
+        Expanded(
+          child: SingleChildScrollView(
+            child: _bottomBar(s),
+          ),
+        ),
+      ],
     );
   }
 
@@ -657,7 +665,11 @@ class _ZoomSliderState extends State<ZoomSlider> {
               },
               onChangeEnd: (double nv) {
                 // Always send terminal value so we never end on a stale tick.
-                widget.client.zoomSet(nv);
+                // `terminal:true` bypasses the bridge's mid-drag coalesce so
+                // the final lens position always lands exactly where the
+                // user released — even if the gap from the previous tick is
+                // tiny.
+                widget.client.zoomSet(nv, terminal: true);
                 _lastSent = DateTime.now();
                 Future<void>.delayed(const Duration(milliseconds: 200),
                     () => mounted ? setState(() => _dragValue = null) : null);

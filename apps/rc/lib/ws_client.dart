@@ -84,10 +84,15 @@ class SequenceState {
 }
 
 /// Move-to-preset transition speed.
-enum MoveSpeed { instant, slow, medium, fast }
+///
+/// Tier ordering reflects gimbal motor rate. `cinema` is the slowest
+/// supported tier (~3°/s yaw) — useful for wedding-style slow pans
+/// where snappier tiers feel jarring on camera.
+enum MoveSpeed { instant, cinema, slow, medium, fast }
 
 String moveSpeedToWire(MoveSpeed s) => switch (s) {
   MoveSpeed.instant => 'instant',
+  MoveSpeed.cinema => 'cinema',
   MoveSpeed.slow => 'slow',
   MoveSpeed.medium => 'medium',
   MoveSpeed.fast => 'fast',
@@ -95,6 +100,7 @@ String moveSpeedToWire(MoveSpeed s) => switch (s) {
 
 MoveSpeed moveSpeedFromWire(String s) => switch (s) {
   'instant' => MoveSpeed.instant,
+  'cinema' => MoveSpeed.cinema,
   'slow' => MoveSpeed.slow,
   'fast' => MoveSpeed.fast,
   _ => MoveSpeed.medium,
@@ -102,6 +108,7 @@ MoveSpeed moveSpeedFromWire(String s) => switch (s) {
 
 String moveSpeedLabel(MoveSpeed s) => switch (s) {
   MoveSpeed.instant => 'Instant',
+  MoveSpeed.cinema => 'Cinema',
   MoveSpeed.slow => 'Slow',
   MoveSpeed.medium => 'Medium',
   MoveSpeed.fast => 'Fast',
@@ -570,8 +577,12 @@ class WsClient extends ChangeNotifier {
   void ptzStop() => _send({'action': 'ptz.stop', 'id': _id()});
   void ptzRecenter() => _send({'action': 'ptz.recenter', 'id': _id()});
 
-  void zoomSet(double value) =>
-      _send({'action': 'zoom.set', 'id': _id(), 'value': value});
+  void zoomSet(double value, {bool terminal = false}) => _send({
+    'action': 'zoom.set',
+    'id': _id(),
+    'value': value,
+    if (terminal) 'final': true,
+  });
 
   void aiSetMode(String mode, [String sub = 'normal']) => _send({
     'action': 'ai.set_mode',

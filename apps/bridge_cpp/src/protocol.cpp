@@ -78,6 +78,7 @@ json build_state_event(const DeviceSnapshot& s) {
                 for (auto& st : s.sequence_steps) {
                     const char* sp = "medium";
                     switch (st.speed) {
+                        case MoveSpeed::cinema:  sp = "cinema"; break;
                         case MoveSpeed::slow:    sp = "slow"; break;
                         case MoveSpeed::medium:  sp = "medium"; break;
                         case MoveSpeed::fast:    sp = "fast"; break;
@@ -181,7 +182,8 @@ void dispatch_message(DeviceSession& session,
 
     if (action == "zoom.set") {
         float v = msg.value("value", 1.0f);
-        session.cmd_zoom_set(v, reply_cb);
+        bool terminal = msg.value("final", false);
+        session.cmd_zoom_set(v, terminal, reply_cb);
         return;
     }
     if (action == "zoom.set_smooth") {
@@ -240,7 +242,8 @@ void dispatch_message(DeviceSession& session,
         int pid = msg.value("preset_id", 0);
         std::string sp = msg.value("speed", std::string("instant"));
         MoveSpeed sm = MoveSpeed::medium;
-        if (sp == "slow") sm = MoveSpeed::slow;
+        if (sp == "cinema") sm = MoveSpeed::cinema;
+        else if (sp == "slow") sm = MoveSpeed::slow;
         else if (sp == "fast") sm = MoveSpeed::fast;
         else if (sp == "instant") sm = MoveSpeed::instant;
         else sm = MoveSpeed::medium;
@@ -267,7 +270,8 @@ void dispatch_message(DeviceSession& session,
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
                 std::string sp = it.value("speed", std::string("medium"));
-                if (sp == "slow") s.speed = MoveSpeed::slow;
+                if (sp == "cinema") s.speed = MoveSpeed::cinema;
+                else if (sp == "slow") s.speed = MoveSpeed::slow;
                 else if (sp == "fast") s.speed = MoveSpeed::fast;
                 else if (sp == "instant") s.speed = MoveSpeed::instant;
                 else s.speed = MoveSpeed::medium;
@@ -308,7 +312,8 @@ void dispatch_message(DeviceSession& session,
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
                 std::string sp = it.value("speed", std::string("medium"));
-                if (sp == "slow") s.speed = MoveSpeed::slow;
+                if (sp == "cinema") s.speed = MoveSpeed::cinema;
+                else if (sp == "slow") s.speed = MoveSpeed::slow;
                 else if (sp == "fast") s.speed = MoveSpeed::fast;
                 else if (sp == "instant") s.speed = MoveSpeed::instant;
                 else s.speed = MoveSpeed::medium;
