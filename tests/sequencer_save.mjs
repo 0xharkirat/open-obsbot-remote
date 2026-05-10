@@ -97,9 +97,9 @@ console.log('\n=== SEQUENCER SAVE / LOAD ===');
 
 const NAME = 'TEST_' + Date.now();
 const STEPS = [
-  { preset_id: 0, seconds: 5,  speed: 'slow' },
-  { preset_id: 1, seconds: 8,  speed: 'cinema' },
-  { preset_id: 2, seconds: 10, speed: 'medium' },
+  { preset_id: 0, seconds: 5,  transition_ms: 1000 },
+  { preset_id: 1, seconds: 8,  transition_ms: 30000 },
+  { preset_id: 2, seconds: 10, transition_ms: 0 },
 ];
 
 await test('save_as: creates entry in sequence.available', async () => {
@@ -113,21 +113,20 @@ await test('save persisted to sequences.json on disk', async () => {
   if (!obj[NAME]) throw new Error(`${NAME} not in sequences.json`);
   if (obj[NAME].mode !== 'ping_pong') throw new Error('mode mismatch');
   if (obj[NAME].steps.length !== 3) throw new Error('step count mismatch');
-  if (obj[NAME].steps[1].speed !== 'cinema') throw new Error('cinema speed not persisted');
+  if (obj[NAME].steps[1].transition_ms !== 30000) throw new Error('30s transition not persisted');
   return 'disk has correct shape';
 });
 
 await test('load: scratch updates, mode + steps + name correct', async () => {
-  // Wipe scratch first
   await send({ action: 'sequence.set', steps: [], mode: 'forward' });
   await sleep(300);
   await send({ action: 'sequence.load', name: NAME });
   await waitState(s => {
     const ss = s.sequence?.steps;
     return Array.isArray(ss) && ss.length === 3 &&
-      ss[0].preset_id === 0 && ss[0].seconds === 5 && ss[0].speed === 'slow' &&
-      ss[1].preset_id === 1 && ss[1].seconds === 8 && ss[1].speed === 'cinema' &&
-      ss[2].preset_id === 2 && ss[2].seconds === 10 && ss[2].speed === 'medium' &&
+      ss[0].preset_id === 0 && ss[0].seconds === 5  && ss[0].transition_ms === 1000 &&
+      ss[1].preset_id === 1 && ss[1].seconds === 8  && ss[1].transition_ms === 30000 &&
+      ss[2].preset_id === 2 && ss[2].seconds === 10 && ss[2].transition_ms === 0 &&
       s.sequence.loaded === NAME &&
       s.sequence.mode === 'ping_pong';
   }, 3000, 'load echoes steps');
@@ -141,27 +140,31 @@ await test('Gurudwara (user-saved) is still in library', async () => {
   return 'present';
 });
 
-await test('save round-trip preserves cinema/ultra speeds', async () => {
-  const N2 = NAME + '_speeds';
-  const SPEEDS = [
-    { preset_id: 0, seconds: 5, speed: 'ultra' },
-    { preset_id: 1, seconds: 5, speed: 'cinema' },
-    { preset_id: 2, seconds: 5, speed: 'instant' },
-  ];
-  await send({ action: 'sequence.save_as', name: N2, steps: SPEEDS, mode: 'forward' });
-  await waitState(s => (s.sequence?.available || []).includes(N2), 3000, 'saved');
+await test('legacy speed entries auto-migrate on load', async () => {
+  // Write a legacy-shape entry directly to disk (older v1.0 format)
+  const obj = JSON.parse(fs.readFileSync(SEQUENCES_PATH, 'utf8'));
+  obj['LEGACY_TEST'] = {
+    mode: 'forward',
+    steps: [
+      { preset_id: 0, seconds: 5, speed: 'cinema' },
+      { preset_id: 1, seconds: 5, speed: 'slow' },
+      { preset_id: 2, seconds: 5, speed: 'instant' },
+    ],
+  };
+  fs.writeFileSync(SEQUENCES_PATH, JSON.stringify(obj, null, 2));
+  // Bridge has the file in memory? read_lib() re-reads on each load. Try.
   await send({ action: 'sequence.set', steps: [], mode: 'forward' });
   await sleep(200);
-  await send({ action: 'sequence.load', name: N2 });
+  await send({ action: 'sequence.load', name: 'LEGACY_TEST' });
   await waitState(s => {
     const ss = s.sequence?.steps;
     return ss?.length === 3 &&
-      ss[0].speed === 'ultra' &&
-      ss[1].speed === 'cinema' &&
-      ss[2].speed === 'instant';
-  }, 3000, 'speeds preserved');
-  await send({ action: 'sequence.delete', name: N2 });
-  return 'ultra + cinema + instant survived round-trip';
+      ss[0].transition_ms === 22000 &&    // cinema → 22s
+      ss[1].transition_ms === 5000  &&    // slow   → 5s
+      ss[2].transition_ms === 0;          // instant → 0
+  }, 3000, 'legacy auto-migrate');
+  await send({ action: 'sequence.delete', name: 'LEGACY_TEST' });
+  return 'cinema=22s, slow=5s, instant=0 mapped';
 });
 
 await test('delete: name disappears from available + disk', async () => {

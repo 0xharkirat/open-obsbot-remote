@@ -217,14 +217,14 @@ await test('preset.save captures zoom 1.7x; recall instant restores it', async (
   }, 3000, 'preset[3].zoom≈1.7');
   await send({ action: 'zoom.set', value: 1.0 });
   await waitState(s => Math.abs(s.zoom.value - 1.0) < 0.05, 3000, 'zoom≈1.0');
-  await send({ action: 'preset.recall', preset_id: 3, speed: 'instant' });
+  await send({ action: 'preset.recall', preset_id: 3, duration_ms: 0 });
   await waitState(s => Math.abs(s.zoom.value - 1.7) < 0.1, 5000, 'zoom restored ≈1.7');
 });
 
 await test('preset.recall slow speed restores zoom too', async () => {
   await send({ action: 'zoom.set', value: 1.0 });
   await waitState(s => Math.abs(s.zoom.value - 1.0) < 0.05, 3000, 'zoom≈1.0');
-  await send({ action: 'preset.recall', preset_id: 3, speed: 'fast' });
+  await send({ action: 'preset.recall', preset_id: 3, duration_ms: 1000 });
   await waitState(s => Math.abs(s.zoom.value - 1.7) < 0.1, 6000, 'zoom restored');
 });
 
@@ -360,15 +360,15 @@ if (!SHORT) {
 
 await test('sequence.set ships steps in state event', async () => {
   const steps = [
-    { preset_id: 0, seconds: 5, speed: 'medium' },
-    { preset_id: 1, seconds: 5, speed: 'fast' },
+    { preset_id: 0, seconds: 5, transition_ms: 2000 },
+    { preset_id: 1, seconds: 5, transition_ms: 1000 },
   ];
   await send({ action: 'sequence.set', steps, mode: 'forward' });
   await waitState(s => {
     const ss = s.sequence?.steps;
     return Array.isArray(ss) && ss.length === 2 &&
-      ss[0].preset_id === 0 && ss[0].seconds === 5 && ss[0].speed === 'medium' &&
-      ss[1].preset_id === 1 && ss[1].speed === 'fast';
+      ss[0].preset_id === 0 && ss[0].seconds === 5 && ss[0].transition_ms === 2000 &&
+      ss[1].preset_id === 1 && ss[1].transition_ms === 1000;
   }, 3000, 'steps echo');
 });
 
@@ -383,8 +383,8 @@ await test('sequence.start sets running=true; stop sets it false', async () => {
 await test('sequence.save_as + load round-trips steps + mode', async () => {
   const NAME = 'PROD_TEST_' + Date.now();
   const steps = [
-    { preset_id: 2, seconds: 7, speed: 'slow' },
-    { preset_id: 3, seconds: 4, speed: 'instant' },
+    { preset_id: 2, seconds: 7, transition_ms: 5000 },
+    { preset_id: 3, seconds: 4, transition_ms: 0 },
   ];
   await send({ action: 'sequence.save_as', name: NAME, steps, mode: 'ping_pong' });
   await waitState(s => (s.sequence?.available || []).includes(NAME),
@@ -395,8 +395,8 @@ await test('sequence.save_as + load round-trips steps + mode', async () => {
   await waitState(s => {
     const ss = s.sequence?.steps;
     return Array.isArray(ss) && ss.length === 2 &&
-      ss[0].preset_id === 2 && ss[0].seconds === 7 && ss[0].speed === 'slow' &&
-      ss[1].preset_id === 3 && ss[1].seconds === 4 && ss[1].speed === 'instant' &&
+      ss[0].preset_id === 2 && ss[0].seconds === 7 && ss[0].transition_ms === 5000 &&
+      ss[1].preset_id === 3 && ss[1].seconds === 4 && ss[1].transition_ms === 0 &&
       s.sequence.loaded === NAME && s.sequence.mode === 'ping_pong';
   }, 3000, 'load echoes steps');
   await send({ action: 'sequence.delete', name: NAME });
@@ -406,7 +406,7 @@ await test('sequence.save_as + load round-trips steps + mode', async () => {
 
 await test('sequence.set with seconds<3 clamps to 3', async () => {
   await send({ action: 'sequence.set', steps: [
-    { preset_id: 0, seconds: 1, speed: 'medium' },  // bridge clamps to 3
+    { preset_id: 0, seconds: 1, transition_ms: 2000 },  // bridge clamps to 3
   ], mode: 'forward' });
   await waitState(s => {
     const ss = s.sequence?.steps;

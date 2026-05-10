@@ -208,7 +208,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
       onTap: hasPreset
           ? () {
               HapticFeedback.lightImpact();
-              client.presetRecall(id);  // uses client.moveSpeed default
+              client.presetRecall(id);  // uses client.moveDuration default
             }
           : null,
       onLongPress: () async {
@@ -266,28 +266,24 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
   }
 
   Widget _speedMenu(BuildContext ctx) {
-    final cur = client.moveSpeed;
-    IconData iconFor(MoveSpeed s) => switch (s) {
-          MoveSpeed.instant => Icons.flash_on,
-          MoveSpeed.ultra => Icons.hourglass_empty,
-          MoveSpeed.cinema => Icons.movie_creation_outlined,
-          MoveSpeed.slow => Icons.directions_walk,
-          MoveSpeed.medium => Icons.directions_run,
-          MoveSpeed.fast => Icons.bolt,
-        };
-    return PopupMenuButton<MoveSpeed>(
-      tooltip: 'Move speed',
-      icon: Icon(iconFor(cur)),
-      onSelected: (s) => client.setMoveSpeed(s),
-      itemBuilder: (BuildContext c) => <PopupMenuEntry<MoveSpeed>>[
-        for (final s in MoveSpeed.values)
-          CheckedPopupMenuItem<MoveSpeed>(
-            value: s,
-            checked: s == cur,
+    final cur = client.moveDuration;
+    IconData currentIcon = Icons.timer;
+    for (final p in kMoveDurationPresets) {
+      if (p.duration == cur) { currentIcon = p.icon; break; }
+    }
+    return PopupMenuButton<Duration>(
+      tooltip: 'Move duration',
+      icon: Icon(currentIcon),
+      onSelected: (d) => client.setMoveDuration(d),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<Duration>>[
+        for (final p in kMoveDurationPresets)
+          CheckedPopupMenuItem<Duration>(
+            value: p.duration,
+            checked: p.duration == cur,
             child: Row(children: <Widget>[
-              Icon(iconFor(s), size: 16),
+              Icon(p.icon, size: 16),
               const SizedBox(width: 8),
-              Text(moveSpeedLabel(s)),
+              Text(p.label),
             ]),
           ),
       ],

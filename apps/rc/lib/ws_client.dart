@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -65,7 +66,8 @@ class SequenceState {
         .map((Map<String, dynamic> e) => SequenceStep(
               presetId: (e['preset_id'] as num?)?.toInt() ?? 0,
               seconds: (e['seconds'] as num?)?.toInt() ?? 60,
-              speed: moveSpeedFromWire(e['speed'] as String? ?? 'medium'),
+              transition: Duration(
+                  milliseconds: (e['transition_ms'] as num?)?.toInt() ?? 0),
             ))
         .toList();
     return SequenceState(
@@ -83,44 +85,39 @@ class SequenceState {
   }
 }
 
-/// Move-to-preset transition speed.
+/// Duration-based move presets for the speed selector.
 ///
-/// Tier ordering reflects gimbal motor rate.
-///   instant : SDK hardware path (camera firmware decides, ~0.5s).
-///   ultra   : Bridge-driven cinematographer-grade slow (~5min for 90° pan).
-///   cinema  : Wedding-pan slow (~22s for 90° pan).
-///   slow / medium / fast : SDK direct rates (1..90 deg/s).
-///
-/// `ultra` and `cinema` go through the bridge MotionPlanner which
-/// drives waypoints below the SDK's own floor.
-enum MoveSpeed { instant, ultra, cinema, slow, medium, fast }
+/// User picks how long the camera should take to reach the target —
+/// from snap (Duration.zero / instant) up to several minutes for
+/// cinematographic slow pans. Bridge `MotionPlanner` honors any
+/// duration; these are just the well-known chip values.
+class MoveDurationPreset {
+  final String label;
+  final Duration duration;
+  final IconData icon;
+  const MoveDurationPreset(this.label, this.duration, this.icon);
+}
 
-String moveSpeedToWire(MoveSpeed s) => switch (s) {
-  MoveSpeed.instant => 'instant',
-  MoveSpeed.ultra => 'ultra',
-  MoveSpeed.cinema => 'cinema',
-  MoveSpeed.slow => 'slow',
-  MoveSpeed.medium => 'medium',
-  MoveSpeed.fast => 'fast',
-};
+const List<MoveDurationPreset> kMoveDurationPresets = <MoveDurationPreset>[
+  MoveDurationPreset('Instant', Duration.zero,                     Icons.flash_on),
+  MoveDurationPreset('1 sec',   Duration(milliseconds: 1000),       Icons.bolt),
+  MoveDurationPreset('5 sec',   Duration(milliseconds: 5000),       Icons.directions_run),
+  MoveDurationPreset('15 sec',  Duration(milliseconds: 15000),      Icons.directions_walk),
+  MoveDurationPreset('30 sec',  Duration(milliseconds: 30000),      Icons.movie_creation_outlined),
+  MoveDurationPreset('1 min',   Duration(milliseconds: 60000),      Icons.hourglass_bottom),
+  MoveDurationPreset('3 min',   Duration(milliseconds: 180000),     Icons.hourglass_top),
+  MoveDurationPreset('5 min',   Duration(milliseconds: 300000),     Icons.hourglass_empty),
+];
 
-MoveSpeed moveSpeedFromWire(String s) => switch (s) {
-  'instant' => MoveSpeed.instant,
-  'ultra' => MoveSpeed.ultra,
-  'cinema' => MoveSpeed.cinema,
-  'slow' => MoveSpeed.slow,
-  'fast' => MoveSpeed.fast,
-  _ => MoveSpeed.medium,
-};
-
-String moveSpeedLabel(MoveSpeed s) => switch (s) {
-  MoveSpeed.instant => 'Instant',
-  MoveSpeed.ultra => 'Ultra',
-  MoveSpeed.cinema => 'Cinema',
-  MoveSpeed.slow => 'Slow',
-  MoveSpeed.medium => 'Medium',
-  MoveSpeed.fast => 'Fast',
-};
+String formatMoveDuration(Duration d) {
+  if (d == Duration.zero) return 'Instant';
+  if (d.inMinutes >= 1) {
+    final m = d.inMinutes;
+    final s = d.inSeconds - m * 60;
+    return s == 0 ? '${m} min' : '${m}m ${s}s';
+  }
+  return '${(d.inMilliseconds / 1000).toStringAsFixed(d.inMilliseconds % 1000 == 0 ? 0 : 1)} sec';
+}
 
 /// How a sequence loops once it finishes its last step.
 enum LoopMode {
@@ -157,16 +154,18 @@ String loopModeLabel(LoopMode m) => switch (m) {
 class SequenceStep {
   final int presetId;
   final int seconds;
-  final MoveSpeed speed;
+  /// How long the camera takes to *reach* this step's preset.
+  /// Duration.zero = instant. Defaults to 2 seconds (medium).
+  final Duration transition;
   const SequenceStep({
     required this.presetId,
     required this.seconds,
-    this.speed = MoveSpeed.medium,
+    this.transition = const Duration(milliseconds: 2000),
   });
   Map<String, dynamic> toJson() => <String, dynamic>{
     'preset_id': presetId,
     'seconds': seconds,
-    'speed': moveSpeedToWire(speed),
+    'transition_ms': transition.inMilliseconds,
   };
 }
 
@@ -334,24 +333,27 @@ class WsClient extends ChangeNotifier {
   int _lastLatencyMs = 0;
   DateTime? _lastPingSent;
   String? _token; // bearer token after pairing
-  MoveSpeed _moveSpeed = MoveSpeed.medium;
+  /// Default move duration applied to ptzAngle / presetRecall / zoomSet
+  /// when the caller doesn't pass one explicitly. Persisted across app
+  /// launches via SharedPreferences key `move_duration_ms`.
+  Duration _moveDuration = const Duration(milliseconds: 2000);
 
   WsClient() {
     SharedPreferences.getInstance().then((p) {
-      final s = p.getString('move_speed');
-      if (s != null) {
-        _moveSpeed = moveSpeedFromWire(s);
+      final ms = p.getInt('move_duration_ms');
+      if (ms != null) {
+        _moveDuration = Duration(milliseconds: ms);
         notifyListeners();
       }
     });
   }
 
-  MoveSpeed get moveSpeed => _moveSpeed;
-  Future<void> setMoveSpeed(MoveSpeed s) async {
-    _moveSpeed = s;
+  Duration get moveDuration => _moveDuration;
+  Future<void> setMoveDuration(Duration d) async {
+    _moveDuration = d;
     notifyListeners();
     final p = await SharedPreferences.getInstance();
-    await p.setString('move_speed', moveSpeedToWire(s));
+    await p.setInt('move_duration_ms', d.inMilliseconds);
   }
 
   bool get connected => _connected && _state.connected;
@@ -571,31 +573,35 @@ class WsClient extends ChangeNotifier {
     _send({'action': 'ping', 'id': _id()});
   }
 
-  void ptzAngle({required double yaw, required double pitch, MoveSpeed? speed}) =>
+  void ptzAngle({required double yaw, required double pitch, Duration? duration}) =>
       _send({
         'action': 'ptz.angle', 'id': _id(),
         'yaw': yaw, 'pitch': pitch,
-        'speed': moveSpeedToWire(speed ?? _moveSpeed),
+        'duration_ms': (duration ?? _moveDuration).inMilliseconds,
       });
 
-  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0, MoveSpeed? speed}) => _send({
+  /// Velocity is rate-based; client should multiply its own deflection
+  /// by whatever speed-factor the user chose before calling this.
+  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) => _send({
     'action': 'ptz.velocity',
     'id': _id(),
     'yaw_speed': yawSpeed,
     'pitch_speed': pitchSpeed,
     'roll_speed': 0,
-    'speed': moveSpeedToWire(speed ?? _moveSpeed),
   });
 
   void ptzStop() => _send({'action': 'ptz.stop', 'id': _id()});
   void ptzRecenter() => _send({'action': 'ptz.recenter', 'id': _id()});
 
-  void zoomSet(double value, {bool terminal = false, MoveSpeed? speed}) => _send({
+  /// Zoom to absolute value. `terminal: true` on slider drag-end so the
+  /// bridge bypasses mid-drag coalesce. `duration` controls how long
+  /// the lens motor takes — Duration.zero = snap, larger = pro slow zoom.
+  void zoomSet(double value, {bool terminal = false, Duration? duration}) => _send({
     'action': 'zoom.set',
     'id': _id(),
     'value': value,
     if (terminal) 'final': true,
-    'speed': moveSpeedToWire(speed ?? _moveSpeed),
+    'duration_ms': (duration ?? Duration.zero).inMilliseconds,
   });
 
   void aiSetMode(String mode, [String sub = 'normal']) => _send({
@@ -617,11 +623,11 @@ class WsClient extends ChangeNotifier {
     'name': name,
   });
 
-  void presetRecall(int id, {MoveSpeed? speed}) => _send({
+  void presetRecall(int id, {Duration? duration}) => _send({
     'action': 'preset.recall',
     'id': _id(),
     'preset_id': id,
-    'speed': moveSpeedToWire(speed ?? _moveSpeed),
+    'duration_ms': (duration ?? _moveDuration).inMilliseconds,
   });
 
   void presetDelete(int id) =>

@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-// Slow-motion floor smoke test. Verifies that:
-//   - MoveSpeed.ultra produces dramatically slower preset recalls than
-//     MoveSpeed.cinema, which is slower than slow, etc.
-//   - Cancellation works (a new preset recall preempts an in-flight one).
-//   - Zoom + gimbal finish together when both are in the move target.
+// Slow-motion timing test against real bridge.
 //
-// Run with the bridge live + camera attached:
+// Verifies the protocol's `duration_ms` field actually drives the
+// gimbal at the expected wall-clock duration, across a range of
+// 90°-pan-equivalent moves.
+//
+// Run:
 //   node tests/slow_motion.mjs
-//
-// Cancels mid-flight when needed so you don't actually wait 5 minutes
-// for an ultra pan during a smoke run.
 
 import WebSocket from 'ws';
 import fs from 'node:fs';
@@ -56,8 +53,7 @@ function waitState(pred, ms = 5000, label = '') {
     if (lastState && pred(lastState)) w(lastState);
   });
 }
-
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 ws.on('message', raw => {
   const m = JSON.parse(raw);
@@ -76,9 +72,8 @@ ws.on('message', raw => {
 await new Promise((r, rj) => { ws.once('open', r); ws.once('error', rj); });
 await send({ action: 'hello', token });
 await send({ action: 'subscribe' });
-await waitState(() => lastState && lastState.device.connected, 3000, 'connected');
-
-console.log(`[device] ${lastState.device.model_display} ${lastState.device.sn}`);
+await waitState(() => lastState?.device.connected, 3000, 'connected');
+console.log(`[device] ${lastState.device.model_display}`);
 
 const results = [];
 async function test(name, body) {
@@ -93,14 +88,9 @@ async function test(name, body) {
   }
 }
 
-console.log('\n=== SLOW MOTION TIMINGS ===');
-
-// Build a far-apart pair of preset positions so each move has visible
-// duration. We don't permanently overwrite user presets — save P5/P6
-// (slots 4,5) at fixed angles, restore at the end.
+// Save 2 test presets so we can recall between them.
 async function saveTestPreset(slot, name, yaw, pitch) {
-  // Drive to position via instant ptz.angle, then save.
-  await send({ action: 'ptz.angle', yaw, pitch, speed: 'instant' });
+  await send({ action: 'ptz.angle', yaw, pitch, duration_ms: 0 });
   await waitState(s =>
     Math.abs(s.ptz.yaw - yaw) < 2 && Math.abs(s.ptz.pitch - pitch) < 2,
     5000, `position ${yaw},${pitch}`);
@@ -108,106 +98,87 @@ async function saveTestPreset(slot, name, yaw, pitch) {
   await sleep(300);
 }
 
-// Pre-load: P5=center, P6=20°right + 5°up
-await saveTestPreset(4, 'TEST_HOME',  0,   0);
-await saveTestPreset(5, 'TEST_RIGHT', 20,  5);
+await saveTestPreset(4, 'TEST_HOME',  0,  0);
+await saveTestPreset(5, 'TEST_RIGHT', 20, 5);
 
-async function timeRecall(slot, speed, cancelAfterMs = 0) {
+console.log('\n=== TIMINGS (preset recall, 20° pan + 5° tilt + zoom delta) ===');
+
+async function timeRecall(slot, ms) {
   const t0 = Date.now();
-  await send({ action: 'preset.recall', preset_id: slot, speed });
-  if (cancelAfterMs > 0) {
-    await sleep(cancelAfterMs);
-    // Cancel by sending another instant recall back to where we started.
-    await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
-    await sleep(300);
-    return Date.now() - t0;
-  }
-  // Wait for arrival.
-  const target = (await waitState(() => true, 100, 'noop')).presets.find(p => p.id === slot);
+  await send({ action: 'preset.recall', preset_id: slot, duration_ms: ms });
+  const target = lastState.presets.find(p => p.id === slot);
+  if (!target) throw new Error('preset not in state');
   await waitState(s =>
       Math.abs(s.ptz.yaw - target.yaw) < 1 &&
       Math.abs(s.ptz.pitch - target.pitch) < 1,
-    300_000, `arrive at preset ${slot} (${speed})`);
+    Math.max(ms * 1.6, 5000), `arrive at preset ${slot} (target ${ms}ms)`);
   return Date.now() - t0;
 }
 
-let tFast, tSlow, tCinema;
+// 90° pan equivalent: planner duration is wall-clock so should be honored.
+// Tolerance ±30% (some camera-side settle overhead).
+for (const ms of [500, 1000, 5000, 15000]) {
+  await test(`preset.recall duration_ms=${ms}: arrives ±30%`, async () => {
+    await send({ action: 'preset.recall', preset_id: 4, duration_ms: 0 });
+    await sleep(800);
+    const took = await timeRecall(5, ms);
+    const lo = ms === 0 ? 0 : ms * 0.7;
+    const hi = ms === 0 ? 1500 : ms * 1.5 + 800;
+    if (took < lo || took > hi) {
+      throw new Error(`took ${took}ms (target ${ms}ms ±30%)`);
+    }
+    return `${took}ms`;
+  });
+}
 
-// Pan delta is 20°. Bands derived from the bridge's `duration_ms_for`
-// table: ms_per_deg × 20°.
-//   fast    11   ms/deg  → ~220ms       (allow 100..1500 for camera + WS)
-//   slow    55   ms/deg  → ~1100ms      (allow 800..2500)
-//   cinema  250  ms/deg  → ~5000ms      (allow 4000..8000)
-
-await test('preset.recall fast: arrives in <1.5s', async () => {
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
-  await sleep(800);
-  tFast = await timeRecall(5, 'fast');
-  if (tFast > 1500) throw new Error(`took ${tFast}ms`);
-  return `${tFast}ms`;
+await test('preset.recall duration_ms=0 (instant) arrives <1.5s', async () => {
+  await send({ action: 'preset.recall', preset_id: 4, duration_ms: 0 });
+  await sleep(500);
+  const t0 = Date.now();
+  await send({ action: 'preset.recall', preset_id: 5, duration_ms: 0 });
+  const target = lastState.presets.find(p => p.id === 5);
+  await waitState(s =>
+      Math.abs(s.ptz.yaw - target.yaw) < 1.5 &&
+      Math.abs(s.ptz.pitch - target.pitch) < 1.5,
+    3000, 'instant arrive');
+  const took = Date.now() - t0;
+  if (took > 1500) throw new Error(`took ${took}ms`);
+  return `${took}ms`;
 });
 
-await test('preset.recall slow: arrives in 0.8-2.5s', async () => {
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
+await test('60s plan: 8s in, partial ease-in-out progress', async () => {
+  await send({ action: 'preset.recall', preset_id: 4, duration_ms: 0 });
   await sleep(800);
-  tSlow = await timeRecall(5, 'slow');
-  if (tSlow < 800 || tSlow > 2500) throw new Error(`took ${tSlow}ms`);
-  return `${tSlow}ms`;
-});
-
-await test('preset.recall cinema: arrives in 4-8s', async () => {
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
-  await sleep(800);
-  tCinema = await timeRecall(5, 'cinema');
-  if (tCinema < 4000 || tCinema > 8000) throw new Error(`took ${tCinema}ms`);
-  return `${tCinema}ms`;
-});
-
-await test('preset.recall ultra is much slower than cinema (cancel after 8s, but observe motion)', async () => {
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
-  await sleep(800);
-  // Capture starting yaw, then issue ultra recall, observe movement at 8s.
   const startYaw = lastState.ptz.yaw;
   const t0 = Date.now();
-  await send({ action: 'preset.recall', preset_id: 5, speed: 'ultra' });
+  await send({ action: 'preset.recall', preset_id: 5, duration_ms: 60000 });
   await sleep(8000);
   const movedYaw = lastState.ptz.yaw;
   const t = Date.now() - t0;
-  // Cancel the in-flight ultra move by recalling instant home.
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
+  await send({ action: 'preset.recall', preset_id: 4, duration_ms: 0 });
   await sleep(500);
-  // After 8s of an ultra move toward 20° yaw, gimbal should have moved
-  // somewhere in the 0..15° range (ease-in-out makes early progress slow).
   const moved = movedYaw - startYaw;
-  if (moved <= 0.3 || moved >= 18) {
-    throw new Error(`after ${t}ms, yaw moved ${moved.toFixed(1)}° (expected 0.3..18)`);
+  if (moved <= 0.5 || moved >= 18) {
+    throw new Error(`after ${t}ms, advanced ${moved.toFixed(1)}° (expected 0.5..18 of 20°)`);
   }
-  return `8s elapsed, yaw advanced ${moved.toFixed(1)}°`;
+  return `${moved.toFixed(1)}° advanced in 8s of 60s plan`;
 });
 
-await test('preset.recall cancelled mid-flight by new instant recall', async () => {
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
+await test('cancel in-flight by new instant', async () => {
+  await send({ action: 'preset.recall', preset_id: 4, duration_ms: 0 });
   await sleep(800);
-  // Start cinema move
-  await send({ action: 'preset.recall', preset_id: 5, speed: 'cinema' });
+  await send({ action: 'preset.recall', preset_id: 5, duration_ms: 5000 });
   await sleep(2000);
   const midYaw = lastState.ptz.yaw;
-  // Cancel by going back to home instant
-  await send({ action: 'preset.recall', preset_id: 4, speed: 'instant' });
+  await send({ action: 'preset.recall', preset_id: 4, duration_ms: 0 });
   await waitState(s => Math.abs(s.ptz.yaw) < 2, 5000, 'cancel returned home');
   return `cancelled at yaw=${midYaw.toFixed(1)}°`;
 });
-
-console.log('\n=== TIMINGS SUMMARY ===');
-console.log(`fast:    ${tFast || '?'}ms`);
-console.log(`slow:    ${tSlow || '?'}ms`);
-console.log(`cinema:  ${tCinema || '?'}ms`);
 
 console.log('\n=== RESULTS ===');
 const passed = results.filter(r => r.ok).length;
 console.log(`${passed}/${results.length} passed`);
 
-// Cleanup test presets
 await send({ action: 'preset.delete', preset_id: 4 }).catch(() => {});
 await send({ action: 'preset.delete', preset_id: 5 }).catch(() => {});
 

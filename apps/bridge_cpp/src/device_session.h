@@ -24,26 +24,19 @@ struct PresetInfo {
 /// Move-to-preset transition speed. "instant" = libdev default
 /// (camera firmware decides), the rest map to s_yaw/s_pitch values for
 /// gimbalSetSpeedPositionR (deg/sec).
-// MoveSpeed tier — controls how fast camera operations (preset recall,
-// sequencer step, zoom set, ptz.angle, ptz.velocity) execute.
+// Sequencer step.
 //
-// instant : SDK hardware path (camera firmware decides; ~0.5s)
-// fast    : ~1s for a 90° pan (sy=90, SDK ceiling)
-// medium  : ~2s
-// slow    : ~5s
-// cinema  : ~22s (s_yaw=4 deg/s, was the previous floor)
-// ultra   : 2-5 minutes for 90° pan, driven by the bridge-side
-//           MotionPlanner via tiny waypoints. Sub-SDK-floor smoothness
-//           for wedding / ceremony / theatre work.
-//
-// Values are interpreted in `duration_ms_for()` (device_session.cpp);
-// the planner translates duration into waypoint cadence.
-enum class MoveSpeed { instant, ultra, cinema, slow, medium, fast };
-
+// `seconds` = how long the camera dwells on this preset before
+//             advancing to the next step.
+// `transition_ms` = how long the move TO this preset's attitude + zoom
+//             should take. 0 = instant (SDK hardware path).
+//             Anything else routes through the bridge MotionPlanner
+//             which can deliver smooth motion at any duration —
+//             from 0.5s ("snap") to 5+ minutes ("wedding pan").
 struct SequenceStep {
     int preset_id = 0;
     int seconds = 60;
-    MoveSpeed speed = MoveSpeed::medium;
+    int transition_ms = 0;          // 0 = instant
 };
 
 enum class LoopMode { once, forward, ping_pong };
@@ -126,11 +119,15 @@ public:
     void submit(std::function<CmdResult()> work, ReplyFn reply);
 
     // High-level helpers (compose work + reply for convenience)
-    void cmd_ptz_angle(float yaw, float pitch, float roll, MoveSpeed speed, ReplyFn reply);
-    void cmd_ptz_velocity(float yaw_speed, float pitch_speed, float roll_speed, MoveSpeed speed, ReplyFn reply);
+    // duration_ms = 0 → instant SDK path. Non-zero routes through the
+    // MotionPlanner. Both axes finish at the same time.
+    void cmd_ptz_angle(float yaw, float pitch, float roll, int duration_ms, ReplyFn reply);
+    // Velocity is rate-based; client multiplies its own deflection by
+    // whatever speed-factor the user chose. Bridge passes through.
+    void cmd_ptz_velocity(float yaw_speed, float pitch_speed, float roll_speed, ReplyFn reply);
     void cmd_ptz_stop(ReplyFn reply);
     void cmd_ptz_recenter(ReplyFn reply);
-    void cmd_zoom_set(float value, bool terminal, MoveSpeed speed, ReplyFn reply);
+    void cmd_zoom_set(float value, bool terminal, int duration_ms, ReplyFn reply);
     void cmd_zoom_set_smooth(float value, int speed, ReplyFn reply);
     void cmd_ai_set_mode(const std::string& mode, const std::string& sub, ReplyFn reply);
     void cmd_ai_set_enabled(bool enabled, ReplyFn reply);
@@ -149,7 +146,7 @@ public:
     void cmd_image_set_face_focus(bool e, ReplyFn reply);
     void cmd_image_set_flip_h(bool e, ReplyFn reply);
     void cmd_system_run_status(const std::string& s, ReplyFn reply);
-    void cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply);
+    void cmd_preset_recall(int id, int duration_ms, ReplyFn reply);
     void cmd_preset_save(int id, const std::string& name, ReplyFn reply);
     void cmd_preset_delete(int id, ReplyFn reply);
 

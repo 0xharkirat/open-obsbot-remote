@@ -39,7 +39,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
     // from the library) OR the state's steps differ from ours, re-hydrate.
     final s = widget.client.state.sequence;
     final sig = '${s.loaded}::${s.mode}::${s.steps.length}::'
-        '${s.steps.map((e) => "${e.presetId}/${e.seconds}/${moveSpeedToWire(e.speed)}").join(",")}';
+        '${s.steps.map((e) => "${e.presetId}/${e.seconds}/${e.transition.inMilliseconds}").join(",")}';
     if (sig != _lastHydratedFrom) {
       _hydrateFromState();
     }
@@ -59,7 +59,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
         _steps.add(_EditStep(
           presetId: src.presetId,
           seconds: src.seconds,
-          speed: src.speed,
+          transition: src.transition,
         ));
       }
       _mode = loopModeFromWire(seq.mode);
@@ -70,7 +70,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
       _mode = LoopMode.forward;
     }
     _lastHydratedFrom = '${seq.loaded}::${seq.mode}::${seq.steps.length}::'
-        '${seq.steps.map((e) => "${e.presetId}/${e.seconds}/${moveSpeedToWire(e.speed)}").join(",")}';
+        '${seq.steps.map((e) => "${e.presetId}/${e.seconds}/${e.transition.inMilliseconds}").join(",")}';
     if (mounted) setState(() {});
   }
 
@@ -91,7 +91,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
           (e) => SequenceStep(
             presetId: e.presetId,
             seconds: e.seconds,
-            speed: e.speed,
+            transition: e.transition,
           ),
         )
         .toList();
@@ -138,7 +138,7 @@ class _SequencerScreenState extends State<SequencerScreen> {
           (e) => SequenceStep(
             presetId: e.presetId,
             seconds: e.seconds,
-            speed: e.speed,
+            transition: e.transition,
           ),
         )
         .toList();
@@ -495,19 +495,21 @@ class _SequencerScreenState extends State<SequencerScreen> {
           ),
           const SizedBox(width: 12),
           const Text('move '),
-          DropdownButton<MoveSpeed>(
-            value: step.speed,
+          DropdownButton<int>(
+            value: step.transition.inMilliseconds,
             underline: const SizedBox.shrink(),
             isDense: true,
-            items: <DropdownMenuItem<MoveSpeed>>[
-              for (final s in MoveSpeed.values)
-                DropdownMenuItem<MoveSpeed>(
-                  value: s,
-                  child: Text(moveSpeedLabel(s).toLowerCase()),
+            items: <DropdownMenuItem<int>>[
+              for (final p in kMoveDurationPresets)
+                DropdownMenuItem<int>(
+                  value: p.duration.inMilliseconds,
+                  child: Text(p.label.toLowerCase()),
                 ),
             ],
             onChanged: (v) {
-              if (v != null) setState(() => step.speed = v);
+              if (v != null) {
+                setState(() => step.transition = Duration(milliseconds: v));
+              }
             },
           ),
         ],
@@ -535,12 +537,12 @@ class _SequencerScreenState extends State<SequencerScreen> {
 class _EditStep {
   int presetId;
   int seconds;
-  MoveSpeed speed;
+  Duration transition;
   late TextEditingController secondsCtrl;
   _EditStep({
     required this.presetId,
     required this.seconds,
-    this.speed = MoveSpeed.medium,
+    this.transition = const Duration(milliseconds: 2000),
   }) {
     secondsCtrl = TextEditingController(text: '$seconds');
   }
