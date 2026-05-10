@@ -1103,6 +1103,8 @@ static std::string sequence_file_path() {
 
 static const char* speed_str(MoveSpeed s) {
     switch (s) {
+        case MoveSpeed::ultra:   return "ultra";
+        case MoveSpeed::cinema:  return "cinema";
         case MoveSpeed::slow:    return "slow";
         case MoveSpeed::medium:  return "medium";
         case MoveSpeed::fast:    return "fast";
@@ -1111,9 +1113,11 @@ static const char* speed_str(MoveSpeed s) {
     return "medium";
 }
 
-static MoveSpeed parse_speed(const std::string& s) {
-    if (s == "slow") return MoveSpeed::slow;
-    if (s == "fast") return MoveSpeed::fast;
+static MoveSpeed parse_speed_str(const std::string& s) {
+    if (s == "ultra")   return MoveSpeed::ultra;
+    if (s == "cinema")  return MoveSpeed::cinema;
+    if (s == "slow")    return MoveSpeed::slow;
+    if (s == "fast")    return MoveSpeed::fast;
     if (s == "instant") return MoveSpeed::instant;
     return MoveSpeed::medium;
 }
@@ -1265,7 +1269,7 @@ void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
             SequenceStep s;
             s.preset_id = it.value("preset_id", 0);
             s.seconds   = it.value("seconds", 60);
-            s.speed     = parse_speed(it.value("speed", std::string("medium")));
+            s.speed     = parse_speed_str(it.value("speed", std::string("medium")));
             if (s.seconds < 3) s.seconds = 3;
             steps.push_back(s);
         }
