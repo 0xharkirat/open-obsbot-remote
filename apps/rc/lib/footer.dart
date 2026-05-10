@@ -71,6 +71,11 @@ class AppFooter extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text('•  by', style: small),
+            ),
+            link('Hark Singh', 'https://harksingh.com'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text('•  Powered by', style: small),
             ),
             link('OBSBOT SDK', 'https://www.obsbot.com/sdk'),
