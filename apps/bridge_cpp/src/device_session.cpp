@@ -581,9 +581,11 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
             t.duration_ms = duration_ms;
             t.tag = "zoom.set d=" + std::to_string(duration_ms);
             motion_start(std::move(t));
-            std::lock_guard<std::mutex> g(snap_mu_);
-            snap_.zoom = v;
-            pending_zoom_ = v;
+            // Don't pre-stamp snap_.zoom here — the planner ticks update
+            // it progressively (see motion_loop), so state events show
+            // smooth zoom motion. Pre-stamping would make clients see
+            // the target value immediately even though the lens is
+            // still mid-traversal.
             return ok();
         }
         // Mid-drag coalesce: only drop a duplicate if the value barely
@@ -597,6 +599,12 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
         const bool terminal = edge || client_terminal;
         if (!terminal && tiny_step && (now - last_zoom_apply_) < milliseconds(80)) return ok();
         last_zoom_apply_ = now;
+        // Instant zoom (duration_ms=0 or mid-drag): cancel any in-flight
+        // planner zoom from a previous slow command. Without this, an
+        // instant zoom right after a slow zoom plan races: planner keeps
+        // pushing toward the old target while the user just snapped to a
+        // new value.
+        if (terminal) motion_cancel();
         // Lower zoom-motor speed (4) when mid-drag = smoother; speed 10
         // on terminal. (No tier-based pacing here — that's handled by
         // the planner branch above.)
