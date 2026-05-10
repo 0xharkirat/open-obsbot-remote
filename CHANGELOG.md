@@ -4,6 +4,83 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-10
+
+Real-world livestream feedback (temple program, Tiny 2 Lite over USB,
+web client over LAN) drove this release. Five ship-blocker bugs and one
+slow-pan tier.
+
+### Added
+- **Cinema speed tier.** New `MoveSpeed.cinema` below `slow` for wedding-
+  movie pace. Maps to s_yaw=4, s_pitch=3, s_roll=2 deg/s on
+  `gimbalSetSpeedPositionR`. Available everywhere a speed is selectable
+  (control screen menu, simple-mode menu, preset recall, sequencer steps).
+- **Zoom-gimbal duration sync** for preset recall + sequencer steps.
+  Bridge now estimates how long the gimbal will take to reach the target
+  attitude based on yaw/pitch/roll deltas + chosen MoveSpeed, then picks
+  a zoom-motor speed (1-10) that lands the zoom move at roughly the
+  same time. Biased 10% slower so zoom always finishes after gimbal.
+- **`final` flag on `zoom.set`.** Client tags the `onChangeEnd` zoom value
+  as terminal; bridge bypasses the mid-drag coalesce so the lens always
+  lands where the user released. `WsClient.zoomSet(value, terminal: true)`.
+- **Production-grade test infrastructure.**
+  - `tests/bridge_smoke.mjs` — Node + ws smoke harness, 27 tests against
+    real Tiny 2 Lite, runs in ~28s. Tails bridge log for new errors.
+  - `docs/V1.1_PLAN.md` — full v1.1 backlog with sequencing.
+  - `docs/TOUCH_FINDINGS_2026-05-10.md` — touch-emulation reproduction
+    recipe + diagnostics for any future gesture-arena bug.
+- **PR-styled workflow** for every change going forward.
+  `docs/CONTRIBUTING.md` documents branch model + PR template +
+  release-branch process.
+- **Bridge cache chain** — `index.html`, `flutter_bootstrap.js`, and
+  `main.dart.js` all now have `?v=<mtime>` cache busters; service worker
+  replaced with self-unregistering stub. New builds ship instantly.
+- **Auto-HDR-off on connect** — Tiny 2 Lite ships HDR DOL2TO1 raw frames
+  that our AVFoundation passthrough doesn't tone-map. Bridge forces
+  HDR off on every device-plugged so preview always looks like OBSBOT
+  Center's tone-mapped output.
+
+### Fixed
+- **PTZ velocity sign convention inverted.** Down button moved camera
+  up, Up moved down, joystick was reversed on yaw too. Single-line
+  negate in `cmd_ptz_velocity`. Documents canonical convention:
+  positive yaw_speed pans right (viewer frame), positive pitch_speed
+  tilts up.
+- **Joystick swallowed by page scroll on small viewports.** The
+  mobile-portrait layout wrapped the entire page in
+  `SingleChildScrollView`, which won the gesture arena over the
+  joystick's `GestureDetector` for vertical-first drags. Reproduced at
+  Pixel 360x800 and iPad 768x1024 (overflow ≥56px) — 0 velocity messages
+  pre-fix, 16 post-fix. Hero controls (preview + joystick + zoom slider)
+  are now pinned above a scrollable region; only the action rows scroll.
+- **Intermittent zoom failure.** `zoom.set`'s mid-drag coalesce dropped
+  the user's release-value if it was a tiny-step (<0.1×) within 80ms of
+  the previous tick. New `final` flag forces the apply.
+- **Sequencer zoom snapped while gimbal panned slowly.** Wedding/temple
+  use case: a slow-pan transition had zoom finish in <500ms while gimbal
+  took 3-5s. Now they finish together via duration-paced zoom-speed.
+- **`MoveSpeed.fast` was overflowing SDK.** Old mapping `s_yaw=120` was
+  silently clamped to 90 by the SDK. Honest mapping now caps at 90.
+- **MJPEG color cast (green/dark vs OBSBOT Center).** `video_capture.mm`
+  now pins sRGB color space end-to-end, captures at 1080p (Tiny 2 Lite
+  native instead of forced 720p), and JPEG quality 0.55 → 0.80.
+- **State-poll clobbered freshly-set zoom / AI mode / FOV / face AE /
+  face focus / flip H / HDR.** Pending-target gates plus inline snap
+  updates so client UI sees the new value on the next state event
+  without waiting for the camera-firmware echo (~500ms cadence).
+- **First velocity tick swallowed by AI tracker.** 50ms settle after
+  the first manual AI-off so camera firmware releases the gimbal
+  before `aiSetGimbalSpeedCtrlR` arrives.
+
+### Tooling
+- Project-scoped Playwright MCP at `.mcp.json` with CDP touch emulation
+  for repeatable mobile-touch regression tests.
+- 19 Flutter + Dart agent skills installed under `.agents/skills/`.
+- Memory note `project_tooling_pref.md` directing future sessions to
+  prefer skills, fall back to Playwright only for web-shell e2e.
+
+## [1.0.0] - 2026-05-09
+
 ### Added
 - **Developer-friendly docs refresh** — README, run guide, architecture, protocol, app READMEs, and security policy now match the current public-source plus macOS release ZIP flow.
 - **macOS release packaging script** — `scripts/package-mac-release.sh` builds the app, verifies the bundle, optionally Developer ID signs/notarizes/staples it, creates an arm64 release ZIP, and writes a SHA-256 checksum.

@@ -1,6 +1,11 @@
-## Summary
+## Problem
 
-<!-- 1-3 bullet points describing what changes and why. Reference the issue number if any. -->
+<!-- One paragraph: what real-world symptom or feedback prompted this change.
+Link the issue if any. -->
+
+## Fix
+
+<!-- One-line summary of the change (matches the squashed commit subject). -->
 
 ## Surface changes
 
@@ -10,14 +15,19 @@
 - [ ] RC mobile/web (`apps/rc/`)
 - [ ] Documentation only
 
-## Test plan
+## Verification
 
-<!-- How did you verify this works? -->
-
-- [ ] `flutter analyze apps/rc apps/bridge` — clean
+- [ ] `dart analyze apps/rc apps/bridge` — clean
 - [ ] `cmake --build apps/bridge_cpp/build` — clean
 - [ ] `./scripts/build-bridge-mac.sh` produces a working `.app`
+- [ ] `cd tests && node bridge_smoke.mjs` — 27/27 passes against real Tiny 2 Lite (or a documented superset for new tests)
 - [ ] Manual: <!-- e.g. "camera plugged in, ran sequencer with ping-pong, watched it cycle for 5 minutes" -->
+- [ ] Touch regression (if UI): tested at 360x800 / 390x844 / 768x1024 via Playwright CDP touch emulation per `docs/TOUCH_FINDINGS_2026-05-10.md`
+
+## Risk / rollout
+
+<!-- Anything that could regress. Feature flags. Bumped versions.
+Migration steps for existing pairings / saved sequences. -->
 
 ## Screenshots / recordings
 
@@ -26,3 +36,7 @@
 ## Anything reviewers should pay extra attention to?
 
 <!-- New gotchas worth adding to CLAUDE.md? Tricky concurrency? Subtle protocol change? -->
+
+---
+
+By opening this PR I confirm I've read [docs/CONTRIBUTING.md](../docs/CONTRIBUTING.md).
