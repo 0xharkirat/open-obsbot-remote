@@ -76,18 +76,10 @@ json build_state_event(const DeviceSnapshot& s) {
             {"steps", [&]() {
                 json arr = json::array();
                 for (auto& st : s.sequence_steps) {
-                    const char* sp = "medium";
-                    switch (st.speed) {
-                        case MoveSpeed::cinema:  sp = "cinema"; break;
-                        case MoveSpeed::slow:    sp = "slow"; break;
-                        case MoveSpeed::medium:  sp = "medium"; break;
-                        case MoveSpeed::fast:    sp = "fast"; break;
-                        case MoveSpeed::instant: sp = "instant"; break;
-                    }
                     arr.push_back({
-                        {"preset_id", st.preset_id},
-                        {"seconds",   st.seconds},
-                        {"speed",     sp},
+                        {"preset_id",     st.preset_id},
+                        {"seconds",       st.seconds},
+                        {"transition_ms", st.transition_ms},
                     });
                 }
                 return arr;
@@ -167,7 +159,8 @@ void dispatch_message(DeviceSession& session,
         float yaw = msg.value("yaw", 0.0f);
         float pitch = msg.value("pitch", 0.0f);
         float roll = msg.value("roll", -1000.0f);
-        session.cmd_ptz_angle(yaw, pitch, roll, reply_cb);
+        int dur = msg.value("duration_ms", 0);
+        session.cmd_ptz_angle(yaw, pitch, roll, dur, reply_cb);
         return;
     }
     if (action == "ptz.velocity") {
@@ -183,7 +176,8 @@ void dispatch_message(DeviceSession& session,
     if (action == "zoom.set") {
         float v = msg.value("value", 1.0f);
         bool terminal = msg.value("final", false);
-        session.cmd_zoom_set(v, terminal, reply_cb);
+        int dur = msg.value("duration_ms", 0);
+        session.cmd_zoom_set(v, terminal, dur, reply_cb);
         return;
     }
     if (action == "zoom.set_smooth") {
@@ -240,14 +234,11 @@ void dispatch_message(DeviceSession& session,
 
     if (action == "preset.recall") {
         int pid = msg.value("preset_id", 0);
-        std::string sp = msg.value("speed", std::string("instant"));
-        MoveSpeed sm = MoveSpeed::medium;
-        if (sp == "cinema") sm = MoveSpeed::cinema;
-        else if (sp == "slow") sm = MoveSpeed::slow;
-        else if (sp == "fast") sm = MoveSpeed::fast;
-        else if (sp == "instant") sm = MoveSpeed::instant;
-        else sm = MoveSpeed::medium;
-        session.cmd_preset_recall(pid, sm, reply_cb);
+        // Protocol contract: `duration_ms` is the move time. 0 = instant.
+        // No defaults — callers should pass it explicitly. Older clients
+        // that omit the field get instant.
+        int dur = msg.value("duration_ms", 0);
+        session.cmd_preset_recall(pid, dur, reply_cb);
         return;
     }
     if (action == "preset.save") {
@@ -269,13 +260,9 @@ void dispatch_message(DeviceSession& session,
                 SequenceStep s;
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
-                std::string sp = it.value("speed", std::string("medium"));
-                if (sp == "cinema") s.speed = MoveSpeed::cinema;
-                else if (sp == "slow") s.speed = MoveSpeed::slow;
-                else if (sp == "fast") s.speed = MoveSpeed::fast;
-                else if (sp == "instant") s.speed = MoveSpeed::instant;
-                else s.speed = MoveSpeed::medium;
+                s.transition_ms = it.value("transition_ms", 0);
                 if (s.seconds < 3) s.seconds = 3;
+                if (s.transition_ms < 0) s.transition_ms = 0;
                 steps.push_back(s);
             }
         }
@@ -311,13 +298,9 @@ void dispatch_message(DeviceSession& session,
                 SequenceStep s;
                 s.preset_id = it.value("preset_id", 0);
                 s.seconds   = it.value("seconds", 60);
-                std::string sp = it.value("speed", std::string("medium"));
-                if (sp == "cinema") s.speed = MoveSpeed::cinema;
-                else if (sp == "slow") s.speed = MoveSpeed::slow;
-                else if (sp == "fast") s.speed = MoveSpeed::fast;
-                else if (sp == "instant") s.speed = MoveSpeed::instant;
-                else s.speed = MoveSpeed::medium;
+                s.transition_ms = it.value("transition_ms", 0);
                 if (s.seconds < 3) s.seconds = 3;
+                if (s.transition_ms < 0) s.transition_ms = 0;
                 steps.push_back(s);
             }
         }

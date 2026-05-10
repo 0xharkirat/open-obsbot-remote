@@ -132,6 +132,7 @@ void DeviceSession::start(StateCallback on_state) {
     g_session = this;
     running_ = true;
     thr_ = std::thread([this]{ worker_loop(); });
+    motion_thr_ = std::thread([this]{ motion_loop(); });
 
     Devices::get().setDevChangedCallback(s_dev_changed_trampoline, nullptr);
     Devices::get().setEnableMdnsScan(false);
@@ -146,10 +147,159 @@ void DeviceSession::stop() {
     seq_running_ = false;
     seq_cv_.notify_all();
     if (seq_thr_.joinable()) seq_thr_.join();
+    motion_quit_ = true;
+    motion_cancel_ = true;
+    motion_cv_.notify_all();
+    if (motion_thr_.joinable()) motion_thr_.join();
     q_cv_.notify_all();
     if (thr_.joinable()) thr_.join();
     Devices::get().close();
     g_session = nullptr;
+}
+
+// ============================================================
+// MotionPlanner — bridge-side smooth interpolation for moves
+// slower than the SDK's own floor.
+//
+// Design: docs/SLOW_MOTION_DESIGN.md
+//
+// Single worker thread; new motion_start cancels any in-flight move
+// and replaces it. Safe to call from the command worker thread.
+// ============================================================
+
+static float ease_in_out_sine(float t) {
+    if (t <= 0.f) return 0.f;
+    if (t >= 1.f) return 1.f;
+    return 0.5f * (1.f - std::cos((float)M_PI * t));
+}
+
+static float lerpf(float a, float b, float t) { return a + (b - a) * t; }
+
+// (Old `duration_ms_for(MoveSpeed, ...)` removed — the protocol now
+// carries a `duration_ms` field directly. Clients pick how long a move
+// should take in absolute time and the planner honors it.)
+
+void DeviceSession::motion_start(MotionTarget t) {
+    {
+        std::lock_guard<std::mutex> g(motion_mu_);
+        motion_pending_ = std::move(t);
+        motion_have_pending_ = true;
+        motion_cancel_ = true;       // cancel anything currently running
+    }
+    motion_cv_.notify_all();
+}
+
+void DeviceSession::motion_cancel() {
+    motion_cancel_ = true;
+    motion_cv_.notify_all();
+}
+
+bool DeviceSession::motion_busy() const { return motion_busy_.load(); }
+
+void DeviceSession::motion_loop() {
+    using namespace std::chrono;
+    while (!motion_quit_.load()) {
+        // Wait until a pending target arrives.
+        MotionTarget t;
+        {
+            std::unique_lock<std::mutex> g(motion_mu_);
+            motion_cv_.wait(g, [&]{
+                return motion_quit_.load() || motion_have_pending_;
+            });
+            if (motion_quit_.load()) break;
+            t = std::move(motion_pending_);
+            motion_have_pending_ = false;
+            motion_cancel_ = false;     // fresh run
+        }
+        if (t.duration_ms <= 0) continue;
+        if (!dev_) continue;
+
+        motion_busy_.store(true);
+
+        // Capture starting attitude / zoom from snap_ (current observed).
+        float start_yaw = 0.f, start_pitch = 0.f, start_roll = 0.f, start_zoom = 1.0f;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            start_yaw   = snap_.yaw;
+            start_pitch = snap_.pitch;
+            start_roll  = snap_.roll;
+            start_zoom  = snap_.zoom;
+        }
+
+        // Adaptive tick: keep at least 0.1° step / tick so the motor
+        // doesn't jitter on sub-resolution moves.
+        int tick_ms = t.tick_ms > 0 ? t.tick_ms : 100;
+        int ticks   = std::max(1, t.duration_ms / tick_ms);
+        const float largest_axis = std::max({
+            t.yaw_set   ? std::abs(t.yaw_deg   - start_yaw)   : 0.f,
+            t.pitch_set ? std::abs(t.pitch_deg - start_pitch) : 0.f,
+            t.roll_set  ? std::abs(t.roll_deg  - start_roll)  : 0.f,
+            t.zoom_set  ? std::abs(t.zoom_ratio - start_zoom) * 90.f : 0.f,
+        });
+        const float per_tick = largest_axis / ticks;
+        if (per_tick > 0.f && per_tick < 0.1f) {
+            // Stretch tick to keep step ≥0.1° equivalent.
+            const int new_tick = (int)(tick_ms * (0.1f / per_tick));
+            tick_ms = std::min(new_tick, 500);
+            ticks   = std::max(1, t.duration_ms / tick_ms);
+        }
+
+        const auto t0 = steady_clock::now();
+        for (int i = 1; i <= ticks && !motion_cancel_.load() && !motion_quit_.load(); ++i) {
+            const float progress = (float)i / (float)ticks;
+            const float eased    = ease_in_out_sine(progress);
+
+            const float iy = t.yaw_set   ? lerpf(start_yaw,   t.yaw_deg,   eased) : start_yaw;
+            const float ip = t.pitch_set ? lerpf(start_pitch, t.pitch_deg, eased) : start_pitch;
+            const float ir = t.roll_set  ? lerpf(start_roll,  t.roll_deg,  eased) : start_roll;
+            const float iz = t.zoom_set  ? lerpf(start_zoom,  t.zoom_ratio, eased) : start_zoom;
+
+            // Drive gimbal at SDK ceiling so each waypoint is reached
+            // within the tick window. The planner owns the *target update
+            // rate*, not the per-segment motion rate.
+            if (t.yaw_set || t.pitch_set || t.roll_set) {
+                dev_->gimbalSetSpeedPositionR(ir, ip, iy, 90, 90, 90);
+            }
+            if (t.zoom_set) {
+                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(iz * 100.f), 10);
+            }
+
+            // Mirror progress into snap_ so state events show motion.
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                if (t.yaw_set)   snap_.yaw   = iy;
+                if (t.pitch_set) snap_.pitch = ip;
+                if (t.roll_set)  snap_.roll  = ir;
+                if (t.zoom_set) {
+                    snap_.zoom = iz;
+                    pending_zoom_ = iz;
+                }
+            }
+
+            // Sleep until next tick (compensate for SDK call latency).
+            const auto due = t0 + milliseconds(i * tick_ms);
+            std::this_thread::sleep_until(due);
+        }
+
+        // Final exact landing (if not cancelled).
+        if (!motion_cancel_.load() && !motion_quit_.load()) {
+            if (t.yaw_set || t.pitch_set || t.roll_set) {
+                dev_->gimbalSetSpeedPositionR(
+                    t.roll_set  ? t.roll_deg  : start_roll,
+                    t.pitch_set ? t.pitch_deg : start_pitch,
+                    t.yaw_set   ? t.yaw_deg   : start_yaw,
+                    90, 90, 90);
+            }
+            if (t.zoom_set) {
+                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(t.zoom_ratio * 100.f), 10);
+                std::lock_guard<std::mutex> g(snap_mu_);
+                snap_.zoom = t.zoom_ratio;
+                pending_zoom_ = t.zoom_ratio;
+            }
+        }
+
+        motion_busy_.store(false);
+    }
 }
 
 bool DeviceSession::connected() const {
@@ -289,9 +439,11 @@ void DeviceSession::clear_active_preset_locked() {
     snap_.active_preset_id = -1;
 }
 
-void DeviceSession::cmd_ptz_angle(float yaw, float pitch, float roll, ReplyFn reply) {
-    submit([this, yaw, pitch, roll]() -> CmdResult {
+void DeviceSession::cmd_ptz_angle(float yaw, float pitch, float roll, int duration_ms, ReplyFn reply) {
+    submit([this, yaw, pitch, roll, duration_ms]() -> CmdResult {
         REQUIRE_DEV();
+        // New absolute move preempts any in-flight planner motion.
+        motion_cancel();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
         dev_->aiSetEnabledR(false);
         ai_disabled_for_manual_ = true;
@@ -301,17 +453,35 @@ void DeviceSession::cmd_ptz_angle(float yaw, float pitch, float roll, ReplyFn re
             snap_.ai_enabled = false;
             pending_ai_mode_ = "none";
         }
-        int32_t r = dev_->aiSetGimbalMotorAngleR(pitch, yaw, roll);
-        if (r == 0) {
-            std::lock_guard<std::mutex> g(snap_mu_);
-            clear_active_preset_locked();
+        if (duration_ms <= 0) {
+            int32_t r = dev_->aiSetGimbalMotorAngleR(pitch, yaw, roll);
+            if (r == 0) {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                clear_active_preset_locked();
+            }
+            return r == 0 ? ok() : err("device_busy", "aiSetGimbalMotorAngleR failed");
         }
-        return r == 0 ? ok() : err("device_busy", "aiSetGimbalMotorAngleR failed");
+        MotionTarget t;
+        t.yaw_set    = true;  t.yaw_deg    = yaw;
+        t.pitch_set  = true;  t.pitch_deg  = pitch;
+        if (roll > -999.f) { t.roll_set = true; t.roll_deg = roll; }
+        t.duration_ms = duration_ms;
+        t.tag = "ptz.angle";
+        motion_start(std::move(t));
+        std::lock_guard<std::mutex> g(snap_mu_);
+        clear_active_preset_locked();
+        return ok();
     }, std::move(reply));
 }
 
 void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float roll_speed, ReplyFn reply) {
     auto now = steady_clock::now();
+    // Joystick / direct velocity preempts any planner-driven move.
+    motion_cancel();
+    // Velocity is rate-based — client decides how fast it wants the
+    // joystick or hold-button to push (multiply its own deflection by
+    // whatever speed-factor the user chose). Bridge passes the value
+    // through to aiSetGimbalSpeedCtrlR.
     submit([this, yaw_speed, pitch_speed, roll_speed, now]() -> CmdResult {
         REQUIRE_DEV();
         bool stopping = (yaw_speed == 0.f && pitch_speed == 0.f && roll_speed == 0.f);
@@ -352,7 +522,10 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
     }, std::move(reply));
 }
 
+// `cmd_ptz_stop` and `cmd_ptz_recenter` also cancel the planner so
+// emergency-stop is honored even when an ultra interpolation is mid-pan.
 void DeviceSession::cmd_ptz_stop(ReplyFn reply) {
+    motion_cancel();
     submit([this]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(0.0, 0.0, 0.0);
@@ -361,6 +534,7 @@ void DeviceSession::cmd_ptz_stop(ReplyFn reply) {
 }
 
 void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
+    motion_cancel();
     submit([this]() -> CmdResult {
         REQUIRE_DEV();
         dev_->cameraSetAiModeU(Device::AiWorkModeNone);
@@ -381,9 +555,9 @@ void DeviceSession::cmd_ptz_recenter(ReplyFn reply) {
     }, std::move(reply));
 }
 
-void DeviceSession::cmd_zoom_set(float value, bool client_terminal, ReplyFn reply) {
+void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration_ms, ReplyFn reply) {
     auto now = steady_clock::now();
-    submit([this, value, client_terminal, now]() -> CmdResult {
+    submit([this, value, client_terminal, duration_ms, now]() -> CmdResult {
         REQUIRE_DEV();
         float zmin = 1.0f, zmax = 4.0f;
         float prev_v = 1.0f;
@@ -396,6 +570,24 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, ReplyFn repl
         float v = value;
         if (v < zmin) v = zmin;
         if (v > zmax) v = zmax;
+        // duration_ms > 0 → drive zoom through the planner so the lens
+        // motor delivers smooth motion at any duration. duration_ms = 0
+        // → one-shot SDK (mid-drag rapid update path).
+        if (duration_ms > 0 && std::abs(v - prev_v) > 0.02f) {
+            motion_cancel();
+            MotionTarget t;
+            t.zoom_set = true;
+            t.zoom_ratio = v;
+            t.duration_ms = duration_ms;
+            t.tag = "zoom.set d=" + std::to_string(duration_ms);
+            motion_start(std::move(t));
+            // Don't pre-stamp snap_.zoom here — the planner ticks update
+            // it progressively (see motion_loop), so state events show
+            // smooth zoom motion. Pre-stamping would make clients see
+            // the target value immediately even though the lens is
+            // still mid-traversal.
+            return ok();
+        }
         // Mid-drag coalesce: only drop a duplicate if the value barely
         // changed AND the previous apply was very recent. Always accept
         // edge values (=zmin or =zmax) and any value the client tagged as
@@ -407,10 +599,18 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, ReplyFn repl
         const bool terminal = edge || client_terminal;
         if (!terminal && tiny_step && (now - last_zoom_apply_) < milliseconds(80)) return ok();
         last_zoom_apply_ = now;
-        // Lower speed (4) when mid-drag = smoother; speed 10 on terminal.
-        uint32_t speed = terminal ? 10u : 4u;
+        // Instant zoom (duration_ms=0 or mid-drag): cancel any in-flight
+        // planner zoom from a previous slow command. Without this, an
+        // instant zoom right after a slow zoom plan races: planner keeps
+        // pushing toward the old target while the user just snapped to a
+        // new value.
+        if (terminal) motion_cancel();
+        // Lower zoom-motor speed (4) when mid-drag = smoother; speed 10
+        // on terminal. (No tier-based pacing here — that's handled by
+        // the planner branch above.)
+        uint32_t zspeed_motor = terminal ? 10u : 4u;
         int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR(
-            (uint32_t)(v * 100.f), speed);
+            (uint32_t)(v * 100.f), zspeed_motor);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = v;
@@ -660,60 +860,15 @@ void DeviceSession::cmd_system_run_status(const std::string& s, ReplyFn reply) {
     }, std::move(reply));
 }
 
-// Map a MoveSpeed to (s_roll, s_pitch, s_yaw) in deg/sec for
-// gimbalSetSpeedPositionR. 0 lets libdev pick. SDK valid range: 1..90.
-//
-// `fast` previously used 120 which the SDK silently clamped to 90; capped
-// here for honesty. `cinema` is new — wedding-pan slow.
-static void speed_to_rates(MoveSpeed s, float& sr, float& sp, float& sy) {
-    switch (s) {
-        case MoveSpeed::cinema:  sr = 2;  sp = 3;  sy = 4;   break;
-        case MoveSpeed::slow:    sr = 10; sp = 15; sy = 20;  break;
-        case MoveSpeed::medium:  sr = 30; sp = 40; sy = 60;  break;
-        case MoveSpeed::fast:    sr = 60; sp = 80; sy = 90;  break;
-        case MoveSpeed::instant: sr = 0;  sp = 0;  sy = 0;   break;
-    }
-}
+// (speed_to_rates removed — all moves now flow through the
+// MotionPlanner which takes a duration_ms directly.)
 
-// Estimate how long the gimbal will take to reach a target attitude at
-// the given MoveSpeed. Used to pace the zoom-motor speed so a sequence
-// step's zoom finishes at roughly the same time as the pan/tilt move.
-// Returns ms; 0 means "instant" (camera firmware decides).
-static int gimbal_move_ms(float yaw_delta, float pitch_delta,
-                          float roll_delta, MoveSpeed s) {
-    if (s == MoveSpeed::instant) return 0;
-    float sr, sp, sy;
-    speed_to_rates(s, sr, sp, sy);
-    // Time to traverse each axis (deg / (deg/s) = s). Pick max axis
-    // (gimbal motors run in parallel so the slowest axis defines arrival).
-    const float ty = sy > 0 ? std::abs(yaw_delta)   / sy : 0.f;
-    const float tp = sp > 0 ? std::abs(pitch_delta) / sp : 0.f;
-    const float tr = sr > 0 ? std::abs(roll_delta)  / sr : 0.f;
-    const float t  = std::max({ty, tp, tr});
-    // Add a 200ms motor settle pad.
-    return (int)(t * 1000.f) + 200;
-}
+// (gimbal_move_ms / zoom_speed_for_duration removed: superseded by
+// duration_ms_for() + the MotionPlanner's own pacing, which keeps zoom
+// and gimbal in sync axis-by-axis instead of via post-hoc speed picking.)
 
-// Pick a zoom-motor speed that lands the zoom move at roughly the same
-// time as `gimbal_target_ms`. Camera zoom-speed enum is 1..10 where
-// 10 is fastest (~0.5s for 1.0×→2.0× full range). Slow zoom enums
-// stretch this linearly. Bias slower (zoom finishes after gimbal) since
-// the visual is way nicer that way.
-static uint32_t zoom_speed_for_duration(float zoom_delta, int gimbal_ms) {
-    const float dz = std::abs(zoom_delta);
-    if (dz < 0.05f) return 10;                  // no zoom move; use max
-    if (gimbal_ms <= 0) return 10;               // gimbal instant; zoom max
-    // Empirical: speed=10 covers 1.0× delta in ~500ms; speed=1 takes ~5s.
-    // Time(ms) ≈ 5000 / speed * dz.
-    const float target_ms = (float)gimbal_ms * 1.10f;  // bias 10% slower
-    float speed = (5000.f * dz) / target_ms;
-    if (speed < 1.f) speed = 1.f;
-    if (speed > 10.f) speed = 10.f;
-    return (uint32_t)std::round(speed);
-}
-
-void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
-    submit([this, id, speed]() -> CmdResult {
+void DeviceSession::cmd_preset_recall(int id, int duration_ms, ReplyFn reply) {
+    submit([this, id, duration_ms]() -> CmdResult {
         REQUIRE_DEV();
         if (!ai_disabled_for_manual_) {
             dev_->cameraSetAiModeU(Device::AiWorkModeNone);
@@ -738,42 +893,34 @@ void DeviceSession::cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply) {
             }
         }
 
-        int32_t r = -1;
-        if (speed == MoveSpeed::instant) {
-            // Hardware preset recall — fastest path for angles.
-            r = dev_->aiTrgGimbalPresetR(id);
-        } else if (found) {
-            float sr, sp, sy;
-            speed_to_rates(speed, sr, sp, sy);
-            r = dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
-        } else {
-            // Preset list not hydrated yet; fall back to instant.
-            r = dev_->aiTrgGimbalPresetR(id);
-        }
+        // Any new preset recall preempts an in-flight planner move.
+        motion_cancel();
 
-        // ALWAYS restore zoom from the cached preset value, even on
-        // instant mode. Camera-side preset.zoom is unreliable (1.0 always
-        // on Tiny 2 Lite). Pace zoom motor so zoom finishes at roughly
-        // the same time as the gimbal arrival — otherwise zoom snaps
-        // ahead of a slow pan and looks visually broken (the user's
-        // wedding-livestream feedback).
-        if (r == 0 && found && p.zoom > 0.5f) {
-            float cur_zoom = 1.0f, cur_yaw = 0.0f, cur_pitch = 0.0f, cur_roll = 0.0f;
-            {
+        int32_t r = 0;
+        if (duration_ms <= 0) {
+            // Instant: hardware preset recall + immediate zoom snap.
+            r = dev_->aiTrgGimbalPresetR(id);
+            if (r == 0 && found && p.zoom > 0.5f) {
+                dev_->cameraSetZoomWithSpeedAbsoluteR(
+                    (uint32_t)(p.zoom * 100.f), 10);
                 std::lock_guard<std::mutex> g(snap_mu_);
-                cur_zoom  = snap_.zoom;
-                cur_yaw   = snap_.yaw;
-                cur_pitch = snap_.pitch;
-                cur_roll  = snap_.roll;
+                snap_.zoom = p.zoom;
+                pending_zoom_ = p.zoom;
             }
-            const int gimbal_ms = gimbal_move_ms(
-                p.yaw - cur_yaw, p.pitch - cur_pitch, p.roll - cur_roll, speed);
-            uint32_t zspeed = zoom_speed_for_duration(p.zoom - cur_zoom, gimbal_ms);
-            dev_->cameraSetZoomWithSpeedAbsoluteR(
-                (uint32_t)(p.zoom * 100.f), zspeed);
-            std::lock_guard<std::mutex> g(snap_mu_);
-            snap_.zoom = p.zoom;
-            pending_zoom_ = p.zoom;
+        } else if (found) {
+            // Smooth move: gimbal + zoom both driven by the planner so
+            // they finish at exactly the same time.
+            MotionTarget t;
+            t.yaw_set    = true;  t.yaw_deg    = p.yaw;
+            t.pitch_set  = true;  t.pitch_deg  = p.pitch;
+            t.roll_set   = true;  t.roll_deg   = p.roll;
+            if (p.zoom > 0.5f) { t.zoom_set = true; t.zoom_ratio = p.zoom; }
+            t.duration_ms = duration_ms;
+            t.tag = "preset.recall id=" + std::to_string(id);
+            motion_start(std::move(t));
+        } else {
+            // Preset list not hydrated yet; fall back to instant hardware.
+            r = dev_->aiTrgGimbalPresetR(id);
         }
 
         if (r == 0) {
@@ -881,21 +1028,26 @@ static std::string sequence_file_path() {
     return dir + "/sequence.json";
 }
 
-static const char* speed_str(MoveSpeed s) {
-    switch (s) {
-        case MoveSpeed::slow:    return "slow";
-        case MoveSpeed::medium:  return "medium";
-        case MoveSpeed::fast:    return "fast";
-        case MoveSpeed::instant: return "instant";
-    }
-    return "medium";
-}
-
-static MoveSpeed parse_speed(const std::string& s) {
-    if (s == "slow") return MoveSpeed::slow;
-    if (s == "fast") return MoveSpeed::fast;
-    if (s == "instant") return MoveSpeed::instant;
-    return MoveSpeed::medium;
+// Backward-compat: read old "speed" string entries from a sequences.json
+// produced by v1.0 / v1.1 of the bridge. We translate the old tier name
+// to a duration_ms so the planner can drive the same move. Roughly:
+//
+//   instant → 0          (no interp; SDK hardware path)
+//   fast    → 1000ms     (~1s for a 90° pan)
+//   medium  → 2000ms     (~2s)
+//   slow    → 5000ms     (~5s)
+//   cinema  → 22000ms    (~22s)
+//   ultra   → 300000ms   (~5 min)
+//
+// New saves use `transition_ms` directly; nothing else writes "speed".
+static int legacy_speed_to_ms(const std::string& s) {
+    if (s == "instant") return 0;
+    if (s == "fast")    return 1000;
+    if (s == "medium")  return 2000;
+    if (s == "slow")    return 5000;
+    if (s == "cinema")  return 22000;
+    if (s == "ultra")   return 300000;
+    return 2000;        // default to medium-ish
 }
 
 static std::string sequences_lib_path() {
@@ -932,9 +1084,9 @@ static void persist_sequence(const std::vector<SequenceStep>& steps, LoopMode mo
     j["steps"] = nlohmann::json::array();
     for (auto& s : steps) {
         j["steps"].push_back({
-            {"preset_id", s.preset_id},
-            {"seconds",   s.seconds},
-            {"speed",     speed_str(s.speed)},
+            {"preset_id",     s.preset_id},
+            {"seconds",       s.seconds},
+            {"transition_ms", s.transition_ms},
         });
     }
     std::ofstream f(path);
@@ -993,9 +1145,9 @@ static nlohmann::json sequence_to_json(const std::vector<SequenceStep>& steps,
     out["steps"] = nlohmann::json::array();
     for (auto& s : steps) {
         out["steps"].push_back({
-            {"preset_id", s.preset_id},
-            {"seconds",   s.seconds},
-            {"speed",     speed_str(s.speed)},
+            {"preset_id",     s.preset_id},
+            {"seconds",       s.seconds},
+            {"transition_ms", s.transition_ms},
         });
     }
     return out;
@@ -1045,7 +1197,15 @@ void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
             SequenceStep s;
             s.preset_id = it.value("preset_id", 0);
             s.seconds   = it.value("seconds", 60);
-            s.speed     = parse_speed(it.value("speed", std::string("medium")));
+            // Prefer the new `transition_ms`. Fall back to legacy
+            // `speed: "slow|cinema|..."` strings written by v1.0/v1.1.
+            if (it.contains("transition_ms")) {
+                s.transition_ms = it.value("transition_ms", 0);
+            } else if (it.contains("speed") && it["speed"].is_string()) {
+                s.transition_ms = legacy_speed_to_ms(it["speed"].get<std::string>());
+            } else {
+                s.transition_ms = 2000;
+            }
             if (s.seconds < 3) s.seconds = 3;
             steps.push_back(s);
         }
@@ -1161,8 +1321,28 @@ void DeviceSession::sequence_loop() {
             snap_.ai_enabled = false;
             pending_ai_mode_ = "none";
         }
-        if (step.speed == MoveSpeed::instant) {
+        // Each sequence step carries its own `transition_ms`. 0 = instant
+        // (camera firmware path); >0 routes through the MotionPlanner so
+        // gimbal + zoom land together at exactly that wall-clock time.
+        motion_cancel();
+        if (step.transition_ms <= 0) {
             dev_->aiTrgGimbalPresetR(pid);
+            // Snap zoom too on instant.
+            PresetInfo p{};
+            bool found = false;
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                for (auto& it : snap_.presets) {
+                    if (it.id == pid) { p = it; found = true; break; }
+                }
+            }
+            if (found && p.zoom > 0.5f) {
+                dev_->cameraSetZoomWithSpeedAbsoluteR(
+                    (uint32_t)(p.zoom * 100.f), 10);
+                std::lock_guard<std::mutex> g(snap_mu_);
+                snap_.zoom = p.zoom;
+                pending_zoom_ = p.zoom;
+            }
         } else {
             PresetInfo p{};
             bool found = false;
@@ -1173,12 +1353,14 @@ void DeviceSession::sequence_loop() {
                 }
             }
             if (found) {
-                float sr, sp, sy; speed_to_rates(step.speed, sr, sp, sy);
-                dev_->gimbalSetSpeedPositionR(p.roll, p.pitch, p.yaw, sr, sp, sy);
-                if (p.zoom > 0) {
-                    dev_->cameraSetZoomWithSpeedAbsoluteR(
-                        (uint32_t)(p.zoom * 100.f), 8);
-                }
+                MotionTarget t;
+                t.yaw_set   = true;  t.yaw_deg   = p.yaw;
+                t.pitch_set = true;  t.pitch_deg = p.pitch;
+                t.roll_set  = true;  t.roll_deg  = p.roll;
+                if (p.zoom > 0.5f) { t.zoom_set = true; t.zoom_ratio = p.zoom; }
+                t.duration_ms = step.transition_ms;
+                t.tag = "sequence step idx=" + std::to_string(idx);
+                motion_start(std::move(t));
             } else {
                 dev_->aiTrgGimbalPresetR(pid);
             }

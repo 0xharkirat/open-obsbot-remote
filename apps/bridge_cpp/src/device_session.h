@@ -24,16 +24,19 @@ struct PresetInfo {
 /// Move-to-preset transition speed. "instant" = libdev default
 /// (camera firmware decides), the rest map to s_yaw/s_pitch values for
 /// gimbalSetSpeedPositionR (deg/sec).
-// MoveSpeed tier — controls gimbal motor rate during preset recall and
-// sequencer steps. `cinema` is the floor (~3 deg/s yaw); useful for
-// wedding-style slow pans. SDK accepts 1..90 deg/s for s_yaw / s_pitch
-// / s_roll on gimbalSetSpeedPositionR; values below 1 jitter the motor.
-enum class MoveSpeed { instant, cinema, slow, medium, fast };
-
+// Sequencer step.
+//
+// `seconds` = how long the camera dwells on this preset before
+//             advancing to the next step.
+// `transition_ms` = how long the move TO this preset's attitude + zoom
+//             should take. 0 = instant (SDK hardware path).
+//             Anything else routes through the bridge MotionPlanner
+//             which can deliver smooth motion at any duration —
+//             from 0.5s ("snap") to 5+ minutes ("wedding pan").
 struct SequenceStep {
     int preset_id = 0;
     int seconds = 60;
-    MoveSpeed speed = MoveSpeed::medium;
+    int transition_ms = 0;          // 0 = instant
 };
 
 enum class LoopMode { once, forward, ping_pong };
@@ -116,11 +119,15 @@ public:
     void submit(std::function<CmdResult()> work, ReplyFn reply);
 
     // High-level helpers (compose work + reply for convenience)
-    void cmd_ptz_angle(float yaw, float pitch, float roll, ReplyFn reply);
+    // duration_ms = 0 → instant SDK path. Non-zero routes through the
+    // MotionPlanner. Both axes finish at the same time.
+    void cmd_ptz_angle(float yaw, float pitch, float roll, int duration_ms, ReplyFn reply);
+    // Velocity is rate-based; client multiplies its own deflection by
+    // whatever speed-factor the user chose. Bridge passes through.
     void cmd_ptz_velocity(float yaw_speed, float pitch_speed, float roll_speed, ReplyFn reply);
     void cmd_ptz_stop(ReplyFn reply);
     void cmd_ptz_recenter(ReplyFn reply);
-    void cmd_zoom_set(float value, bool terminal, ReplyFn reply);
+    void cmd_zoom_set(float value, bool terminal, int duration_ms, ReplyFn reply);
     void cmd_zoom_set_smooth(float value, int speed, ReplyFn reply);
     void cmd_ai_set_mode(const std::string& mode, const std::string& sub, ReplyFn reply);
     void cmd_ai_set_enabled(bool enabled, ReplyFn reply);
@@ -139,7 +146,7 @@ public:
     void cmd_image_set_face_focus(bool e, ReplyFn reply);
     void cmd_image_set_flip_h(bool e, ReplyFn reply);
     void cmd_system_run_status(const std::string& s, ReplyFn reply);
-    void cmd_preset_recall(int id, MoveSpeed speed, ReplyFn reply);
+    void cmd_preset_recall(int id, int duration_ms, ReplyFn reply);
     void cmd_preset_save(int id, const std::string& name, ReplyFn reply);
     void cmd_preset_delete(int id, ReplyFn reply);
 
@@ -199,6 +206,35 @@ private:
 
     // velocity coalescing
     std::chrono::steady_clock::time_point last_velocity_apply_{};
+
+    // ----- MotionPlanner: bridge-side smooth interpolation for moves
+    // slower than the SDK's own floor.
+    //
+    // Each MotionPlannerTarget is a goal attitude + zoom to reach over
+    // a wall-clock duration. The planner thread drives at most one
+    // target at a time; new starts cancel any in-flight one.
+    struct MotionTarget {
+        bool   yaw_set = false;   float yaw_deg   = 0.f;
+        bool   pitch_set = false; float pitch_deg = 0.f;
+        bool   roll_set = false;  float roll_deg  = 0.f;
+        bool   zoom_set = false;  float zoom_ratio = 1.f;
+        int    duration_ms = 0;   // 0 = no interp (caller did instant path)
+        int    tick_ms     = 100;
+        std::string tag;
+    };
+    void motion_start(MotionTarget t);
+    void motion_cancel();
+    bool motion_busy() const;
+
+    void motion_loop();
+    std::thread       motion_thr_;
+    std::mutex        motion_mu_;
+    std::condition_variable motion_cv_;
+    std::atomic<bool> motion_quit_{false};
+    std::atomic<bool> motion_cancel_{false};
+    std::atomic<bool> motion_busy_{false};
+    MotionTarget      motion_pending_{};
+    bool              motion_have_pending_ = false;
 
     // zoom coalescing (mid-drag updates)
     std::chrono::steady_clock::time_point last_zoom_apply_{};
