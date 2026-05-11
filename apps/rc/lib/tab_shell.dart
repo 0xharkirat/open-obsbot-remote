@@ -305,6 +305,94 @@ class _InlinePresetCard extends StatelessWidget {
   }
 }
 
+/// Shared bottom-of-tab control bundle:
+///
+///   - Speed slider (Slow ↔ Fast) bound to `client.velocityScale` — same
+///     control on Joystick + Buttons so changing it on one tab persists
+///     to the other. Affects the analog joystick deflection AND the
+///     8-way hold buttons.
+///   - Move-duration chips bound to `client.moveDuration` — applies to
+///     preset.recall (P1..P6 tap) and to slow-pan ptz.angle commands.
+///
+/// Putting these on a single shared widget keeps the Joystick and
+/// Buttons tabs visually identical below the gimbal control.
+class _BottomControls extends StatelessWidget {
+  final WsClient client;
+  const _BottomControls({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Text('Speed', style: theme.textTheme.labelMedium),
+            const SizedBox(width: 8),
+            Text('Slow', style: theme.textTheme.bodySmall),
+            Expanded(
+              child: Slider(
+                min: 0.1,
+                max: 1.0,
+                divisions: 9,
+                value: client.velocityScale,
+                label: '${(client.velocityScale * 100).round()}%',
+                onChanged: (double v) => client.setVelocityScale(v),
+              ),
+            ),
+            Text('Fast', style: theme.textTheme.bodySmall),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 40,
+              child: Text(
+                '${(client.velocityScale * 100).round()}%',
+                textAlign: TextAlign.right,
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        _DurationChips(client: client),
+      ],
+    );
+  }
+}
+
+class _DurationChips extends StatelessWidget {
+  final WsClient client;
+  const _DurationChips({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    final cur = client.moveDuration;
+    final cs = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          for (int i = 0; i < kMoveDurationPresets.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(width: 6),
+            ChoiceChip(
+              label: Text(kMoveDurationPresets[i].label),
+              avatar: Icon(
+                kMoveDurationPresets[i].icon,
+                size: 16,
+                color: kMoveDurationPresets[i].duration == cur
+                    ? cs.onPrimary
+                    : cs.onSurface,
+              ),
+              selected: kMoveDurationPresets[i].duration == cur,
+              onSelected: (_) =>
+                  client.setMoveDuration(kMoveDurationPresets[i].duration),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ===========================================================================
 // Tab 1 — Joystick
 // ===========================================================================
@@ -342,73 +430,45 @@ class _JoystickTab extends StatelessWidget {
               const SizedBox(height: 8),
               _InlinePresetRow(client: client),
               const SizedBox(height: 8),
-              _durationChips(context),
+              _BottomControls(client: client),
             ],
           ),
         );
       },
     );
   }
-
-  Widget _durationChips(BuildContext ctx) {
-    final cur = client.moveDuration;
-    final cs = Theme.of(ctx).colorScheme;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: <Widget>[
-          for (int i = 0; i < kMoveDurationPresets.length; i++) ...<Widget>[
-            if (i > 0) const SizedBox(width: 6),
-            ChoiceChip(
-              label: Text(kMoveDurationPresets[i].label),
-              avatar: Icon(
-                kMoveDurationPresets[i].icon,
-                size: 16,
-                color: kMoveDurationPresets[i].duration == cur
-                    ? cs.onPrimary
-                    : cs.onSurface,
-              ),
-              selected: kMoveDurationPresets[i].duration == cur,
-              onSelected: (_) =>
-                  client.setMoveDuration(kMoveDurationPresets[i].duration),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 // ===========================================================================
-// Tab 2 — Buttons (8-way hold pad + zoom + speed slider + inline presets)
+// Tab 2 — Buttons (8-way hold pad + zoom + inline presets + shared
+//                  bottom-controls bundle)
 // ===========================================================================
 
-class _ButtonsTab extends StatefulWidget {
+class _ButtonsTab extends StatelessWidget {
   final WsClient client;
   const _ButtonsTab({required this.client});
 
-  @override
-  State<_ButtonsTab> createState() => _ButtonsTabState();
-}
-
-class _ButtonsTabState extends State<_ButtonsTab> {
-  double _speed = 1.0;
+  // Base velocities at scale=1.0. The shared `client.velocityScale`
+  // multiplier (driven by the bottom Speed slider) applies live, on
+  // every 80 ms tick of the HoldDirBtn — so adjusting the slider during
+  // a hold takes effect immediately.
   static const double _baseYaw = 80;
   static const double _basePitch = 40;
 
   @override
   Widget build(BuildContext context) {
-    final yaw = _baseYaw * _speed;
-    final pit = _basePitch * _speed;
     return AnimatedBuilder(
-      animation: widget.client,
+      animation: client,
       builder: (BuildContext ctx, _) {
-        final s = widget.client.state;
+        final s = client.state;
+        final scale = client.velocityScale;
+        final yaw = _baseYaw * scale;
+        final pit = _basePitch * scale;
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
             children: <Widget>[
-              _QuickActions(client: widget.client),
+              _QuickActions(client: client),
               const SizedBox(height: 12),
               Expanded(
                 child: Row(
@@ -442,15 +502,15 @@ class _ButtonsTabState extends State<_ButtonsTab> {
                     ),
                     SizedBox(
                       width: 80,
-                      child: ZoomSlider(client: widget.client, state: s),
+                      child: ZoomSlider(client: client, state: s),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 8),
-              _speedSlider(context),
-              const SizedBox(height: 4),
-              _InlinePresetRow(client: widget.client),
+              _InlinePresetRow(client: client),
+              const SizedBox(height: 8),
+              _BottomControls(client: client),
             ],
           ),
         );
@@ -473,7 +533,7 @@ class _ButtonsTabState extends State<_ButtonsTab> {
     return HoldDirBtn(
       icon: icon,
       label: label,
-      client: widget.client,
+      client: client,
       yawSpeed: yawSpeed,
       pitchSpeed: pitchSpeed,
     );
@@ -483,35 +543,6 @@ class _ButtonsTabState extends State<_ButtonsTab> {
     // Empty cell — center is the Recenter button up in the quick-action
     // row.
     return const SizedBox.shrink();
-  }
-
-  Widget _speedSlider(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    return Row(
-      children: <Widget>[
-        Text('Slow', style: theme.textTheme.bodySmall),
-        Expanded(
-          child: Slider(
-            min: 0.1,
-            max: 1.0,
-            divisions: 9,
-            value: _speed,
-            label: '${(_speed * 100).round()}%',
-            onChanged: (double v) => setState(() => _speed = v),
-          ),
-        ),
-        Text('Fast', style: theme.textTheme.bodySmall),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 44,
-          child: Text(
-            '${(_speed * 100).round()}%',
-            textAlign: TextAlign.right,
-            style: theme.textTheme.bodySmall,
-          ),
-        ),
-      ],
-    );
   }
 }
 

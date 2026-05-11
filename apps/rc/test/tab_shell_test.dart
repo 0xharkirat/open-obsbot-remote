@@ -127,6 +127,15 @@ void main() {
       await tester.pump();
       expect(client.moveDuration, const Duration(milliseconds: 1000));
     });
+
+    testWidgets('shows the shared Speed slider (Slow / Fast)',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 900));
+      // Joystick tab now mirrors Buttons tab: same speed slider + same
+      // duration chips at the bottom.
+      expect(find.text('Slow'), findsOneWidget);
+      expect(find.text('Fast'), findsOneWidget);
+    });
   });
 
   group('Buttons tab', () {
@@ -175,6 +184,25 @@ void main() {
       await goToButtons(tester);
       // Joystick had ZoomSlider; Buttons tab now has one too.
       expect(find.byType(ZoomSlider), findsOneWidget);
+    });
+
+    testWidgets('shares Speed slider state with Joystick tab',
+        (tester) async {
+      final client = _StubWsClient();
+      await tester.binding.setSurfaceSize(const Size(400, 1100));
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      // Set velocity scale on Joystick tab.
+      await client.setVelocityScale(0.4);
+      await tester.pump();
+      // Switch to Buttons tab — value should have persisted because both
+      // tabs read from `client.velocityScale`.
+      await tester.tap(find.text('Buttons'));
+      await tester.pumpAndSettle();
+      expect(client.velocityScale, closeTo(0.4, 0.001));
+      expect(find.text('40%'), findsOneWidget);
     });
   });
 
