@@ -49,6 +49,7 @@ class _ControlScreenState extends State<ControlScreen> {
                 ),
               ),
               _speedMenu(context),
+              _gridMenu(context),
               if (widget.onSwitchSimple != null)
                 IconButton(
                   tooltip: 'Simple mode',
@@ -74,6 +75,39 @@ class _ControlScreenState extends State<ControlScreen> {
             ),
           ),
         );
+      },
+    );
+  }
+
+  /// Three-toggle popup for the grid overlay layers.
+  /// (crosshair / rule-of-thirds / yaw+pitch readout)
+  Widget _gridMenu(BuildContext ctx) {
+    return PopupMenuButton<String>(
+      tooltip: 'Preview overlay',
+      icon: const Icon(Icons.grid_on),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        CheckedPopupMenuItem<String>(
+          value: 'cross',
+          checked: widget.client.gridCrosshair,
+          child: const Text('Center crosshair'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'thirds',
+          checked: widget.client.gridThirds,
+          child: const Text('Rule of thirds'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'readout',
+          checked: widget.client.gridReadout,
+          child: const Text('Yaw / pitch readout'),
+        ),
+      ],
+      onSelected: (String key) {
+        switch (key) {
+          case 'cross':   widget.client.setGridCrosshair(!widget.client.gridCrosshair); break;
+          case 'thirds':  widget.client.setGridThirds(!widget.client.gridThirds);       break;
+          case 'readout': widget.client.setGridReadout(!widget.client.gridReadout);     break;
+        }
       },
     );
   }
@@ -119,7 +153,12 @@ class _ControlScreenState extends State<ControlScreen> {
         _statusBar(s),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: PreviewWidget(client: widget.client),
+          child: PreviewWidget(
+                client: widget.client,
+                showCrosshair: widget.client.gridCrosshair,
+                showThirds:    widget.client.gridThirds,
+                showReadout:   widget.client.gridReadout,
+              ),
         ),
         // Joystick + zoom slider — fixed slice, NOT inside the scroll view.
         SizedBox(
@@ -166,7 +205,12 @@ class _ControlScreenState extends State<ControlScreen> {
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     children: <Widget>[
-                      PreviewWidget(client: widget.client),
+                      PreviewWidget(
+                client: widget.client,
+                showCrosshair: widget.client.gridCrosshair,
+                showThirds:    widget.client.gridThirds,
+                showReadout:   widget.client.gridReadout,
+              ),
                       const SizedBox(height: 8),
                       Expanded(child: PtzPad(client: widget.client)),
                     ],

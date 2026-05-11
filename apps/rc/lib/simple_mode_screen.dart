@@ -38,6 +38,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             title: Text(s.modelDisplay.isEmpty ? 'Open OBSBOT Remote' : s.modelDisplay),
             actions: <Widget>[
               _speedMenu(context),
+              _gridMenu(context),
               IconButton(
                 tooltip: 'Sequence',
                 icon: Icon(s.sequence.running
@@ -80,7 +81,12 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.all(8),
-          child: PreviewWidget(client: client),
+          child: PreviewWidget(
+            client: client,
+            showCrosshair: client.gridCrosshair,
+            showThirds:    client.gridThirds,
+            showReadout:   client.gridReadout,
+          ),
         ),
         if (s.sequence.running) _seqBar(ctx, s),
         Expanded(child: _presetGrid(ctx, s, columns: 2)),
@@ -104,7 +110,12 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           child: Padding(
             padding: const EdgeInsets.all(8),
             child: Column(children: <Widget>[
-              Expanded(child: PreviewWidget(client: client)),
+              Expanded(child: PreviewWidget(
+                client: client,
+                showCrosshair: client.gridCrosshair,
+                showThirds:    client.gridThirds,
+                showReadout:   client.gridReadout,
+              )),
               if (s.sequence.running) _seqBar(ctx, s),
             ]),
           ),
@@ -287,6 +298,38 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             ]),
           ),
       ],
+    );
+  }
+
+  /// Preview overlay toggle (crosshair / thirds / yaw+pitch readout).
+  Widget _gridMenu(BuildContext ctx) {
+    return PopupMenuButton<String>(
+      tooltip: 'Preview overlay',
+      icon: const Icon(Icons.grid_on),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        CheckedPopupMenuItem<String>(
+          value: 'cross',
+          checked: client.gridCrosshair,
+          child: const Text('Center crosshair'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'thirds',
+          checked: client.gridThirds,
+          child: const Text('Rule of thirds'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'readout',
+          checked: client.gridReadout,
+          child: const Text('Yaw / pitch readout'),
+        ),
+      ],
+      onSelected: (String key) {
+        switch (key) {
+          case 'cross':   client.setGridCrosshair(!client.gridCrosshair); break;
+          case 'thirds':  client.setGridThirds(!client.gridThirds);       break;
+          case 'readout': client.setGridReadout(!client.gridReadout);     break;
+        }
+      },
     );
   }
 

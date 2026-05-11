@@ -73,5 +73,6 @@ Thumbs.db
 obsbot-*.png
 prod-*.png
 touch-*.png
+grid-*.png
 .claude/settings.local.json
 tests/img_probe.mjs

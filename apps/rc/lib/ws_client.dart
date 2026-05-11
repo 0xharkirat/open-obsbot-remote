@@ -338,13 +338,20 @@ class WsClient extends ChangeNotifier {
   /// launches via SharedPreferences key `move_duration_ms`.
   Duration _moveDuration = const Duration(milliseconds: 2000);
 
+  /// Grid overlay preferences (mirrored to SharedPreferences keys
+  /// `grid_crosshair`, `grid_thirds`, `grid_readout`).
+  bool _gridCrosshair = true;
+  bool _gridThirds = false;
+  bool _gridReadout = true;
+
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
-      if (ms != null) {
-        _moveDuration = Duration(milliseconds: ms);
-        notifyListeners();
-      }
+      if (ms != null) _moveDuration = Duration(milliseconds: ms);
+      _gridCrosshair = p.getBool('grid_crosshair') ?? _gridCrosshair;
+      _gridThirds    = p.getBool('grid_thirds')    ?? _gridThirds;
+      _gridReadout   = p.getBool('grid_readout')   ?? _gridReadout;
+      notifyListeners();
     });
   }
 
@@ -354,6 +361,31 @@ class WsClient extends ChangeNotifier {
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setInt('move_duration_ms', d.inMilliseconds);
+  }
+
+  bool get gridCrosshair => _gridCrosshair;
+  bool get gridThirds    => _gridThirds;
+  bool get gridReadout   => _gridReadout;
+
+  Future<void> setGridCrosshair(bool v) async {
+    _gridCrosshair = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_crosshair', v);
+  }
+
+  Future<void> setGridThirds(bool v) async {
+    _gridThirds = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_thirds', v);
+  }
+
+  Future<void> setGridReadout(bool v) async {
+    _gridReadout = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_readout', v);
   }
 
   bool get connected => _connected && _state.connected;
