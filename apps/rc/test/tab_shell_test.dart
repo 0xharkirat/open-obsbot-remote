@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:obsbot_control/control_screen.dart';
 import 'package:obsbot_control/tab_shell.dart';
 import 'package:obsbot_control/ws_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _StubWsClient extends WsClient {
   _StubWsClient() : super();
@@ -17,7 +18,15 @@ class _StubWsClient extends WsClient {
   // PreviewWidget falls through to its "Connecting..." placeholder.
 }
 
+void _initPrefs() {
+  // WsClient hits SharedPreferences in its constructor and in
+  // setMoveDuration; without this mock, those calls hang under
+  // flutter_test, which has no real platform plugins.
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+}
+
 Future<void> _pumpShell(WidgetTester tester, {Size? size}) async {
+  _initPrefs();
   if (size != null) {
     await tester.binding.setSurfaceSize(size);
   }
@@ -31,6 +40,7 @@ Future<void> _pumpShell(WidgetTester tester, {Size? size}) async {
 }
 
 void main() {
+  setUp(_initPrefs);
   group('TabShell', () {
     testWidgets('renders five tab labels in order', (tester) async {
       await _pumpShell(tester, size: const Size(400, 800));
@@ -80,6 +90,60 @@ void main() {
       // produce the tab labels.
       expect(find.text('Joystick'), findsOneWidget);
       expect(find.text('Image'), findsOneWidget);
+    });
+  });
+
+  group('Joystick tab (PR B)', () {
+    testWidgets('shows Recenter / Sleep / Wake quick actions',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 800));
+      expect(find.text('Recenter'), findsOneWidget);
+      expect(find.text('Sleep'), findsOneWidget);
+      expect(find.text('Wake'), findsOneWidget);
+    });
+
+    testWidgets('shows all 8 move-duration chips', (tester) async {
+      await _pumpShell(tester, size: const Size(400, 800));
+      // ChoiceChip renders the preset label as a Text child.
+      for (final p in kMoveDurationPresets) {
+        expect(find.text(p.label), findsOneWidget,
+            reason: 'chip for ${p.label} missing');
+      }
+    });
+
+    testWidgets('chip reflects current move duration', (tester) async {
+      final client = _StubWsClient();
+      // Force a duration that's guaranteed to match a chip preset.
+      await client.setMoveDuration(const Duration(milliseconds: 5000));
+      await tester.binding.setSurfaceSize(const Size(400, 800));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: TabShell(client: client)),
+        ),
+      );
+      await tester.pump();
+      final chip = tester.widget<ChoiceChip>(
+        find.ancestor(
+          of: find.text('5 sec'),
+          matching: find.byType(ChoiceChip),
+        ),
+      );
+      expect(chip.selected, isTrue);
+    });
+
+    testWidgets('tapping a chip updates client.moveDuration',
+        (tester) async {
+      final client = _StubWsClient();
+      await tester.binding.setSurfaceSize(const Size(400, 800));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: TabShell(client: client)),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('1 sec'));
+      await tester.pump();
+      expect(client.moveDuration, const Duration(milliseconds: 1000));
     });
   });
 }

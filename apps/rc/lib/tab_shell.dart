@@ -132,7 +132,18 @@ class _TabShellState extends State<TabShell>
 }
 
 // ---------------------------------------------------------------------------
-// Tab 1 — Joystick: existing PtzPad + vertical ZoomSlider.
+// Tab 1 — Joystick (v1.2 PR B refinement).
+//
+// Layout per docs/UI_REDESIGN_SPEC.md:
+//   - Top quick-action row: Recenter / Sleep / Wake.
+//   - Middle: large round joystick pad centered + vertical zoom slider
+//     pinned to the right (1.0× ↔ 2.0× on Tiny 2 Lite).
+//   - Bottom: horizontal chip strip for Move duration
+//     (Instant / 1s / 5s / 15s / 30s / 1m / 3m / 5m).
+//
+// Putting the joystick on its own tab fixes the pre-v1.2 "joystick eats
+// scroll" conflict: the surrounding TabBarView swipes horizontally and
+// doesn't compete with the joystick's vertical-first pan gestures.
 // ---------------------------------------------------------------------------
 
 class _JoystickTab extends StatelessWidget {
@@ -147,20 +158,88 @@ class _JoystickTab extends StatelessWidget {
         final s = client.state;
         return Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
             children: <Widget>[
+              _quickActions(context),
+              const SizedBox(height: 12),
               Expanded(
-                flex: 4,
-                child: PtzPad(client: client),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: 4,
+                      child: PtzPad(client: client),
+                    ),
+                    SizedBox(
+                      width: 80,
+                      child: ZoomSlider(client: client, state: s),
+                    ),
+                  ],
+                ),
               ),
-              SizedBox(
-                width: 80,
-                child: ZoomSlider(client: client, state: s),
-              ),
+              const SizedBox(height: 8),
+              _durationChips(context),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _quickActions(BuildContext ctx) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.center_focus_strong, size: 18),
+            label: const Text('Recenter'),
+            onPressed: () => client.ptzRecenter(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.bedtime, size: 18),
+            label: const Text('Sleep'),
+            onPressed: () => client.runStatus('sleep'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.wb_sunny, size: 18),
+            label: const Text('Wake'),
+            onPressed: () => client.runStatus('run'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _durationChips(BuildContext ctx) {
+    final cur = client.moveDuration;
+    final cs = Theme.of(ctx).colorScheme;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          for (int i = 0; i < kMoveDurationPresets.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(width: 6),
+            ChoiceChip(
+              label: Text(kMoveDurationPresets[i].label),
+              avatar: Icon(
+                kMoveDurationPresets[i].icon,
+                size: 16,
+                color: kMoveDurationPresets[i].duration == cur
+                    ? cs.onPrimary
+                    : cs.onSurface,
+              ),
+              selected: kMoveDurationPresets[i].duration == cur,
+              onSelected: (_) =>
+                  client.setMoveDuration(kMoveDurationPresets[i].duration),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
