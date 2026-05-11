@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'cache_menu.dart';
-import 'preview_widget.dart';
+import 'tab_shell.dart';
 import 'ws_client.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -64,13 +64,11 @@ class _ControlScreenState extends State<ControlScreen> {
             ],
           ),
           body: SafeArea(
-            child: LayoutBuilder(
-              builder: (BuildContext ctx, BoxConstraints c) {
-                final landscape = c.maxWidth > c.maxHeight;
-                return landscape
-                    ? _buildLandscape(s)
-                    : _buildPortrait(s);
-              },
+            child: Column(
+              children: <Widget>[
+                _statusBar(s),
+                Expanded(child: TabShell(client: widget.client)),
+              ],
             ),
           ),
         );
@@ -101,100 +99,6 @@ class _ControlScreenState extends State<ControlScreen> {
               Text(p.label),
             ]),
           ),
-      ],
-    );
-  }
-
-  Widget _buildPortrait(CameraState s) {
-    // Mobile-portrait layout. Hero controls (preview + joystick + zoom
-    // slider) are PINNED above a scrollable region; only the action
-    // rows scroll. This is the only layout that works on touch devices
-    // — wrapping the whole page in SingleChildScrollView lets the
-    // scroll view's GestureRecognizer win the gesture arena over the
-    // joystick's GestureDetector, so vertical-first joystick drags get
-    // eaten as scrolls and the camera doesn't move. See
-    // docs/TOUCH_FINDINGS_2026-05-10.md for the reproduction.
-    return Column(
-      children: <Widget>[
-        _statusBar(s),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: PreviewWidget(client: widget.client),
-        ),
-        // Joystick + zoom slider — fixed slice, NOT inside the scroll view.
-        SizedBox(
-          height: 280,
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: PtzPad(client: widget.client),
-                ),
-              ),
-              SizedBox(
-                width: 80,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: ZoomSlider(client: widget.client, state: s),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Bottom action rows scroll on small phones where they don't fit.
-        Expanded(
-          child: SingleChildScrollView(
-            child: _bottomBar(s),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLandscape(CameraState s) {
-    return Column(
-      children: <Widget>[
-        _statusBar(s),
-        Expanded(
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                flex: 6,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: <Widget>[
-                      PreviewWidget(client: widget.client),
-                      const SizedBox(height: 8),
-                      Expanded(child: PtzPad(client: widget.client)),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 90,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: ZoomSlider(client: widget.client, state: s),
-                ),
-              ),
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: _bottomControls(s),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }
@@ -235,165 +139,18 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  Widget _bottomBar(CameraState s) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: _bottomControls(s),
-      ),
-    );
-  }
-
-  List<Widget> _bottomControls(CameraState s) {
-    return <Widget>[
-      Row(children: <Widget>[
-        Expanded(child: _bigBtn('Recenter', Icons.center_focus_strong,
-            () => widget.client.ptzRecenter())),
-        const SizedBox(width: 8),
-        Expanded(child: _bigBtn('Sleep', Icons.bedtime,
-            () => widget.client.runStatus('sleep'))),
-        const SizedBox(width: 8),
-        Expanded(child: _bigBtn('Wake', Icons.wb_sunny,
-            () => widget.client.runStatus('run'))),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: <Widget>[
-        Expanded(child: _toggleBtn('AI HUMAN', s.aiMode == 'human',
-            () => widget.client.aiSetMode(
-                s.aiMode == 'human' ? 'none' : 'human', 'normal'))),
-        const SizedBox(width: 8),
-        Expanded(child: _toggleBtn('HDR', s.hdr,
-            () => widget.client.hdr(!s.hdr))),
-        const SizedBox(width: 8),
-        Expanded(child: _toggleBtn('FOV ${s.fov}°', false, () {
-          final next = s.fov == 86 ? 78 : (s.fov == 78 ? 65 : 86);
-          widget.client.fov(next);
-        })),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: <Widget>[
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_left,
-          label: 'Left',
-          client: widget.client,
-          yawSpeed: -80,
-          pitchSpeed: 0,
-        )),
-        const SizedBox(width: 8),
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_up,
-          label: 'Up',
-          client: widget.client,
-          yawSpeed: 0,
-          pitchSpeed: 40,
-        )),
-        const SizedBox(width: 8),
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_down,
-          label: 'Down',
-          client: widget.client,
-          yawSpeed: 0,
-          pitchSpeed: -40,
-        )),
-        const SizedBox(width: 8),
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_right,
-          label: 'Right',
-          client: widget.client,
-          yawSpeed: 80,
-          pitchSpeed: 0,
-        )),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: <Widget>[
-        Expanded(child: _presetBtn(0, 'P1', s)),
-        const SizedBox(width: 8),
-        Expanded(child: _presetBtn(1, 'P2', s)),
-        const SizedBox(width: 8),
-        Expanded(child: _presetBtn(2, 'P3', s)),
-        const SizedBox(width: 8),
-        Expanded(child: _presetBtn(3, 'P4', s)),
-      ]),
-    ];
-  }
-
-  Widget _bigBtn(String label, IconData icon, VoidCallback onTap) {
-    return SizedBox(
-      height: 56,
-      child: FilledButton.tonalIcon(
-        onPressed: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        icon: Icon(icon),
-        label: Text(label, overflow: TextOverflow.ellipsis),
-      ),
-    );
-  }
-
-  Widget _toggleBtn(String label, bool on, VoidCallback onTap) {
-    return SizedBox(
-      height: 56,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          backgroundColor: on
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
-          foregroundColor: on
-              ? Theme.of(context).colorScheme.onPrimary
-              : Theme.of(context).colorScheme.onSurface,
-        ),
-        onPressed: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        child: Text(label, textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis),
-      ),
-    );
-  }
-
-  Widget _presetBtn(int id, String label, CameraState s) {
-    return SizedBox(
-      height: 64,
-      child: GestureDetector(
-        onLongPress: () {
-          HapticFeedback.heavyImpact();
-          widget.client.presetSave(id, label);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Saved $label at current position'),
-                duration: const Duration(milliseconds: 800)),
-          );
-        },
-        child: FilledButton.tonal(
-          onPressed: () {
-            HapticFeedback.lightImpact();
-            widget.client.presetRecall(id);
-          },
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(label, style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w700)),
-              const Text('hold to save', style: TextStyle(fontSize: 9)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ----------------------------------------------------------------------------
 
-class _HoldDirBtn extends StatefulWidget {
+class HoldDirBtn extends StatefulWidget {
   final IconData icon;
   final String label;
   final WsClient client;
   final double yawSpeed;
   final double pitchSpeed;
-  const _HoldDirBtn({
+  const HoldDirBtn({
+    super.key,
     required this.icon,
     required this.label,
     required this.client,
@@ -402,10 +159,10 @@ class _HoldDirBtn extends StatefulWidget {
   });
 
   @override
-  State<_HoldDirBtn> createState() => _HoldDirBtnState();
+  State<HoldDirBtn> createState() => HoldDirBtnState();
 }
 
-class _HoldDirBtnState extends State<_HoldDirBtn> {
+class HoldDirBtnState extends State<HoldDirBtn> {
   Timer? _ticker;
   bool _down = false;
 

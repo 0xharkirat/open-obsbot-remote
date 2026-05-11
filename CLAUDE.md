@@ -123,3 +123,98 @@ See README.md "Features" and "Known Limits" sections. Tiny 2 Lite is the tested 
 - Don't rewrite working code unless asked. Add features behind toggles, keep the demo path intact.
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
 - When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.
+
+## Current dev state (v1.2 in progress)
+
+**Last release:** v1.1.0 (commit `87bbe0a`). After v1.1, the workflow is PR-styled — no direct main commits. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`.
+
+**Recently merged into main since v1.1.0:**
+- PR #2 `feat/slow-motion` (commit `55d9615`): MotionPlanner — sub-SDK-floor smoothness via wall-clock `duration_ms` waypoint interpolation. Replaced `MoveSpeed` enum with explicit `duration_ms` int. Migration helper `legacy_speed_to_ms()` keeps v1.0/v1.1 sequences.json files working. See `docs/SLOW_MOTION_DESIGN.md`.
+- PR #3 `fix/footer-credit` (commit `3d19a09`): restored "by Hark Singh + harksingh.com" credit in footers.
+
+**Open / awaiting review:**
+- PR #4 `feat/grid-overlay`: live preview grid overlay with 4 independently-toggled layers (center crosshair / center alignment lines / rule-of-thirds / Pan-Tilt readout). `apps/rc/lib/grid_overlay.dart` is a `CustomPaint` wrapped in `IgnorePointer`. Toggles persisted via SharedPreferences (`grid_crosshair`, `grid_center_lines`, `grid_thirds`, `grid_readout`). Plain-language readout shows `PAN ←→ X°` / `TILT ↑↓ Y°` (not Yaw/Pitch).
+- PR #5 `docs/ui-redesign-spec`: `docs/UI_REDESIGN_SPEC.md` (5-tab layout) + `docs/EXPOSURE_REFERENCE.md` (OBSBOT Center capture for future PR G).
+
+**Active branch as of this writing:** `docs/ui-redesign-spec`.
+
+### v1.2 PR sequence (from `docs/UI_REDESIGN_SPEC.md`)
+
+User directive: do redesign first, then exposure. Execute in order A → K.
+
+| # | Branch | What |
+|---|---|---|
+| A | `feat/tab-bar-shell` | 5-tab shell below pinned preview, no behavior change |
+| B | `feat/joystick-tab` | Move joystick into Tab 1 (fixes scroll-eats-gesture conflict) |
+| C | `feat/buttons-tab` | Hold-button 8-way pad with speed slider |
+| D | `feat/presets-tab` | 6 preset cards 2×3 |
+| E | `feat/sequencer-tab` | Timeline-style step cards |
+| F | `feat/image-tab` | Image-tab shell: HDR/FOV/face/color sliders |
+| G | `feat/exposure-controls` | Exposure mode + EV bias + anti-flicker + WB (per `docs/EXPOSURE_REFERENCE.md`) |
+| H | `feat/bridge-tray` | macOS menubar tray (`tray_manager` package) |
+| I | `feat/forui-shell` | First forui screen (pair + header) |
+| J | `feat/forui-tabs` | forui for all tab content |
+| K | `chore/release-v1.2.0` | Bump versions, CHANGELOG, GH release |
+
+### Test harness
+
+Run before merging any PR. All run against a connected Tiny 2 Lite.
+
+```bash
+NODE=/Users/hark/.nvm/versions/node/v22.21.1/bin/node
+$NODE tests/bridge_smoke.mjs       # 27 tests — connect / preset / sequence / image controls
+$NODE tests/sequencer_save.mjs     # 6 tests — duration_ms persistence + legacy speed migration
+$NODE tests/slow_motion.mjs        # 7 tests — duration_ms timings (200ms / 1s / 5s / 30s)
+$NODE tests/zoom_speed.mjs         # 9 tests — zoom planner duration timings
+```
+
+Total: **49/49** pass with no warning log lines. Add tests for each new PR's surface (e.g. PR F adds image-control tests, PR G adds exposure-mode tests).
+
+### MotionPlanner architecture (`apps/bridge_cpp/src/device_session.{h,cpp}`)
+
+- Single worker thread (`motion_loop`) owns interpolation between waypoints.
+- `MotionTarget { optional yaw/pitch/roll/zoom + duration_ms + tick_ms + tag }`.
+- `motion_start(target)` enqueues + signals cv; `motion_cancel()` preempts (cancel-replace).
+- Easing: `ease_in_out_sine` for cinematographic deceleration.
+- Adaptive tick: stretches tick to keep per-step delta ≥ 0.1° / ≥ 0.005 zoom (avoids motor jitter at sub-SDK floors).
+- Issues `gimbalSetSpeedPositionR(..., speed=90)` per waypoint — speed is the SDK ceiling; we control the rate by how often we update the target.
+- Zoom: `cameraSetZoomWithSpeedAbsoluteR(..., speed=10)` per waypoint.
+- Any direct gimbal/zoom command (instant jog, velocity, terminal zoom snap) calls `motion_cancel()` first to preempt in-flight planner.
+
+### Protocol (v1.2 deltas vs v1.1)
+
+- `ptz.angle`, `ptz.preset_recall`, `zoom.set` take `"duration_ms": <int>` (ms). `0` = instant hardware command, `>0` = planner.
+- `sequence.save` step shape: `{ "preset_id", "seconds", "transition_ms" }` (no more `move_speed`).
+- `ptz.velocity` no longer carries `speed` — rate is implicit, planner not invoked.
+
+### Skills checklist per PR (see `.agents/skills/`)
+
+Tab/layout PRs (A–F) use:
+- `flutter-build-responsive-layout` — every layout PR; constraints-driven, not device-class.
+- `flutter-add-widget-preview` — preview tabs at all breakpoints without launching the app.
+
+Design + a11y PRs:
+- `design:design-system` — token review before A; deep review before G/H.
+- `design:ux-copy` — string sweep before each PR merge.
+- `design:design-critique` — screenshot review before merge.
+- `design:accessibility-review` — color + tap-target audit on G/H.
+- `design:design-handoff` — exact spec sheet into PR description.
+
+19 skills total under `.agents/skills/`; prefer these over Playwright-only flows (see `memory/project_tooling_pref.md`).
+
+### Reference docs
+
+- `docs/ARCHITECTURE.md`, `docs/PROTOCOL.md` — protocol + system shape.
+- `docs/SLOW_MOTION_DESIGN.md` — duration_ms / MotionPlanner rationale + math.
+- `docs/UI_REDESIGN_SPEC.md` — v1.2 layout, copy table, breakpoints, PR sequence.
+- `docs/EXPOSURE_REFERENCE.md` — OBSBOT Center exposure UI + SDK functions for PR G.
+- `docs/CONTRIBUTING.md` — PR workflow rules.
+- `docs/TOUCH_FINDINGS_2026-05-10.md` — touch-emulation regression notes.
+
+### Things that bit us during v1.2
+
+21. **`speed_str()` switch non-exhaustive** — when adding new MoveSpeed values pre-removal, sequencer save silently downgraded `ultra`/`cinema` to `medium` on disk. Lesson: any enum-to-string switch must be exhaustive + tested via `tests/sequencer_save.mjs`. Now moot (enum gone) but the test stays for migration coverage.
+22. **Zoom planner pre-stamped target** — `cmd_zoom_set` planner branch wrote `snap_.zoom = v` before the planner ran, so state events showed the target instantly instead of progressively. Removed the pre-stamp; planner ticks own `snap_.zoom` while running.
+23. **Instant zoom didn't cancel planner** — terminal/instant zoom path skipped `motion_cancel()`, so an in-flight slow zoom kept pushing the old target. Added `if (terminal) motion_cancel();` to instant branch.
+24. **Joystick eats scroll** — pre-redesign single-page layout meant the joystick PtzPad swallowed scroll gestures in the surrounding ListView. Cannot be fixed incrementally — solved structurally by PR A/B (joystick gets its own tab; scrolling action rows live on other tabs).
+25. **`Yaw`/`Pitch` jargon** — operators don't know these. Replaced with `Pan`/`Tilt` in grid overlay readout, will sweep the rest in PR F per the copy table.
