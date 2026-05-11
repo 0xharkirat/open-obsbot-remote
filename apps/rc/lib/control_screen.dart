@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'cache_menu.dart';
+import 'sequencer_screen.dart';
 import 'tab_shell.dart';
 import 'ws_client.dart';
 
@@ -49,6 +50,20 @@ class _ControlScreenState extends State<ControlScreen> {
                 ),
               ),
               _speedMenu(context),
+              _gridMenu(context),
+              IconButton(
+                tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
+                icon: Icon(
+                  s.sequence.running
+                      ? Icons.multiline_chart
+                      : Icons.timeline,
+                ),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SequencerScreen(client: widget.client),
+                  ),
+                ),
+              ),
               if (widget.onSwitchSimple != null)
                 IconButton(
                   tooltip: 'Simple mode',
@@ -100,6 +115,47 @@ class _ControlScreenState extends State<ControlScreen> {
             ]),
           ),
       ],
+    );
+  }
+
+  Widget _gridMenu(BuildContext ctx) {
+    return PopupMenuButton<String>(
+      tooltip: 'Grid overlay',
+      icon: const Icon(Icons.grid_on),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        CheckedPopupMenuItem<String>(
+          value: 'crosshair',
+          checked: widget.client.gridCrosshair,
+          child: const Text('Center crosshair'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'center',
+          checked: widget.client.gridCenterLines,
+          child: const Text('Center alignment lines'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'thirds',
+          checked: widget.client.gridThirds,
+          child: const Text('Rule of thirds'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'readout',
+          checked: widget.client.gridReadout,
+          child: const Text('Pan / Tilt readout'),
+        ),
+      ],
+      onSelected: (v) {
+        switch (v) {
+          case 'crosshair':
+            widget.client.setGridCrosshair(!widget.client.gridCrosshair);
+          case 'center':
+            widget.client.setGridCenterLines(!widget.client.gridCenterLines);
+          case 'thirds':
+            widget.client.setGridThirds(!widget.client.gridThirds);
+          case 'readout':
+            widget.client.setGridReadout(!widget.client.gridReadout);
+        }
+      },
     );
   }
 
@@ -162,6 +218,25 @@ class HoldDirBtn extends StatefulWidget {
   State<HoldDirBtn> createState() => HoldDirBtnState();
 }
 
+/// Press-and-hold directional button used by the 8-way pad on the
+/// Buttons tab.
+///
+/// Pre-revamp this wrapped a `Listener` inside a `FilledButton.tonal`
+/// with a no-op `onPressed: () {}`. Two problems on Flutter web (Mac
+/// Safari + iPhone Safari) + in Material's gesture arena:
+///
+///   - The button's internal `TapGestureRecognizer` won the gesture
+///     arena on a quick tap, so the inner `Listener.onPointerUp` never
+///     fired and the ticker kept running until the next button press.
+///   - On vertical drags (Up / Down on the 3×3 pad) the surrounding
+///     `SingleChildScrollView` claimed the pointer once the user's
+///     finger moved a few pixels, cancelling the press silently with
+///     no velocity actually delivered to the bridge — user reported
+///     "up / down don't work".
+///
+/// This rewrite uses a raw `Listener` directly on a `Material` surface
+/// (no Button wrapper) so press / release / cancel events are first-
+/// class and no upstream recognizer can steal them.
 class HoldDirBtnState extends State<HoldDirBtn> {
   Timer? _ticker;
   bool _down = false;
@@ -201,26 +276,33 @@ class HoldDirBtnState extends State<HoldDirBtn> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 56,
-      child: FilledButton.tonal(
-        style: FilledButton.styleFrom(
-          backgroundColor: _down ? cs.primary : cs.surfaceContainerHighest,
-          foregroundColor: _down ? cs.onPrimary : cs.onSurface,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => _start(),
+      onPointerUp: (_) => _end(),
+      onPointerCancel: (_) => _end(),
+      child: Material(
+        color: _down ? cs.primary : cs.surfaceContainerHighest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
-        onPressed: () {},
-        child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (_) => _start(),
-          onPointerUp: (_) => _end(),
-          onPointerCancel: (_) => _end(),
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(widget.icon, size: 22),
-              Text(widget.label, style: const TextStyle(fontSize: 11)),
+              Icon(
+                widget.icon,
+                size: 22,
+                color: _down ? cs.onPrimary : cs.onSurface,
+              ),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _down ? cs.onPrimary : cs.onSurface,
+                ),
+              ),
             ],
           ),
         ),

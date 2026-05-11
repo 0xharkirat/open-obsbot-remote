@@ -62,14 +62,31 @@ class _ObsbotAppState extends State<ObsbotApp> {
 
   @override
   Widget build(BuildContext context) {
+    // v1.2 palette — OBSBOT brand red accent on near-black neutral.
+    // Replaces the v1.1 default blue. Deep surface keeps the live
+    // preview from looking grey-washed; red primary matches the camera
+    // hardware + the OBSBOT Center mac app.
+    const obsbotRed = Color(0xFFFF3B30);
+    const deepSurface = Color(0xFF0F1115);
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: obsbotRed,
+      primary: obsbotRed,
+      surface: deepSurface,
+      brightness: Brightness.dark,
+    ).copyWith(
+      surfaceContainerLowest: const Color(0xFF0A0C10),
+      surfaceContainerLow: const Color(0xFF14171D),
+      surfaceContainer: const Color(0xFF181B22),
+      surfaceContainerHigh: const Color(0xFF1F2229),
+      surfaceContainerHighest: const Color(0xFF262932),
+      outlineVariant: const Color(0xFF3A3D45),
+    );
     return MaterialApp(
       title: 'Open OBSBOT Remote',
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1976D2),
-          brightness: Brightness.dark,
-        ),
+        colorScheme: colorScheme,
+        scaffoldBackgroundColor: deepSurface,
       ),
       home: AnimatedBuilder(
         animation: client,

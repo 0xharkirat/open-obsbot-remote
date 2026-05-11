@@ -1,29 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 
 import 'control_screen.dart';
 import 'preview_widget.dart';
-import 'sequencer_screen.dart';
 import 'ws_client.dart';
 
-/// v1.2 redesign — 5-tab shell below a pinned live preview.
+/// v1.2 redesign — 3-tab shell below a pinned live preview.
 ///
-/// PR A (`feat/tab-bar-shell`): pure layout. The five tabs each host the
-/// existing widgets that already worked in v1.1; subsequent PRs (B–F)
-/// refine one tab at a time per `docs/UI_REDESIGN_SPEC.md`.
+/// Post-review pass (`fix/ui-revamp-from-review`):
+///   - Drops the Presets and Sequence tabs. Presets are inlined into the
+///     Joystick + Buttons tabs (P1..P6 row) so the user can recall or
+///     save while controlling. Sequence moves to an AppBar action with
+///     the timeline (graph) icon, opening the SequencerScreen route.
+///   - Every tab uses the same template: top quick-action row +
+///     primary control + zoom slider + inline preset row + utility row.
+///   - Buttons tab gets the same vertical zoom slider as Joystick.
+///   - Each control widget reads grid-overlay state from `client.state`
+///     so the preview's grid is consistent across tabs.
 ///
 /// Layout choices are driven by `LayoutBuilder.maxWidth`, not device
 /// class (see the `flutter-build-responsive-layout` skill):
 ///
 ///   • <600  px wide  → preview pinned on top (16:9), tabs below.
 ///   • ≥600  px wide  → preview pinned on the left (50%), tabs on the right.
-///
-/// Tabs:
-///   1. Joystick — `PtzPad` + `ZoomSlider`.
-///   2. Buttons  — 4-way hold-direction pad + recenter/sleep/wake.
-///   3. Presets  — preset buttons (2×3 grid lands in PR D).
-///   4. Sequence — embedded `SequencerScreen` body.
-///   5. Image    — HDR / FOV / AI-track / face / flip toggles.
 class TabShell extends StatefulWidget {
   final WsClient client;
   const TabShell({super.key, required this.client});
@@ -39,8 +39,6 @@ class _TabShellState extends State<TabShell>
   static const _tabs = <Tab>[
     Tab(icon: Icon(Icons.gamepad), text: 'Joystick'),
     Tab(icon: Icon(Icons.touch_app), text: 'Buttons'),
-    Tab(icon: Icon(Icons.view_module), text: 'Presets'),
-    Tab(icon: Icon(Icons.timeline), text: 'Sequence'),
     Tab(icon: Icon(Icons.image), text: 'Image'),
   ];
 
@@ -58,10 +56,6 @@ class _TabShellState extends State<TabShell>
 
   @override
   Widget build(BuildContext context) {
-    // Wrap the whole tab shell in FTheme so forui widgets used by
-    // individual tabs (PR J — FButton in quick actions + Image tab
-    // toggles) inherit a consistent palette. Material widgets inside
-    // continue to read Theme.of(context) from the outer MaterialApp.
     return FTheme(
       data: FThemes.zinc.dark.touch,
       child: LayoutBuilder(
@@ -78,7 +72,13 @@ class _TabShellState extends State<TabShell>
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: PreviewWidget(client: widget.client),
+          child: PreviewWidget(
+            client: widget.client,
+            showCrosshair: widget.client.gridCrosshair,
+            showCenterLines: widget.client.gridCenterLines,
+            showThirds: widget.client.gridThirds,
+            showReadout: widget.client.gridReadout,
+          ),
         ),
         _tabBar(),
         Expanded(child: _tabViews()),
@@ -95,7 +95,13 @@ class _TabShellState extends State<TabShell>
             padding: const EdgeInsets.all(12),
             child: Align(
               alignment: Alignment.topCenter,
-              child: PreviewWidget(client: widget.client),
+              child: PreviewWidget(
+                client: widget.client,
+                showCrosshair: widget.client.gridCrosshair,
+                showCenterLines: widget.client.gridCenterLines,
+                showThirds: widget.client.gridThirds,
+                showReadout: widget.client.gridReadout,
+              ),
             ),
           ),
         ),
@@ -116,10 +122,7 @@ class _TabShellState extends State<TabShell>
       color: Theme.of(context).colorScheme.surface,
       child: TabBar(
         controller: _tab,
-        // Evenly distribute the 5 tabs across the available width. At
-        // narrow phone widths each tab still meets the 44-px touch target
-        // (360 / 5 = 72 px); the text label shrinks with overflow.
-        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+        labelPadding: const EdgeInsets.symmetric(horizontal: 8),
         tabs: _tabs,
       ),
     );
@@ -131,74 +134,25 @@ class _TabShellState extends State<TabShell>
       children: <Widget>[
         _JoystickTab(client: widget.client),
         _ButtonsTab(client: widget.client),
-        _PresetsTab(client: widget.client),
-        _SequenceTab(client: widget.client),
         _ImageTab(client: widget.client),
       ],
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Tab 1 — Joystick (v1.2 PR B refinement).
-//
-// Layout per docs/UI_REDESIGN_SPEC.md:
-//   - Top quick-action row: Recenter / Sleep / Wake.
-//   - Middle: large round joystick pad centered + vertical zoom slider
-//     pinned to the right (1.0× ↔ 2.0× on Tiny 2 Lite).
-//   - Bottom: horizontal chip strip for Move duration
-//     (Instant / 1s / 5s / 15s / 30s / 1m / 3m / 5m).
-//
-// Putting the joystick on its own tab fixes the pre-v1.2 "joystick eats
-// scroll" conflict: the surrounding TabBarView swipes horizontally and
-// doesn't compete with the joystick's vertical-first pan gestures.
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Shared building blocks
+// ===========================================================================
 
-class _JoystickTab extends StatelessWidget {
+/// Top "global" action row used at the top of the Joystick + Buttons tabs.
+/// Recenter / Sleep / Wake placed in the same position so the user's
+/// muscle memory carries between tabs.
+class _QuickActions extends StatelessWidget {
   final WsClient client;
-  const _JoystickTab({required this.client});
+  const _QuickActions({required this.client});
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: client,
-      builder: (BuildContext ctx, _) {
-        final s = client.state;
-        return Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: <Widget>[
-              _quickActions(context),
-              const SizedBox(height: 12),
-              Expanded(
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      flex: 4,
-                      child: PtzPad(client: client),
-                    ),
-                    SizedBox(
-                      width: 80,
-                      child: ZoomSlider(client: client, state: s),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              _durationChips(context),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _quickActions(BuildContext ctx) {
-    // forui's FButton needs ~140 px to fit "Recenter" + its built-in
-    // padding without overflowing. At a 360 px phone with 3 buttons +
-    // gaps + outer padding the budget is ~110 px each, so we keep the
-    // tighter Material OutlinedButton.icon here. The Image-tab toggles
-    // (2 per row) have enough room and use FButton via _flatBtn.
     return Row(
       children: <Widget>[
         Expanded(
@@ -225,6 +179,174 @@ class _JoystickTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Inline P1..P6 row used at the bottom of the Joystick + Buttons tabs.
+/// Tap = recall with current move-duration. Long-press = save current
+/// position (with confirmation snackbar). Brings the preset action close
+/// to where the user is already touching to control the gimbal, so they
+/// don't have to switch tabs.
+class _InlinePresetRow extends StatelessWidget {
+  final WsClient client;
+  const _InlinePresetRow({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: client,
+      builder: (BuildContext ctx, _) {
+        final presets = client.state.presets;
+        return Row(
+          children: <Widget>[
+            for (int i = 0; i < 6; i++) ...<Widget>[
+              if (i > 0) const SizedBox(width: 6),
+              Expanded(
+                child: _InlinePresetCard(
+                  client: client,
+                  id: i,
+                  entry: _lookupPreset(presets, i),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+PresetEntry? _lookupPreset(List<PresetEntry> presets, int id) {
+  for (final p in presets) {
+    if (p.id == id) return p;
+  }
+  return null;
+}
+
+class _InlinePresetCard extends StatelessWidget {
+  final WsClient client;
+  final int id;
+  final PresetEntry? entry;
+  const _InlinePresetCard({
+    required this.client,
+    required this.id,
+    required this.entry,
+  });
+
+  bool get _saved => entry != null && entry!.name.isNotEmpty;
+  String get _label => 'P${id + 1}';
+
+  void _save(BuildContext ctx) {
+    HapticFeedback.heavyImpact();
+    client.presetSave(id, _saved ? entry!.name : _label);
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text('Saved $_label at current position'),
+        duration: const Duration(milliseconds: 800),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onLongPress: () => _save(context),
+      child: SizedBox(
+        height: 60,
+        child: Material(
+          color: _saved ? cs.primaryContainer : cs.surfaceContainerHighest,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(color: cs.outlineVariant),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: _saved
+                ? () {
+                    HapticFeedback.lightImpact();
+                    client.presetRecall(id);
+                  }
+                : () => _save(context),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Text(
+                    _label,
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.0,
+                      fontWeight: FontWeight.w700,
+                      color: _saved ? cs.onPrimaryContainer : cs.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _saved ? 'tap • hold' : 'hold to save',
+                    style: TextStyle(
+                      fontSize: 9,
+                      height: 1.0,
+                      color: _saved
+                          ? cs.onPrimaryContainer.withValues(alpha: 0.7)
+                          : cs.outline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Tab 1 — Joystick
+// ===========================================================================
+
+class _JoystickTab extends StatelessWidget {
+  final WsClient client;
+  const _JoystickTab({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: client,
+      builder: (BuildContext ctx, _) {
+        final s = client.state;
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: <Widget>[
+              _QuickActions(client: client),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: 4,
+                      child: PtzPad(client: client),
+                    ),
+                    SizedBox(
+                      width: 80,
+                      child: ZoomSlider(client: client, state: s),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _InlinePresetRow(client: client),
+              const SizedBox(height: 8),
+              _durationChips(context),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -257,16 +379,9 @@ class _JoystickTab extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Tab 2 — Buttons (v1.2 PR C refinement).
-//
-// 8-way hold-button pad (4 cardinal + 4 diagonal) for users who prefer
-// discrete directional input over the analog joystick. A "Slow ↔ Fast"
-// speed slider scales the underlying gimbal velocity from 0.1× to 1.0×
-// of the per-direction defaults (yaw ±80°/s, pitch ±40°/s).
-//
-// Same Recenter / Sleep / Wake quick-actions as the Joystick tab.
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Tab 2 — Buttons (8-way hold pad + zoom + speed slider + inline presets)
+// ===========================================================================
 
 class _ButtonsTab extends StatefulWidget {
   final WsClient client;
@@ -277,58 +392,69 @@ class _ButtonsTab extends StatefulWidget {
 }
 
 class _ButtonsTabState extends State<_ButtonsTab> {
-  /// Multiplier applied to the per-direction velocity. 1.0× = full speed
-  /// (matches v1.1 behavior); slider lets the user dial down to 0.1×
-  /// for slow framing pans.
   double _speed = 1.0;
-
-  static const double _baseYaw = 80;   // °/s
-  static const double _basePitch = 40; // °/s
+  static const double _baseYaw = 80;
+  static const double _basePitch = 40;
 
   @override
   Widget build(BuildContext context) {
     final yaw = _baseYaw * _speed;
     final pit = _basePitch * _speed;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _padRow(<Widget>[
-            _dir(Icons.north_west, 'Up-Left', -yaw, pit),
-            _dir(Icons.north, 'Up', 0, pit),
-            _dir(Icons.north_east, 'Up-Right', yaw, pit),
-          ]),
-          const SizedBox(height: 8),
-          _padRow(<Widget>[
-            _dir(Icons.west, 'Left', -yaw, 0),
-            _center(),
-            _dir(Icons.east, 'Right', yaw, 0),
-          ]),
-          const SizedBox(height: 8),
-          _padRow(<Widget>[
-            _dir(Icons.south_west, 'Down-Left', -yaw, -pit),
-            _dir(Icons.south, 'Down', 0, -pit),
-            _dir(Icons.south_east, 'Down-Right', yaw, -pit),
-          ]),
-          const SizedBox(height: 16),
-          _speedSlider(context),
-          const SizedBox(height: 16),
-          Row(children: <Widget>[
-            Expanded(
-                child: _flatBtn(context, 'Recenter',
-                    Icons.center_focus_strong, () => widget.client.ptzRecenter())),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _flatBtn(context, 'Sleep', Icons.bedtime,
-                    () => widget.client.runStatus('sleep'))),
-            const SizedBox(width: 8),
-            Expanded(
-                child: _flatBtn(context, 'Wake', Icons.wb_sunny,
-                    () => widget.client.runStatus('run'))),
-          ]),
-        ],
-      ),
+    return AnimatedBuilder(
+      animation: widget.client,
+      builder: (BuildContext ctx, _) {
+        final s = widget.client.state;
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: <Widget>[
+              _QuickActions(client: widget.client),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        children: <Widget>[
+                          Expanded(
+                              child: _padRow(<Widget>[
+                            _dir(Icons.north_west, 'Up-Left', -yaw, pit),
+                            _dir(Icons.north, 'Up', 0, pit),
+                            _dir(Icons.north_east, 'Up-Right', yaw, pit),
+                          ])),
+                          const SizedBox(height: 6),
+                          Expanded(
+                              child: _padRow(<Widget>[
+                            _dir(Icons.west, 'Left', -yaw, 0),
+                            _center(),
+                            _dir(Icons.east, 'Right', yaw, 0),
+                          ])),
+                          const SizedBox(height: 6),
+                          Expanded(
+                              child: _padRow(<Widget>[
+                            _dir(Icons.south_west, 'Down-Left', -yaw, -pit),
+                            _dir(Icons.south, 'Down', 0, -pit),
+                            _dir(Icons.south_east, 'Down-Right', yaw, -pit),
+                          ])),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 80,
+                      child: ZoomSlider(client: widget.client, state: s),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _speedSlider(context),
+              const SizedBox(height: 4),
+              _InlinePresetRow(client: widget.client),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -336,7 +462,7 @@ class _ButtonsTabState extends State<_ButtonsTab> {
     return Row(
       children: <Widget>[
         for (int i = 0; i < children.length; i++) ...<Widget>[
-          if (i > 0) const SizedBox(width: 8),
+          if (i > 0) const SizedBox(width: 6),
           Expanded(child: children[i]),
         ],
       ],
@@ -354,325 +480,57 @@ class _ButtonsTabState extends State<_ButtonsTab> {
   }
 
   Widget _center() {
-    // Empty center cell keeps the 3x3 grid balanced; we use the
-    // explicit Recenter button below instead.
-    return const SizedBox(height: 56);
+    // Empty cell — center is the Recenter button up in the quick-action
+    // row.
+    return const SizedBox.shrink();
   }
 
   Widget _speedSlider(BuildContext ctx) {
     final theme = Theme.of(ctx);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Row(
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            Text('Speed', style: theme.textTheme.labelLarge),
-            const Spacer(),
-            Text('${(_speed * 100).round()}%',
-                style: theme.textTheme.labelMedium),
-          ],
+        Text('Slow', style: theme.textTheme.bodySmall),
+        Expanded(
+          child: Slider(
+            min: 0.1,
+            max: 1.0,
+            divisions: 9,
+            value: _speed,
+            label: '${(_speed * 100).round()}%',
+            onChanged: (double v) => setState(() => _speed = v),
+          ),
         ),
-        Row(
-          children: <Widget>[
-            Text('Slow', style: theme.textTheme.bodySmall),
-            Expanded(
-              child: Slider(
-                min: 0.1,
-                max: 1.0,
-                divisions: 9,
-                value: _speed,
-                onChanged: (double v) => setState(() => _speed = v),
-              ),
-            ),
-            Text('Fast', style: theme.textTheme.bodySmall),
-          ],
+        Text('Fast', style: theme.textTheme.bodySmall),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 44,
+          child: Text(
+            '${(_speed * 100).round()}%',
+            textAlign: TextAlign.right,
+            style: theme.textTheme.bodySmall,
+          ),
         ),
       ],
     );
   }
-
-  Widget _flatBtn(BuildContext c, String label, IconData icon, VoidCallback t) {
-    // Stays Material for the same reason as the Joystick quick-actions:
-    // 3 buttons per row on a 360 px phone needs every pixel. forui's
-    // FButton intrinsic padding overflows here. PR J's FTheme wrap
-    // still applies to descendants, so future migrations (e.g. forui
-    // alert dialogs) inherit the palette.
-    return SizedBox(
-      height: 56,
-      child: FilledButton.tonalIcon(
-        onPressed: t,
-        icon: Icon(icon),
-        label: Text(label, overflow: TextOverflow.ellipsis),
-      ),
-    );
-  }
 }
 
-// ---------------------------------------------------------------------------
-// Tab 3 — Presets (v1.2 PR D refinement).
-//
-// 6 preset cards (P1..P6) laid out 2×3. Each card surfaces:
-//   - "P#" badge + the saved name (or "(empty)" if never saved).
-//   - Zoom badge (e.g. "1.7×") when the preset has a captured zoom.
-//   - Tap = recall with the current `client.moveDuration`.
-//   - Long-press = popup with Save current position / Rename / Recall instant.
-//
-// Per-preset thumbnails are out of scope for v1.2 (needs a bridge
-// `preset.thumbnail` endpoint that snaps the current MJPEG frame).
-// ---------------------------------------------------------------------------
-
-class _PresetsTab extends StatelessWidget {
-  final WsClient client;
-  const _PresetsTab({required this.client});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: client,
-      builder: (BuildContext ctx, _) {
-        final presets = client.state.presets;
-        return Padding(
-          padding: const EdgeInsets.all(12),
-          child: GridView.count(
-            crossAxisCount: 2,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 1.3,
-            children: <Widget>[
-              for (int i = 0; i < 6; i++)
-                _PresetCard(
-                  client: client,
-                  id: i,
-                  entry: _lookupPreset(presets, i),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-PresetEntry? _lookupPreset(List<PresetEntry> presets, int id) {
-  for (final p in presets) {
-    if (p.id == id) return p;
-  }
-  return null;
-}
-
-class _PresetCard extends StatelessWidget {
-  final WsClient client;
-  final int id;
-  final PresetEntry? entry;
-  const _PresetCard({
-    required this.client,
-    required this.id,
-    required this.entry,
-  });
-
-  String get _badge => 'P${id + 1}';
-  bool get _saved => entry != null && entry!.name.isNotEmpty;
-  String get _displayName => _saved ? entry!.name : '(empty)';
-  String? get _zoomBadge =>
-      entry == null ? null : '${entry!.zoom.toStringAsFixed(1)}×';
-
-  Future<void> _showMenu(BuildContext ctx) async {
-    final choice = await showModalBottomSheet<String>(
-      context: ctx,
-      builder: (BuildContext c) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ListTile(
-              leading: const Icon(Icons.bookmark_add_outlined),
-              title: const Text('Save current position'),
-              subtitle: Text(
-                'Overwrite $_badge with the camera\'s current pan / tilt / zoom.',
-              ),
-              onTap: () => Navigator.of(c).pop('save'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.flash_on),
-              title: const Text('Recall instantly'),
-              subtitle: const Text('Ignore Move duration; snap to preset.'),
-              enabled: _saved,
-              onTap: () => Navigator.of(c).pop('recall_instant'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Rename…'),
-              enabled: _saved,
-              onTap: () => Navigator.of(c).pop('rename'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (choice == 'save') {
-      // Default save name = preserve existing or fall back to "P#".
-      final name = _saved ? entry!.name : _badge;
-      client.presetSave(id, name);
-      if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(
-            content: Text('Saved $_badge at current position'),
-            duration: const Duration(milliseconds: 1000),
-          ),
-        );
-      }
-    } else if (choice == 'recall_instant') {
-      client.presetRecall(id, duration: Duration.zero);
-    } else if (choice == 'rename') {
-      if (!ctx.mounted) return;
-      final ctrl = TextEditingController(text: entry?.name ?? '');
-      final newName = await showDialog<String>(
-        context: ctx,
-        builder: (BuildContext c) => AlertDialog(
-          title: Text('Rename $_badge'),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            maxLength: 40,
-            decoration: const InputDecoration(
-              hintText: 'e.g. Stage, Vocalist, Lectern',
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(c).pop(null),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(c).pop(ctrl.text.trim()),
-              child: const Text('Rename'),
-            ),
-          ],
-        ),
-      );
-      if (newName != null && newName.isNotEmpty) {
-        client.presetSave(id, newName);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    return Card(
-      elevation: 0,
-      color: _saved ? cs.surfaceContainerHigh : cs.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: cs.outlineVariant, width: 1),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: _saved ? () => client.presetRecall(id) : () => _showMenu(context),
-        onLongPress: () => _showMenu(context),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: _saved ? cs.primary : cs.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      _badge,
-                      style: TextStyle(
-                        color: _saved ? cs.onPrimary : cs.outline,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (_zoomBadge != null)
-                    Text(
-                      _zoomBadge!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: cs.outline,
-                      ),
-                    ),
-                ],
-              ),
-              const Spacer(),
-              Text(
-                _displayName,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: _saved ? cs.onSurface : cs.outline,
-                  fontStyle: _saved ? FontStyle.normal : FontStyle.italic,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _saved ? 'Tap to recall  •  hold to edit' : 'Hold to save here',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: cs.outline,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tab 4 — Sequence (v1.2 PR E refinement).
-//
-// Embeds the [SequencerEditor] directly: timeline of step cards with
-// preset picker + Hold seconds + Move duration, plus the library bar,
-// running progress bar, loop-mode selector, and Add / Start / Stop /
-// Apply / Save-as toolbar — all inline, no route push.
-//
-// The route-based SequencerScreen still exists for Simple Mode.
-// ---------------------------------------------------------------------------
-
-class _SequenceTab extends StatelessWidget {
-  final WsClient client;
-  const _SequenceTab({required this.client});
-
-  @override
-  Widget build(BuildContext context) {
-    return SequencerEditor(client: client);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tab 5 — Image: HDR / FOV / AI-track / face / flip-H toggles.
-// PR F will round this out (sliders for color); PR G adds exposure controls.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Tab 5 — Image (v1.2 PR F refinement).
-//
-// Sections per docs/UI_REDESIGN_SPEC.md:
-//   - Auto-track (formerly "AI"): Off / Person / Group.
-//   - View FOV segmented: Wide (86°) / Normal (78°) / Narrow (65°).
-//   - HDR toggle.
-//   - Face: Auto-expose for face + Focus on face toggles.
-//   - Mirror: Flip horizontal toggle.
-//   - Color sliders: Brightness / Contrast / Saturation / Sharpness (0..100).
-//
-// Exposure mode + EV bias + anti-flicker + white balance are deferred
-// to PR G (`feat/exposure-controls`) — see docs/EXPOSURE_REFERENCE.md.
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Tab 3 — Image (HDR / FOV / face / flip / color + Exposure / Anti-flicker
+// / WB, each with a reset-to-default button per section)
+// ===========================================================================
 
 class _ImageTab extends StatelessWidget {
   final WsClient client;
   const _ImageTab({required this.client});
+
+  // Per-setting defaults that the Reset buttons restore to.
+  static const int _defaultColor = 50;
+  static const int _defaultFov = 86;
+  static const String _defaultExposureMode = 'auto';
+  static const double _defaultEvBias = 0.0;
+  static const String _defaultAntiFlicker = 'off';
+  static const int _defaultWbKelvin = 4700;
 
   @override
   Widget build(BuildContext context) {
@@ -689,7 +547,8 @@ class _ImageTab extends StatelessWidget {
               _section(theme, 'Auto-track'),
               _aiSegmented(ctx, s),
               const SizedBox(height: 16),
-              _section(theme, 'View'),
+              _sectionWithReset(theme, 'View',
+                  onReset: () => client.fov(_defaultFov)),
               _fovSegmented(ctx, s),
               const SizedBox(height: 16),
               _section(theme, 'Tone'),
@@ -721,14 +580,30 @@ class _ImageTab extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              _section(theme, 'Exposure'),
+              _sectionWithReset(
+                theme,
+                'Exposure',
+                onReset: () {
+                  client.setExposureMode(_defaultExposureMode);
+                  client.setEvBias(_defaultEvBias);
+                },
+              ),
               _exposureSegmented(ctx, s),
               if (s.exposureMode == 'auto') _evBiasSlider(ctx, s),
               const SizedBox(height: 12),
-              _section(theme, 'Anti-flicker'),
+              _sectionWithReset(theme, 'Anti-flicker',
+                  onReset: () =>
+                      client.setAntiFlicker(_defaultAntiFlicker)),
               _flickerSegmented(ctx, s),
               const SizedBox(height: 16),
-              _section(theme, 'White balance'),
+              _sectionWithReset(
+                theme,
+                'White balance',
+                onReset: () {
+                  client.setWbAuto(true);
+                  client.setWbTemp(_defaultWbKelvin);
+                },
+              ),
               Row(
                 children: <Widget>[
                   Expanded(
@@ -739,15 +614,32 @@ class _ImageTab extends StatelessWidget {
               ),
               if (!s.wbAuto) _wbTempSlider(ctx, s),
               const SizedBox(height: 16),
-              _section(theme, 'Color'),
+              _sectionWithReset(
+                theme,
+                'Color',
+                onReset: () => client.colorSet(
+                  brightness: _defaultColor,
+                  contrast: _defaultColor,
+                  saturation: _defaultColor,
+                  sharpness: _defaultColor,
+                ),
+              ),
               _colorSlider(ctx, 'Brightness', s.brightness,
-                  (v) => client.colorSet(brightness: v)),
+                  (v) => client.colorSet(brightness: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(brightness: _defaultColor)),
               _colorSlider(ctx, 'Contrast', s.contrast,
-                  (v) => client.colorSet(contrast: v)),
+                  (v) => client.colorSet(contrast: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(contrast: _defaultColor)),
               _colorSlider(ctx, 'Saturation', s.saturation,
-                  (v) => client.colorSet(saturation: v)),
+                  (v) => client.colorSet(saturation: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(saturation: _defaultColor)),
               _colorSlider(ctx, 'Sharpness', s.sharpness,
-                  (v) => client.colorSet(sharpness: v)),
+                  (v) => client.colorSet(sharpness: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(sharpness: _defaultColor)),
               const SizedBox(height: 16),
               Text(
                 'Exposure mode + EV bias are tagged "tail air" in the '
@@ -766,97 +658,6 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _exposureSegmented(BuildContext ctx, CameraState s) {
-    return SegmentedButton<String>(
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'auto', label: Text('Auto')),
-        ButtonSegment<String>(value: 'manual', label: Text('Manual')),
-      ],
-      selected: <String>{s.exposureMode},
-      onSelectionChanged: (Set<String> sel) =>
-          client.setExposureMode(sel.first),
-    );
-  }
-
-  Widget _evBiasSlider(BuildContext ctx, CameraState s) {
-    final theme = Theme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 96,
-            child: Text('EV bias', style: theme.textTheme.bodySmall),
-          ),
-          Expanded(
-            child: Slider(
-              min: -2.0,
-              max: 2.0,
-              divisions: 24, // 1/6 EV
-              value: s.evBias.clamp(-2.0, 2.0),
-              label: '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)} EV',
-              onChanged: (double v) => client.setEvBias(v),
-            ),
-          ),
-          SizedBox(
-            width: 56,
-            child: Text(
-              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)}',
-              textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _flickerSegmented(BuildContext ctx, CameraState s) {
-    return SegmentedButton<String>(
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'off', label: Text('Off')),
-        ButtonSegment<String>(value: '50', label: Text('50 Hz')),
-        ButtonSegment<String>(value: '60', label: Text('60 Hz')),
-      ],
-      selected: <String>{s.antiFlicker},
-      onSelectionChanged: (Set<String> sel) =>
-          client.setAntiFlicker(sel.first),
-    );
-  }
-
-  Widget _wbTempSlider(BuildContext ctx, CameraState s) {
-    final theme = Theme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 96,
-            child: Text('Temperature', style: theme.textTheme.bodySmall),
-          ),
-          Expanded(
-            child: Slider(
-              min: 2800,
-              max: 6500,
-              divisions: 37,
-              value: s.wbKelvin.toDouble().clamp(2800.0, 6500.0),
-              label: '${s.wbKelvin}K',
-              onChanged: (double v) => client.setWbTemp(v.round()),
-            ),
-          ),
-          SizedBox(
-            width: 56,
-            child: Text(
-              '${s.wbKelvin}K',
-              textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _section(ThemeData theme, String label) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
@@ -867,6 +668,38 @@ class _ImageTab extends StatelessWidget {
           letterSpacing: 1.0,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+
+  Widget _sectionWithReset(ThemeData theme, String label,
+      {required VoidCallback onReset}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              label.toUpperCase(),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                letterSpacing: 1.0,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              foregroundColor: theme.colorScheme.outline,
+            ),
+            icon: const Icon(Icons.restart_alt, size: 14),
+            label: const Text('Reset', style: TextStyle(fontSize: 11)),
+            onPressed: onReset,
+          ),
+        ],
       ),
     );
   }
@@ -900,15 +733,108 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _colorSlider(BuildContext ctx, String label, int value,
-      void Function(int) onChanged) {
+  Widget _exposureSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<String>(
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'auto', label: Text('Auto')),
+        ButtonSegment<String>(value: 'manual', label: Text('Manual')),
+      ],
+      selected: <String>{s.exposureMode},
+      onSelectionChanged: (Set<String> sel) =>
+          client.setExposureMode(sel.first),
+    );
+  }
+
+  Widget _evBiasSlider(BuildContext ctx, CameraState s) {
     final theme = Theme.of(ctx);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 96,
+            width: 80,
+            child: Text('EV bias', style: theme.textTheme.bodySmall),
+          ),
+          Expanded(
+            child: Slider(
+              min: -2.0,
+              max: 2.0,
+              divisions: 24,
+              value: s.evBias.clamp(-2.0, 2.0),
+              label: '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)} EV',
+              onChanged: (double v) => client.setEvBias(v),
+            ),
+          ),
+          SizedBox(
+            width: 52,
+            child: Text(
+              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)}',
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flickerSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<String>(
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'off', label: Text('Off')),
+        ButtonSegment<String>(value: '50', label: Text('50 Hz')),
+        ButtonSegment<String>(value: '60', label: Text('60 Hz')),
+      ],
+      selected: <String>{s.antiFlicker},
+      onSelectionChanged: (Set<String> sel) =>
+          client.setAntiFlicker(sel.first),
+    );
+  }
+
+  Widget _wbTempSlider(BuildContext ctx, CameraState s) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 80,
+            child: Text('Temperature', style: theme.textTheme.bodySmall),
+          ),
+          Expanded(
+            child: Slider(
+              min: 2800,
+              max: 6500,
+              divisions: 37,
+              value: s.wbKelvin.toDouble().clamp(2800.0, 6500.0),
+              label: '${s.wbKelvin}K',
+              onChanged: (double v) => client.setWbTemp(v.round()),
+            ),
+          ),
+          SizedBox(
+            width: 52,
+            child: Text(
+              '${s.wbKelvin}K',
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _colorSlider(BuildContext ctx, String label, int value,
+      void Function(int) onChanged,
+      {required int resetTo, required VoidCallback onReset}) {
+    final theme = Theme.of(ctx);
+    final isDefault = value == resetTo;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 80,
             child: Text(label, style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -921,12 +847,21 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 36,
+            width: 30,
             child: Text(
               '$value',
               textAlign: TextAlign.right,
               style: theme.textTheme.bodySmall,
             ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            iconSize: 14,
+            tooltip: 'Reset to $resetTo',
+            color: isDefault ? theme.colorScheme.outline : theme.colorScheme.primary,
+            icon: const Icon(Icons.restart_alt),
+            onPressed: isDefault ? null : onReset,
           ),
         ],
       ),
@@ -934,12 +869,6 @@ class _ImageTab extends StatelessWidget {
   }
 
   Widget _toggleBtn(BuildContext c, String label, bool on, VoidCallback t) {
-    // forui's FButton overflows the inner Content Row at narrow widths
-    // (button_content.dart's Row uses mainAxisSize.max + intrinsic
-    // padding that exceeds 360 px / 2 - 24); keep Material FilledButton
-    // here until forui supports a `width: double.infinity` mode that
-    // shrinks Content to fit. The FTheme wrap (PR J) still applies, so
-    // future forui dialogs / toasts inherit the palette.
     final cs = Theme.of(c).colorScheme;
     return SizedBox(
       height: 48,
