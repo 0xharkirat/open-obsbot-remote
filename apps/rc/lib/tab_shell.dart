@@ -703,6 +703,24 @@ class _ImageTab extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
+              _section(theme, 'Exposure'),
+              _exposureSegmented(ctx, s),
+              if (s.exposureMode == 'auto') _evBiasSlider(ctx, s),
+              const SizedBox(height: 12),
+              _section(theme, 'Anti-flicker'),
+              _flickerSegmented(ctx, s),
+              const SizedBox(height: 16),
+              _section(theme, 'White balance'),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Auto white balance', s.wbAuto,
+                        () => client.setWbAuto(!s.wbAuto)),
+                  ),
+                ],
+              ),
+              if (!s.wbAuto) _wbTempSlider(ctx, s),
+              const SizedBox(height: 16),
               _section(theme, 'Color'),
               _colorSlider(ctx, 'Brightness', s.brightness,
                   (v) => client.colorSet(brightness: v)),
@@ -714,8 +732,10 @@ class _ImageTab extends StatelessWidget {
                   (v) => client.colorSet(sharpness: v)),
               const SizedBox(height: 16),
               Text(
-                'Exposure mode • EV bias • Anti-flicker • White balance '
-                'land in PR G — see docs/EXPOSURE_REFERENCE.md.',
+                'Exposure mode + EV bias are tagged "tail air" in the '
+                'SDK. On Tiny 2 Lite the bridge attempts them and replies '
+                'ack ok=false with err="unsupported" if the firmware '
+                'rejects.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                   fontStyle: FontStyle.italic,
@@ -725,6 +745,97 @@ class _ImageTab extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _exposureSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<String>(
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'auto', label: Text('Auto')),
+        ButtonSegment<String>(value: 'manual', label: Text('Manual')),
+      ],
+      selected: <String>{s.exposureMode},
+      onSelectionChanged: (Set<String> sel) =>
+          client.setExposureMode(sel.first),
+    );
+  }
+
+  Widget _evBiasSlider(BuildContext ctx, CameraState s) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 96,
+            child: Text('EV bias', style: theme.textTheme.bodySmall),
+          ),
+          Expanded(
+            child: Slider(
+              min: -2.0,
+              max: 2.0,
+              divisions: 24, // 1/6 EV
+              value: s.evBias.clamp(-2.0, 2.0),
+              label: '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)} EV',
+              onChanged: (double v) => client.setEvBias(v),
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)}',
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flickerSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<String>(
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'off', label: Text('Off')),
+        ButtonSegment<String>(value: '50', label: Text('50 Hz')),
+        ButtonSegment<String>(value: '60', label: Text('60 Hz')),
+      ],
+      selected: <String>{s.antiFlicker},
+      onSelectionChanged: (Set<String> sel) =>
+          client.setAntiFlicker(sel.first),
+    );
+  }
+
+  Widget _wbTempSlider(BuildContext ctx, CameraState s) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 96,
+            child: Text('Temperature', style: theme.textTheme.bodySmall),
+          ),
+          Expanded(
+            child: Slider(
+              min: 2800,
+              max: 6500,
+              divisions: 37,
+              value: s.wbKelvin.toDouble().clamp(2800.0, 6500.0),
+              label: '${s.wbKelvin}K',
+              onChanged: (double v) => client.setWbTemp(v.round()),
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              '${s.wbKelvin}K',
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

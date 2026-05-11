@@ -201,6 +201,14 @@ class CameraState {
   final int manualFocus;
   final bool flipH;
 
+  /// v1.2 PR G — exposure / anti-flicker / WB. Defaults match an
+  /// un-connected camera; real values arrive in the state event.
+  final String exposureMode; // "auto" | "manual"
+  final double evBias;       // -3.0..+3.0 (1/3 stops)
+  final String antiFlicker;  // "off" | "50" | "60" | "auto"
+  final bool wbAuto;
+  final int wbKelvin;        // 2800..6500
+
   final List<PresetEntry> presets;
   final int activePresetId;
   final SequenceState sequence;
@@ -231,6 +239,11 @@ class CameraState {
     required this.autoFocus,
     required this.manualFocus,
     required this.flipH,
+    required this.exposureMode,
+    required this.evBias,
+    required this.antiFlicker,
+    required this.wbAuto,
+    required this.wbKelvin,
     required this.presets,
     required this.activePresetId,
     required this.sequence,
@@ -262,6 +275,11 @@ class CameraState {
     autoFocus: true,
     manualFocus: 50,
     flipH: false,
+    exposureMode: 'auto',
+    evBias: 0.0,
+    antiFlicker: 'off',
+    wbAuto: true,
+    wbKelvin: 4700,
     presets: <PresetEntry>[],
     activePresetId: -1,
     sequence: SequenceState.empty,
@@ -312,6 +330,11 @@ class CameraState {
       autoFocus: img['auto_focus'] as bool? ?? true,
       manualFocus: i(img['manual_focus'], 50),
       flipH: img['flip_h'] as bool? ?? false,
+      exposureMode: img['exposure_mode'] as String? ?? 'auto',
+      evBias: d(img['ev_bias'], 0.0),
+      antiFlicker: img['anti_flicker'] as String? ?? 'off',
+      wbAuto: img['wb_auto'] as bool? ?? true,
+      wbKelvin: i(img['wb_kelvin'], 4700),
       presets: presets,
       activePresetId: i(j['active_preset_id'], -1),
       sequence: SequenceState.fromJson(seqJson),
@@ -642,6 +665,41 @@ class WsClient extends ChangeNotifier {
     if (sharpness != null) msg['sharpness'] = sharpness;
     _send(msg);
   }
+
+  // v1.2 PR G — exposure / anti-flicker / white balance.
+  // The bridge tags exposure mode + EV bias as best-effort: on Tiny 2
+  // Lite they may return ack ok=false with err="unsupported". UI can
+  // still send the commands; failures are reflected in the ack stream.
+
+  void setExposureMode(String mode) => _send({
+        'action': 'image.set_exposure_mode',
+        'id': _id(),
+        'mode': mode, // "auto" | "manual"
+      });
+
+  void setEvBias(double bias) => _send({
+        'action': 'image.set_ev_bias',
+        'id': _id(),
+        'bias': bias, // -3.0 .. +3.0 (1/3 stops). Snapped server-side.
+      });
+
+  void setAntiFlicker(String mode) => _send({
+        'action': 'image.set_anti_flicker',
+        'id': _id(),
+        'mode': mode, // "off" | "50" | "60" | "auto"
+      });
+
+  void setWbAuto(bool enabled) => _send({
+        'action': 'image.set_wb_auto',
+        'id': _id(),
+        'enabled': enabled,
+      });
+
+  void setWbTemp(int kelvin) => _send({
+        'action': 'image.set_wb_temp',
+        'id': _id(),
+        'kelvin': kelvin, // 2800 .. 6500
+      });
 
   void presetSave(int id, String name) => _send({
     'action': 'preset.save',

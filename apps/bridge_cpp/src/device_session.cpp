@@ -848,6 +848,130 @@ void DeviceSession::cmd_image_set_flip_h(bool e, ReplyFn reply) {
     }, std::move(reply));
 }
 
+// --- v1.2 PR G: exposure / anti-flicker / white balance ---------------------
+//
+// cameraSetExposureModeR + cameraSetAAEEvBiasR are SDK-tagged "tail air"
+// only. We attempt them on Tiny 2 Lite because the API surface is
+// uniform across products; if the SDK rejects, we report ok=false with
+// "unsupported" so the client UI can gray out the controls but the
+// rest of the panel keeps working.
+
+namespace {
+// DevAEEvBiasType maps -3.0..+3.0 in 1/3 stops onto enum 0..18.
+// idx = round((bias + 3.0) / (1/3))
+int ev_bias_to_enum(float bias) {
+    if (bias < -3.0f) bias = -3.0f;
+    if (bias >  3.0f) bias =  3.0f;
+    int idx = static_cast<int>((bias + 3.0f) * 3.0f + 0.5f);
+    if (idx < 0) idx = 0;
+    if (idx > 18) idx = 18;
+    return idx;
+}
+float ev_bias_from_enum(int idx) {
+    if (idx < 0) idx = 0;
+    if (idx > 18) idx = 18;
+    return (idx / 3.0f) - 3.0f;
+}
+int anti_flicker_to_enum(const std::string& m) {
+    if (m == "50") return 1;   // PowerLineFreq50
+    if (m == "60") return 2;   // PowerLineFreq60
+    if (m == "auto") return 3; // PowerLineFreqAuto
+    return 0;                  // PowerLineFreqOff
+}
+std::string anti_flicker_from_enum(int v) {
+    switch (v) {
+        case 1: return "50";
+        case 2: return "60";
+        case 3: return "auto";
+        default: return "off";
+    }
+}
+} // namespace
+
+void DeviceSession::cmd_image_set_exposure_mode(const std::string& mode, ReplyFn reply) {
+    submit([this, mode]() -> CmdResult {
+        REQUIRE_DEV();
+        int32_t ev = (mode == "manual") ? 1 /*DevExposureManual*/
+                                        : 2 /*DevExposureAllAuto*/;
+        int32_t r = dev_->cameraSetExposureModeR(ev);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.exposure_mode = (mode == "manual") ? "manual" : "auto";
+            return ok();
+        }
+        return err("unsupported", "exposure mode not supported on this camera");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_ev_bias(float bias, ReplyFn reply) {
+    submit([this, bias]() -> CmdResult {
+        REQUIRE_DEV();
+        int idx = ev_bias_to_enum(bias);
+        int32_t r = dev_->cameraSetAAEEvBiasR(
+            static_cast<Device::DevAEEvBiasType>(idx));
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ev_bias = ev_bias_from_enum(idx);
+            return ok();
+        }
+        return err("unsupported", "EV bias not supported on this camera");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_anti_flicker(const std::string& mode, ReplyFn reply) {
+    submit([this, mode]() -> CmdResult {
+        REQUIRE_DEV();
+        int32_t r = dev_->cameraSetAntiFlickR(anti_flicker_to_enum(mode));
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.anti_flicker = anti_flicker_from_enum(anti_flicker_to_enum(mode));
+            return ok();
+        }
+        return err("device_busy", "anti-flicker failed");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_wb_auto(bool enabled, ReplyFn reply) {
+    submit([this, enabled]() -> CmdResult {
+        REQUIRE_DEV();
+        // Auto = DevWhiteBalanceAuto (0); param ignored.
+        // When switching to manual, preserve last kelvin.
+        int kelvin;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            kelvin = snap_.wb_kelvin;
+        }
+        const auto wb = enabled
+            ? Device::DevWhiteBalanceAuto
+            : Device::DevWhiteBalanceManual;
+        int32_t r = dev_->cameraSetWhiteBalanceR(wb, kelvin);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.wb_auto = enabled;
+            return ok();
+        }
+        return err("device_busy", "wb auto failed");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_wb_temp(int kelvin, ReplyFn reply) {
+    submit([this, kelvin]() -> CmdResult {
+        REQUIRE_DEV();
+        int k = kelvin;
+        if (k < 2800) k = 2800;
+        if (k > 6500) k = 6500;
+        int32_t r = dev_->cameraSetWhiteBalanceR(
+            Device::DevWhiteBalanceManual, k);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.wb_auto = false;
+            snap_.wb_kelvin = k;
+            return ok();
+        }
+        return err("device_busy", "wb temp failed");
+    }, std::move(reply));
+}
+
 void DeviceSession::cmd_system_run_status(const std::string& s, ReplyFn reply) {
     submit([this, s]() -> CmdResult {
         REQUIRE_DEV();

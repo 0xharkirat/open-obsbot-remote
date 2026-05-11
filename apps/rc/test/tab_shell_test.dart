@@ -233,7 +233,9 @@ void main() {
     testWidgets('shows Auto-track segmented (Off / Person / Group)',
         (tester) async {
       await goToImage(tester);
-      expect(find.text('Off'), findsOneWidget);
+      // "Off" appears twice on the Image tab: once for Auto-track,
+      // once for Anti-flicker (added in PR G).
+      expect(find.text('Off'), findsAtLeast(1));
       expect(find.text('Person'), findsOneWidget);
       expect(find.text('Group'), findsOneWidget);
     });
@@ -260,7 +262,26 @@ void main() {
       expect(find.text('Contrast'), findsOneWidget);
       expect(find.text('Saturation'), findsOneWidget);
       expect(find.text('Sharpness'), findsOneWidget);
-      expect(find.byType(Slider), findsNWidgets(4));
+      // 4 color sliders + 1 EV bias slider when in auto exposure.
+      // (5 total on default state since wb is auto so no temp slider.)
+      expect(find.byType(Slider), findsAtLeast(4));
+    });
+
+    testWidgets('shows Exposure Auto/Manual segmented + Anti-flicker',
+        (tester) async {
+      await goToImage(tester);
+      expect(find.text('Auto'), findsOneWidget);
+      expect(find.text('Manual'), findsOneWidget);
+      // Anti-flicker segmented: Off / 50 Hz / 60 Hz.
+      // (Note: "Off" is also in Auto-track segmented.)
+      expect(find.text('50 Hz'), findsOneWidget);
+      expect(find.text('60 Hz'), findsOneWidget);
+    });
+
+    testWidgets('shows White balance section + Auto WB toggle',
+        (tester) async {
+      await goToImage(tester);
+      expect(find.text('Auto white balance'), findsOneWidget);
     });
   });
 
