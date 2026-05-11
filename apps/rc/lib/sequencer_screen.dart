@@ -3,17 +3,53 @@ import 'package:flutter/services.dart';
 
 import 'ws_client.dart';
 
-/// Edit a sequence of preset+duration steps and start/stop it.
-/// Sequence runs on the bridge so it survives phone disconnect.
-class SequencerScreen extends StatefulWidget {
+/// Route wrapper around [SequencerEditor]. Used by Simple Mode and by the
+/// v1.2 Sequence tab's "Open as full screen" path. The Sequence tab in
+/// `tab_shell.dart` embeds [SequencerEditor] directly without a Scaffold.
+class SequencerScreen extends StatelessWidget {
   final WsClient client;
   const SequencerScreen({super.key, required this.client});
 
   @override
-  State<SequencerScreen> createState() => _SequencerScreenState();
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: client,
+      builder: (BuildContext ctx, _) {
+        final loaded = client.state.sequence.loaded;
+        return Scaffold(
+          appBar: AppBar(title: Text(loaded.isEmpty ? 'Sequence' : loaded)),
+          body: SafeArea(child: SequencerEditor(client: client)),
+        );
+      },
+    );
+  }
 }
 
-class _SequencerScreenState extends State<SequencerScreen> {
+/// Edit a sequence of preset+duration steps and start/stop it.
+/// Sequence runs on the bridge so it survives phone disconnect.
+///
+/// This widget owns the full editor surface: library bar, running bar,
+/// reorderable step list, loop-mode selector, Add/Start/Stop/Apply row,
+/// and the save-as flow. It is embedded by the v1.2 Sequence tab inside
+/// `tab_shell.dart`, and by the [SequencerScreen] route wrapper for
+/// Simple Mode.
+class SequencerEditor extends StatefulWidget {
+  final WsClient client;
+  /// When `true`, show an inline top bar with the library dropdown +
+  /// save-as button. Defaults to `true`. Route callers can pass `false`
+  /// if they already provide an AppBar with those actions.
+  final bool showTopBar;
+  const SequencerEditor({
+    super.key,
+    required this.client,
+    this.showTopBar = true,
+  });
+
+  @override
+  State<SequencerEditor> createState() => _SequencerEditorState();
+}
+
+class _SequencerEditorState extends State<SequencerEditor> {
   final List<_EditStep> _steps = <_EditStep>[];
   LoopMode _mode = LoopMode.forward;
   String _lastHydratedFrom = '__none__';   // signature of state we last hydrated
@@ -152,123 +188,103 @@ class _SequencerScreenState extends State<SequencerScreen> {
       builder: (BuildContext context, _) {
         final s = widget.client.state;
         final running = s.sequence.running;
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(
-              s.sequence.loaded.isEmpty ? 'Sequence' : s.sequence.loaded,
-            ),
-            actions: <Widget>[
-              IconButton(
-                tooltip: 'Save sequence as…',
-                icon: const Icon(Icons.bookmark_add_outlined),
-                onPressed: () => _saveAs(context),
-              ),
-              if (running)
-                IconButton(
-                  tooltip: 'Stop',
-                  icon: const Icon(Icons.stop_circle),
-                  onPressed: _stop,
-                )
-              else
-                IconButton(
-                  tooltip: 'Start',
-                  icon: const Icon(Icons.play_circle),
-                  onPressed: _steps.isEmpty ? null : _start,
-                ),
-            ],
-          ),
-          body: SafeArea(
-            child: Column(
-              children: <Widget>[
-                _libraryBar(context, s),
-                if (running) _runningBar(context, s),
-                Expanded(
-                  child: _steps.isEmpty
-                      ? const Center(
-                          child: Text('Add steps to build a sequence'),
-                        )
-                      : ReorderableListView.builder(
-                          itemCount: _steps.length,
-                          onReorder: (oldI, newI) {
-                            setState(() {
-                              if (newI > oldI) newI -= 1;
-                              final item = _steps.removeAt(oldI);
-                              _steps.insert(newI, item);
-                            });
-                          },
-                          itemBuilder: (BuildContext c, int i) {
-                            // Stable key based on step identity, not index.
-                            return _stepRow(
-                              c,
-                              i,
-                              s.presets,
-                              key: ValueKey<_EditStep>(_steps[i]),
-                            );
-                          },
-                        ),
-                ),
-                _modeSelector(context),
-                if (running)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
+        return Column(
+          children: <Widget>[
+            if (widget.showTopBar) _libraryBar(context, s),
+            if (running) _runningBar(context, s),
+            Expanded(
+              child: _steps.isEmpty
+                  ? const Center(
+                      child: Text('Add steps to build a sequence'),
+                    )
+                  : ReorderableListView.builder(
+                      itemCount: _steps.length,
+                      onReorder: (oldI, newI) {
+                        setState(() {
+                          if (newI > oldI) newI -= 1;
+                          final item = _steps.removeAt(oldI);
+                          _steps.insert(newI, item);
+                        });
+                      },
+                      itemBuilder: (BuildContext c, int i) {
+                        // Stable key based on step identity, not index.
+                        return _stepCard(
+                          c,
+                          i,
+                          s.presets,
+                          key: ValueKey<_EditStep>(_steps[i]),
+                        );
+                      },
                     ),
-                    child: Text(
-                      'Edits while running take effect at the next step boundary.',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.outline,
-                        fontStyle: FontStyle.italic,
+            ),
+            _modeSelector(context),
+            if (running)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                child: Text(
+                  'Edits while running take effect at the next step boundary.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.outline,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add step'),
+                        onPressed: _addStep,
                       ),
                     ),
-                  ),
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add step'),
-                            onPressed: _addStep,
-                          ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        icon: Icon(running ? Icons.stop : Icons.play_arrow),
+                        label: Text(
+                          running
+                              ? 'Stop'
+                              : (s.sequence.running
+                                    ? 'Apply changes'
+                                    : 'Save & start'),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: FilledButton.icon(
-                            icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                            label: Text(
-                              running
-                                  ? 'Stop'
-                                  : (s.sequence.running
-                                        ? 'Apply changes'
-                                        : 'Save & start'),
-                            ),
-                            onPressed: running
-                                ? _stop
-                                : (_steps.isEmpty ? null : _start),
-                          ),
-                        ),
-                        if (running) ...<Widget>[
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.save),
-                              label: const Text('Apply'),
-                              onPressed: _save,
-                            ),
-                          ),
-                        ],
-                      ],
+                        onPressed: running
+                            ? _stop
+                            : (_steps.isEmpty ? null : _start),
+                      ),
                     ),
-                  ),
+                    if (running) ...<Widget>[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.save),
+                          label: const Text('Apply'),
+                          onPressed: _save,
+                        ),
+                      ),
+                    ],
+                    if (widget.showTopBar) ...<Widget>[
+                      const SizedBox(width: 8),
+                      IconButton.outlined(
+                        tooltip: 'Save sequence as…',
+                        icon: const Icon(Icons.bookmark_add_outlined),
+                        onPressed: () => _saveAs(context),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         );
       },
     );
@@ -437,91 +453,144 @@ class _SequencerScreenState extends State<SequencerScreen> {
     );
   }
 
-  Widget _stepRow(
+  Widget _stepCard(
     BuildContext ctx,
     int idx,
     List<PresetEntry> presets, {
     required Key key,
   }) {
     final step = _steps[idx];
-    return ListTile(
+    final theme = Theme.of(ctx);
+    final cs = theme.colorScheme;
+    return Padding(
       key: key,
-      leading: ReorderableDragStartListener(
-        index: idx,
-        child: const Icon(Icons.drag_handle),
-      ),
-      title: DropdownButton<int>(
-        isExpanded: true,
-        value: step.presetId,
-        underline: const SizedBox.shrink(),
-        items: <DropdownMenuItem<int>>[
-          for (int i = 0; i < 6; i++)
-            DropdownMenuItem<int>(
-              value: i,
-              child: Text(_presetLabel(i, presets)),
-            ),
-        ],
-        onChanged: (v) {
-          if (v != null) setState(() => step.presetId = v);
-        },
-      ),
-      subtitle: Row(
-        children: <Widget>[
-          const Text('Hold for '),
-          SizedBox(
-            width: 80,
-            child: TextField(
-              // KEY: stable controller per step, so cursor doesn't get
-              // wiped on every parent rebuild.
-              controller: step.secondsCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.digitsOnly,
-              ],
-              decoration: const InputDecoration(
-                isDense: true,
-                suffixText: 's',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 8,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Card(
+        elevation: 0,
+        color: cs.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: cs.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
+          child: Row(
+            children: <Widget>[
+              ReorderableDragStartListener(
+                index: idx,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(Icons.drag_handle, color: cs.outline),
                 ),
               ),
-              onChanged: (v) {
-                final n = int.tryParse(v);
-                if (n != null && n >= 3 && n <= 36000) step.seconds = n;
-              },
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Text('move '),
-          DropdownButton<int>(
-            value: step.transition.inMilliseconds,
-            underline: const SizedBox.shrink(),
-            isDense: true,
-            items: <DropdownMenuItem<int>>[
-              for (final p in kMoveDurationPresets)
-                DropdownMenuItem<int>(
-                  value: p.duration.inMilliseconds,
-                  child: Text(p.label.toLowerCase()),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    DropdownButton<int>(
+                      isExpanded: true,
+                      value: step.presetId,
+                      underline: const SizedBox.shrink(),
+                      items: <DropdownMenuItem<int>>[
+                        for (int i = 0; i < 6; i++)
+                          DropdownMenuItem<int>(
+                            value: i,
+                            child: Text(_presetLabel(i, presets)),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => step.presetId = v);
+                      },
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: <Widget>[
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Icon(Icons.timer_outlined,
+                                size: 14, color: cs.outline),
+                            const SizedBox(width: 4),
+                            Text('Hold', style: theme.textTheme.labelSmall),
+                            const SizedBox(width: 4),
+                            SizedBox(
+                              width: 64,
+                              child: TextField(
+                                // KEY: stable controller per step, so cursor
+                                // doesn't get wiped on every parent rebuild.
+                                controller: step.secondsCtrl,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: <TextInputFormatter>[
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  suffixText: 's',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 6,
+                                  ),
+                                ),
+                                onChanged: (v) {
+                                  final n = int.tryParse(v);
+                                  if (n != null && n >= 3 && n <= 36000) {
+                                    step.seconds = n;
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Icon(Icons.timeline,
+                                size: 14, color: cs.outline),
+                            const SizedBox(width: 4),
+                            Text('Move', style: theme.textTheme.labelSmall),
+                            const SizedBox(width: 4),
+                            DropdownButton<int>(
+                              value: _snapTransitionMs(
+                                  step.transition.inMilliseconds),
+                              underline: const SizedBox.shrink(),
+                              isDense: true,
+                              items: <DropdownMenuItem<int>>[
+                                for (final p in kMoveDurationPresets)
+                                  DropdownMenuItem<int>(
+                                    value: p.duration.inMilliseconds,
+                                    child: Text(p.label.toLowerCase()),
+                                  ),
+                              ],
+                              onChanged: (v) {
+                                if (v != null) {
+                                  setState(() => step.transition =
+                                      Duration(milliseconds: v));
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () {
+                  setState(() {
+                    _steps[idx].secondsCtrl.dispose();
+                    _steps.removeAt(idx);
+                  });
+                },
+              ),
             ],
-            onChanged: (v) {
-              if (v != null) {
-                setState(() => step.transition = Duration(milliseconds: v));
-              }
-            },
           ),
-        ],
-      ),
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline),
-        onPressed: () {
-          setState(() {
-            _steps[idx].secondsCtrl.dispose();
-            _steps.removeAt(idx);
-          });
-        },
+        ),
       ),
     );
   }
@@ -531,6 +600,24 @@ class _SequencerScreenState extends State<SequencerScreen> {
     if (match.isEmpty) return 'P${id + 1} (empty)';
     final name = match.first.name;
     return name.isEmpty ? 'P${id + 1}' : name;
+  }
+
+  /// The Move-duration dropdown is bound to `kMoveDurationPresets`. Saved
+  /// or legacy-migrated values (e.g. 2000 ms from v1.1 default, 22000 ms
+  /// from `legacy_speed_to_ms("cinema")`) may not match any preset.
+  /// Snap to the closest preset so the dropdown stays valid; the bridge
+  /// accepts any ms count.
+  int _snapTransitionMs(int ms) {
+    int best = kMoveDurationPresets.first.duration.inMilliseconds;
+    int bestDiff = (best - ms).abs();
+    for (final p in kMoveDurationPresets) {
+      final d = (p.duration.inMilliseconds - ms).abs();
+      if (d < bestDiff) {
+        bestDiff = d;
+        best = p.duration.inMilliseconds;
+      }
+    }
+    return best;
   }
 }
 
@@ -542,7 +629,7 @@ class _EditStep {
   _EditStep({
     required this.presetId,
     required this.seconds,
-    this.transition = const Duration(milliseconds: 2000),
+    this.transition = const Duration(milliseconds: 1000),
   }) {
     secondsCtrl = TextEditingController(text: '$seconds');
   }

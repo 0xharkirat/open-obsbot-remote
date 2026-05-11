@@ -69,11 +69,16 @@ void main() {
       expect(find.byType(PtzPad), findsNothing);
     });
 
-    testWidgets('tapping Sequence tab shows editor entry', (tester) async {
+    testWidgets('tapping Sequence tab shows inline editor controls',
+        (tester) async {
       await _pumpShell(tester, size: const Size(400, 800));
       await tester.tap(find.text('Sequence'));
       await tester.pumpAndSettle();
-      expect(find.text('Open sequence editor'), findsOneWidget);
+      // SequencerEditor seeds a default step on a fresh client, so we
+      // see the Add step button + the step's Hold/Move controls.
+      expect(find.text('Add step'), findsOneWidget);
+      // "Save & start" is the primary action when not running.
+      expect(find.text('Save & start'), findsOneWidget);
     });
 
     testWidgets('narrow layout stacks preview above tabs', (tester) async {
@@ -181,6 +186,38 @@ void main() {
       expect(find.text('Recenter'), findsOneWidget);
       expect(find.text('Sleep'), findsOneWidget);
       expect(find.text('Wake'), findsOneWidget);
+    });
+  });
+
+  group('Sequence tab (PR E)', () {
+    Future<void> goToSeq(WidgetTester tester) async {
+      // The sequencer has many vertical sections (library bar, step
+      // cards, mode selector, action row) — use a taller surface so
+      // multiple step cards fit on-screen.
+      await _pumpShell(tester, size: const Size(400, 1200));
+      await tester.tap(find.text('Sequence'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('seeds one step + shows Add step / Save & start',
+        (tester) async {
+      await goToSeq(tester);
+      // Fresh client seeds a default step, so Hold/Move card is present.
+      expect(find.text('Hold'), findsOneWidget);
+      expect(find.text('Move'), findsOneWidget);
+      expect(find.text('Add step'), findsOneWidget);
+      expect(find.text('Save & start'), findsOneWidget);
+    });
+
+    testWidgets('Add step button appends a second step card',
+        (tester) async {
+      await goToSeq(tester);
+      // Sanity: starts with one step.
+      expect(find.text('Hold'), findsOneWidget);
+      await tester.tap(find.text('Add step'));
+      await tester.pumpAndSettle();
+      // Two steps → two "Hold" labels in the timeline.
+      expect(find.text('Hold'), findsNWidgets(2));
     });
   });
 

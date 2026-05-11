@@ -612,8 +612,14 @@ class _PresetCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Tab 4 — Sequence: embeds SequencerScreen's body (no nested Scaffold/AppBar).
-// PR E will swap this for a timeline card layout.
+// Tab 4 — Sequence (v1.2 PR E refinement).
+//
+// Embeds the [SequencerEditor] directly: timeline of step cards with
+// preset picker + Hold seconds + Move duration, plus the library bar,
+// running progress bar, loop-mode selector, and Add / Start / Stop /
+// Apply / Save-as toolbar — all inline, no route push.
+//
+// The route-based SequencerScreen still exists for Simple Mode.
 // ---------------------------------------------------------------------------
 
 class _SequenceTab extends StatelessWidget {
@@ -622,44 +628,7 @@ class _SequenceTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // SequencerScreen already supplies its own Scaffold, so we present a
-    // button that opens it via a route push. PR E will inline this into
-    // a tab-native layout.
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Icon(Icons.timeline, size: 48),
-            const SizedBox(height: 12),
-            const Text(
-              'Sequence editor',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Build a timed pan between presets.\nTab-native timeline lands in PR E.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.outline,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: const Icon(Icons.edit),
-              label: const Text('Open sequence editor'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => SequencerScreen(client: client),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return SequencerEditor(client: client);
   }
 }
 
