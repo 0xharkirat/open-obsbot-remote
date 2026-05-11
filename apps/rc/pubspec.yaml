@@ -39,6 +39,7 @@ dependencies:
   flutter_mjpeg: ^2.0.4
   web: ^1.1.1
   url_launcher: ^6.3.2
+  forui: ^0.21.3
 
 dev_dependencies:
   flutter_test:
