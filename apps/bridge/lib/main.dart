@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'bridge_supervisor.dart';
 import 'footer.dart';
+import 'tray_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,10 @@ Future<void> main() async {
       center: true,
     ),
     () async {
+      // Close (red dot / Cmd-W) hides the window; the tray controller
+      // intercepts onWindowClose and keeps the bridge subprocess alive.
+      // Quit happens only via the tray menu or Cmd-Q from the app menu.
+      await windowManager.setPreventClose(true);
       await windowManager.show();
       await windowManager.focus();
     },
@@ -38,6 +43,10 @@ class ObsbotBridgeApp extends StatefulWidget {
 class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
   final supervisor = BridgeSupervisor();
   List<String> _lanIps = const <String>[];
+  /// Tray-driven "Reveal PIN" toggles this from anywhere; HomeScreen
+  /// watches it so the reveal animation runs regardless of who fired it.
+  final ValueNotifier<int> _revealRequest = ValueNotifier<int>(0);
+  TrayController? _tray;
 
   @override
   void initState() {
@@ -45,6 +54,11 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
     _refreshIps();
     Future<void>.delayed(const Duration(milliseconds: 200), () {
       supervisor.start(); // auto-start on launch
+      _tray = TrayController(
+        supervisor: supervisor,
+        onRevealPin: () => _revealRequest.value++,
+      );
+      _tray!.init();
     });
     Timer.periodic(const Duration(seconds: 5), (_) => _refreshIps());
   }
@@ -56,6 +70,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
 
   @override
   void dispose() {
+    _tray?.dispose();
     supervisor.stop();
     supervisor.dispose();
     super.dispose();
@@ -75,8 +90,11 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
       ),
       home: AnimatedBuilder(
         animation: supervisor,
-        builder: (BuildContext context, _) =>
-            HomeScreen(supervisor: supervisor, lanIps: _lanIps),
+        builder: (BuildContext context, _) => HomeScreen(
+          supervisor: supervisor,
+          lanIps: _lanIps,
+          revealRequest: _revealRequest,
+        ),
       ),
     );
   }
@@ -85,7 +103,16 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
 class HomeScreen extends StatefulWidget {
   final BridgeSupervisor supervisor;
   final List<String> lanIps;
-  const HomeScreen({super.key, required this.supervisor, required this.lanIps});
+  /// External reveal trigger (bumped by the macOS tray menu's
+  /// "Reveal pairing PIN" item). HomeScreen listens and shows the PIN
+  /// for the standard 60-second window.
+  final ValueNotifier<int> revealRequest;
+  const HomeScreen({
+    super.key,
+    required this.supervisor,
+    required this.lanIps,
+    required this.revealRequest,
+  });
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -96,6 +123,21 @@ class _HomeScreenState extends State<HomeScreen> {
   /// shoulder-surfer from grabbing the PIN off an idle Mac.
   bool _revealed = false;
   Timer? _hideTimer;
+  int _lastRevealRequest = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastRevealRequest = widget.revealRequest.value;
+    widget.revealRequest.addListener(_onExternalReveal);
+  }
+
+  void _onExternalReveal() {
+    if (widget.revealRequest.value > _lastRevealRequest) {
+      _lastRevealRequest = widget.revealRequest.value;
+      if (!_revealed) _toggleReveal();
+    }
+  }
 
   void _toggleReveal() {
     setState(() => _revealed = !_revealed);
@@ -112,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    widget.revealRequest.removeListener(_onExternalReveal);
     _hideTimer?.cancel();
     super.dispose();
   }
