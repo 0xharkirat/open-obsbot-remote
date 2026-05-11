@@ -17,15 +17,18 @@ class PreviewWidget extends StatelessWidget {
   final WsClient client;
   /// Show small `+` reticle at frame center.
   final bool showCrosshair;
+  /// Show solid horizontal + vertical lines through dead center.
+  final bool showCenterLines;
   /// Show rule-of-thirds dashed grid.
   final bool showThirds;
-  /// Show top-left yaw/pitch degrees readout.
+  /// Show top-left Pan / Tilt degrees readout.
   final bool showReadout;
 
   const PreviewWidget({
     super.key,
     required this.client,
     this.showCrosshair = true,
+    this.showCenterLines = false,
     this.showThirds = false,
     this.showReadout = true,
   });
@@ -58,6 +61,7 @@ class PreviewWidget extends StatelessWidget {
               GridOverlay(
                 client: client,
                 showCrosshair: showCrosshair,
+                showCenterLines: showCenterLines,
                 showThirds: showThirds,
                 showReadout: showReadout,
               ),

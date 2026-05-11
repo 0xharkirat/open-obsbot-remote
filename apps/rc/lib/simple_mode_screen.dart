@@ -83,9 +83,10 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           padding: const EdgeInsets.all(8),
           child: PreviewWidget(
             client: client,
-            showCrosshair: client.gridCrosshair,
-            showThirds:    client.gridThirds,
-            showReadout:   client.gridReadout,
+            showCrosshair:   client.gridCrosshair,
+            showCenterLines: client.gridCenterLines,
+            showThirds:      client.gridThirds,
+            showReadout:     client.gridReadout,
           ),
         ),
         if (s.sequence.running) _seqBar(ctx, s),
@@ -313,6 +314,11 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           child: const Text('Center crosshair'),
         ),
         CheckedPopupMenuItem<String>(
+          value: 'center',
+          checked: client.gridCenterLines,
+          child: const Text('Center alignment lines'),
+        ),
+        CheckedPopupMenuItem<String>(
           value: 'thirds',
           checked: client.gridThirds,
           child: const Text('Rule of thirds'),
@@ -320,14 +326,15 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         CheckedPopupMenuItem<String>(
           value: 'readout',
           checked: client.gridReadout,
-          child: const Text('Yaw / pitch readout'),
+          child: const Text('Pan / Tilt readout'),
         ),
       ],
       onSelected: (String key) {
         switch (key) {
-          case 'cross':   client.setGridCrosshair(!client.gridCrosshair); break;
-          case 'thirds':  client.setGridThirds(!client.gridThirds);       break;
-          case 'readout': client.setGridReadout(!client.gridReadout);     break;
+          case 'cross':   client.setGridCrosshair(!client.gridCrosshair);     break;
+          case 'center':  client.setGridCenterLines(!client.gridCenterLines); break;
+          case 'thirds':  client.setGridThirds(!client.gridThirds);           break;
+          case 'readout': client.setGridReadout(!client.gridReadout);         break;
         }
       },
     );

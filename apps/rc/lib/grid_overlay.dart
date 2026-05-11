@@ -4,24 +4,26 @@ import 'ws_client.dart';
 
 /// Visual aid overlay composited on top of the MJPEG preview.
 ///
-/// Three layers, all optional, all toggleable independently:
-///   • center crosshair        — small `+` at the dead-center of the
-///                               frame so the operator can see where the
-///                               lens is pointed
-///   • rule-of-thirds grid     — dashed lines at 1/3 and 2/3 horizontal +
-///                               vertical so compositions can be quickly
-///                               aligned
-///   • PTZ readout             — top-left text showing live yaw + pitch
-///                               in degrees so the operator knows the
-///                               gimbal's current absolute attitude
+/// Four layers, all optional, all toggleable independently:
+///   • center crosshair        — small `+` at frame center; gap in the
+///                               middle so it doesn't bisect faces
+///   • center reference lines  — full-width horizontal + full-height
+///                               vertical lines through the dead center,
+///                               for aligning subject to true center
+///   • rule-of-thirds grid     — dashed lines at 1/3 and 2/3 both axes
+///   • Pan / Tilt readout      — top-left text showing live pan (yaw) +
+///                               tilt (pitch) in degrees so the operator
+///                               knows the gimbal's current attitude
 ///
-/// The overlay listens to `client.state.ptz.yaw / pitch` via the
-/// AnimatedBuilder pattern wherever it's mounted (see PreviewWidget).
-/// Color is white at 30% opacity so it never obscures the subject; tap
-/// targets aren't needed because this is a pure visual aid.
+/// The overlay listens to `client.state.yaw / pitch` via AnimatedBuilder
+/// wherever it's mounted (see PreviewWidget). White at 30%/60% opacity
+/// so the overlay reads against bright and dark scenes without
+/// obscuring the subject; `IgnorePointer` keeps every layer below tap-
+/// invisible.
 class GridOverlay extends StatelessWidget {
   final WsClient client;
   final bool showCrosshair;
+  final bool showCenterLines;
   final bool showThirds;
   final bool showReadout;
 
@@ -29,13 +31,14 @@ class GridOverlay extends StatelessWidget {
     super.key,
     required this.client,
     this.showCrosshair = true,
+    this.showCenterLines = false,
     this.showThirds = false,
     this.showReadout = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!showCrosshair && !showThirds && !showReadout) {
+    if (!showCrosshair && !showCenterLines && !showThirds && !showReadout) {
       return const SizedBox.shrink();
     }
     return AnimatedBuilder(
@@ -43,13 +46,12 @@ class GridOverlay extends StatelessWidget {
       builder: (BuildContext ctx, _) {
         final s = client.state;
         return IgnorePointer(
-          // Overlay never eats taps; preview's gesture surface (if any)
-          // still works.
           child: CustomPaint(
             painter: _GridPainter(
               yaw: s.yaw,
               pitch: s.pitch,
               showCrosshair: showCrosshair,
+              showCenterLines: showCenterLines,
               showThirds: showThirds,
               showReadout: showReadout,
             ),
@@ -65,6 +67,7 @@ class _GridPainter extends CustomPainter {
   final double yaw;
   final double pitch;
   final bool showCrosshair;
+  final bool showCenterLines;
   final bool showThirds;
   final bool showReadout;
 
@@ -72,11 +75,13 @@ class _GridPainter extends CustomPainter {
     required this.yaw,
     required this.pitch,
     required this.showCrosshair,
+    required this.showCenterLines,
     required this.showThirds,
     required this.showReadout,
   });
 
   static const _white30 = Color(0x4DFFFFFF);
+  static const _white45 = Color(0x73FFFFFF);
   static const _white60 = Color(0x99FFFFFF);
   static const _shadow  = Color(0x66000000);
 
@@ -86,9 +91,23 @@ class _GridPainter extends CustomPainter {
     final h = size.height;
     if (w <= 0 || h <= 0) return;
 
+    if (showCenterLines) _paintCenterLines(canvas, w, h);
     if (showThirds) _paintThirds(canvas, w, h);
     if (showCrosshair) _paintCrosshair(canvas, w, h);
     if (showReadout) _paintReadout(canvas, w, h);
+  }
+
+  void _paintCenterLines(Canvas canvas, double w, double h) {
+    // Solid (not dashed) lines through dead center, both axes. Used for
+    // aligning a vertical subject (mic stand, doorway) or a horizon to
+    // the true center of frame — finer-grained than the rule-of-thirds
+    // grid.
+    final paint = Paint()
+      ..color = _white45
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(0, h / 2), Offset(w, h / 2), paint);
+    canvas.drawLine(Offset(w / 2, 0), Offset(w / 2, h), paint);
   }
 
   void _paintThirds(Canvas canvas, double w, double h) {
@@ -136,9 +155,11 @@ class _GridPainter extends CustomPainter {
   }
 
   void _paintReadout(Canvas canvas, double w, double h) {
-    // Top-left text. Two lines: YAW + PITCH degrees.
-    final yawText = 'YAW   ${yaw.toStringAsFixed(1)}°';
-    final pitchText = 'PITCH ${pitch.toStringAsFixed(1)}°';
+    // Top-left text. Two lines: Pan (left/right) + Tilt (up/down) in deg.
+    // We use ←→ and ↑↓ glyphs so non-technical operators don't have to
+    // remember which axis is "yaw" vs "pitch".
+    final yawText   = 'PAN   ←→ ${yaw.toStringAsFixed(1)}°';
+    final pitchText = 'TILT  ↑↓ ${pitch.toStringAsFixed(1)}°';
 
     void draw(String s, double y) {
       // Drop-shadow for legibility against bright backgrounds.

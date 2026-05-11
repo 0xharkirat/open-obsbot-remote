@@ -339,8 +339,9 @@ class WsClient extends ChangeNotifier {
   Duration _moveDuration = const Duration(milliseconds: 2000);
 
   /// Grid overlay preferences (mirrored to SharedPreferences keys
-  /// `grid_crosshair`, `grid_thirds`, `grid_readout`).
+  /// `grid_crosshair`, `grid_center_lines`, `grid_thirds`, `grid_readout`).
   bool _gridCrosshair = true;
+  bool _gridCenterLines = false;
   bool _gridThirds = false;
   bool _gridReadout = true;
 
@@ -348,9 +349,10 @@ class WsClient extends ChangeNotifier {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
       if (ms != null) _moveDuration = Duration(milliseconds: ms);
-      _gridCrosshair = p.getBool('grid_crosshair') ?? _gridCrosshair;
-      _gridThirds    = p.getBool('grid_thirds')    ?? _gridThirds;
-      _gridReadout   = p.getBool('grid_readout')   ?? _gridReadout;
+      _gridCrosshair   = p.getBool('grid_crosshair')    ?? _gridCrosshair;
+      _gridCenterLines = p.getBool('grid_center_lines') ?? _gridCenterLines;
+      _gridThirds      = p.getBool('grid_thirds')       ?? _gridThirds;
+      _gridReadout     = p.getBool('grid_readout')      ?? _gridReadout;
       notifyListeners();
     });
   }
@@ -363,15 +365,23 @@ class WsClient extends ChangeNotifier {
     await p.setInt('move_duration_ms', d.inMilliseconds);
   }
 
-  bool get gridCrosshair => _gridCrosshair;
-  bool get gridThirds    => _gridThirds;
-  bool get gridReadout   => _gridReadout;
+  bool get gridCrosshair   => _gridCrosshair;
+  bool get gridCenterLines => _gridCenterLines;
+  bool get gridThirds      => _gridThirds;
+  bool get gridReadout     => _gridReadout;
 
   Future<void> setGridCrosshair(bool v) async {
     _gridCrosshair = v;
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setBool('grid_crosshair', v);
+  }
+
+  Future<void> setGridCenterLines(bool v) async {
+    _gridCenterLines = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_center_lines', v);
   }
 
   Future<void> setGridThirds(bool v) async {
