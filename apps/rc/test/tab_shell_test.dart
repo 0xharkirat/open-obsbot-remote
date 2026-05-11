@@ -251,9 +251,10 @@ void main() {
     testWidgets('shows HDR / face / flip toggles', (tester) async {
       await goToImage(tester);
       expect(find.text('HDR'), findsOneWidget);
-      expect(find.text('Auto-expose for face'), findsOneWidget);
-      expect(find.text('Focus on face'), findsOneWidget);
-      expect(find.text('Flip horizontal'), findsOneWidget);
+      // PR J shortened labels so forui FButton fits at 2-per-row 360 px.
+      expect(find.text('Face exposure'), findsOneWidget);
+      expect(find.text('Face focus'), findsOneWidget);
+      expect(find.text('Flip'), findsOneWidget);
     });
 
     testWidgets('shows 4 color sliders with names', (tester) async {
@@ -281,7 +282,8 @@ void main() {
     testWidgets('shows White balance section + Auto WB toggle',
         (tester) async {
       await goToImage(tester);
-      expect(find.text('Auto white balance'), findsOneWidget);
+      // Label shortened to "Auto WB" so the forui FButton fits the row.
+      expect(find.text('Auto WB'), findsOneWidget);
     });
   });
 

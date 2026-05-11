@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:forui/forui.dart';
 
 import 'control_screen.dart';
 import 'preview_widget.dart';
@@ -57,11 +58,18 @@ class _TabShellState extends State<TabShell>
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext ctx, BoxConstraints c) {
-        final wide = c.maxWidth >= 600;
-        return wide ? _wide(c) : _narrow();
-      },
+    // Wrap the whole tab shell in FTheme so forui widgets used by
+    // individual tabs (PR J — FButton in quick actions + Image tab
+    // toggles) inherit a consistent palette. Material widgets inside
+    // continue to read Theme.of(context) from the outer MaterialApp.
+    return FTheme(
+      data: FThemes.zinc.dark.touch,
+      child: LayoutBuilder(
+        builder: (BuildContext ctx, BoxConstraints c) {
+          final wide = c.maxWidth >= 600;
+          return wide ? _wide(c) : _narrow();
+        },
+      ),
     );
   }
 
@@ -186,6 +194,11 @@ class _JoystickTab extends StatelessWidget {
   }
 
   Widget _quickActions(BuildContext ctx) {
+    // forui's FButton needs ~140 px to fit "Recenter" + its built-in
+    // padding without overflowing. At a 360 px phone with 3 buttons +
+    // gaps + outer padding the budget is ~110 px each, so we keep the
+    // tighter Material OutlinedButton.icon here. The Image-tab toggles
+    // (2 per row) have enough room and use FButton via _flatBtn.
     return Row(
       children: <Widget>[
         Expanded(
@@ -379,6 +392,11 @@ class _ButtonsTabState extends State<_ButtonsTab> {
   }
 
   Widget _flatBtn(BuildContext c, String label, IconData icon, VoidCallback t) {
+    // Stays Material for the same reason as the Joystick quick-actions:
+    // 3 buttons per row on a 360 px phone needs every pixel. forui's
+    // FButton intrinsic padding overflows here. PR J's FTheme wrap
+    // still applies to descendants, so future migrations (e.g. forui
+    // alert dialogs) inherit the palette.
     return SizedBox(
       height: 56,
       child: FilledButton.tonalIcon(
@@ -683,7 +701,7 @@ class _ImageTab extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _toggleBtn(ctx, 'Auto-expose for face', s.faceAe,
+                    child: _toggleBtn(ctx, 'Face exposure', s.faceAe,
                         () => client.faceAe(!s.faceAe)),
                   ),
                 ],
@@ -692,12 +710,12 @@ class _ImageTab extends StatelessWidget {
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: _toggleBtn(ctx, 'Focus on face', s.faceFocus,
+                    child: _toggleBtn(ctx, 'Face focus', s.faceFocus,
                         () => client.faceFocus(!s.faceFocus)),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _toggleBtn(ctx, 'Flip horizontal', s.flipH,
+                    child: _toggleBtn(ctx, 'Flip', s.flipH,
                         () => client.flipH(!s.flipH)),
                   ),
                 ],
@@ -714,7 +732,7 @@ class _ImageTab extends StatelessWidget {
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: _toggleBtn(ctx, 'Auto white balance', s.wbAuto,
+                    child: _toggleBtn(ctx, 'Auto WB', s.wbAuto,
                         () => client.setWbAuto(!s.wbAuto)),
                   ),
                 ],
@@ -916,9 +934,15 @@ class _ImageTab extends StatelessWidget {
   }
 
   Widget _toggleBtn(BuildContext c, String label, bool on, VoidCallback t) {
+    // forui's FButton overflows the inner Content Row at narrow widths
+    // (button_content.dart's Row uses mainAxisSize.max + intrinsic
+    // padding that exceeds 360 px / 2 - 24); keep Material FilledButton
+    // here until forui supports a `width: double.infinity` mode that
+    // shrinks Content to fit. The FTheme wrap (PR J) still applies, so
+    // future forui dialogs / toasts inherit the palette.
     final cs = Theme.of(c).colorScheme;
     return SizedBox(
-      height: 56,
+      height: 48,
       child: FilledButton(
         style: FilledButton.styleFrom(
           backgroundColor:
