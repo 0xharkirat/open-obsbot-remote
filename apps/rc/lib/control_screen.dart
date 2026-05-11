@@ -107,7 +107,11 @@ class _ControlScreenState extends State<ControlScreen> {
         CheckedPopupMenuItem<String>(
           value: 'center',
           checked: widget.client.gridCenterLines,
-          child: const Text('Center alignment lines'),
+          // Renamed in the live-test feedback round: the "center lines"
+          // are no longer static — they translate with yaw / pitch and
+          // rotate with roll, like an aircraft attitude indicator. Use
+          // the airplane glyph so the menu hints at the new behavior.
+          child: const Text('Attitude indicator (steer to align)'),
         ),
         CheckedPopupMenuItem<String>(
           value: 'thirds',

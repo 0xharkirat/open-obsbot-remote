@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'ws_client.dart';
@@ -6,20 +8,29 @@ import 'ws_client.dart';
 ///
 /// Four layers, all optional, all toggleable independently:
 ///   • center crosshair        — small `+` at frame center; gap in the
-///                               middle so it doesn't bisect faces
-///   • center reference lines  — full-width horizontal + full-height
-///                               vertical lines through the dead center,
-///                               for aligning subject to true center
+///                               middle so it doesn't bisect faces. This
+///                               is the "you are pointing here right now"
+///                               mark.
+///   • attitude indicator      — full-width / full-height cross that
+///                               *moves* relative to the static center,
+///                               showing where the camera's home position
+///                               (yaw 0, pitch 0) sits in the current
+///                               view. Like an aircraft attitude indicator:
+///                               horizon line translates with pitch +
+///                               rotates with roll, vertical reference
+///                               translates with yaw. Align the moving
+///                               cross with the static crosshair to
+///                               re-center the camera.
 ///   • rule-of-thirds grid     — dashed lines at 1/3 and 2/3 both axes
 ///   • Pan / Tilt readout      — top-left text showing live pan (yaw) +
 ///                               tilt (pitch) in degrees so the operator
 ///                               knows the gimbal's current attitude
 ///
-/// The overlay listens to `client.state.yaw / pitch` via AnimatedBuilder
-/// wherever it's mounted (see PreviewWidget). White at 30%/60% opacity
-/// so the overlay reads against bright and dark scenes without
-/// obscuring the subject; `IgnorePointer` keeps every layer below tap-
-/// invisible.
+/// The overlay listens to `client.state.yaw / pitch / roll / fov` via
+/// AnimatedBuilder wherever it's mounted (see PreviewWidget). White at
+/// 30%/45%/60% opacity so it reads against bright and dark scenes
+/// without obscuring the subject; `IgnorePointer` keeps every layer
+/// below tap-invisible.
 class GridOverlay extends StatelessWidget {
   final WsClient client;
   final bool showCrosshair;
@@ -50,6 +61,8 @@ class GridOverlay extends StatelessWidget {
             painter: _GridPainter(
               yaw: s.yaw,
               pitch: s.pitch,
+              roll: s.roll,
+              fovH: s.fov.toDouble(),
               showCrosshair: showCrosshair,
               showCenterLines: showCenterLines,
               showThirds: showThirds,
@@ -66,6 +79,8 @@ class GridOverlay extends StatelessWidget {
 class _GridPainter extends CustomPainter {
   final double yaw;
   final double pitch;
+  final double roll;
+  final double fovH;
   final bool showCrosshair;
   final bool showCenterLines;
   final bool showThirds;
@@ -74,6 +89,8 @@ class _GridPainter extends CustomPainter {
   _GridPainter({
     required this.yaw,
     required this.pitch,
+    required this.roll,
+    required this.fovH,
     required this.showCrosshair,
     required this.showCenterLines,
     required this.showThirds,
@@ -91,23 +108,74 @@ class _GridPainter extends CustomPainter {
     final h = size.height;
     if (w <= 0 || h <= 0) return;
 
-    if (showCenterLines) _paintCenterLines(canvas, w, h);
+    // Order matters: attitude indicator under thirds under fixed
+    // crosshair under text, so the most-meaningful layer (the moving
+    // cross showing where home is) reads clearly without bisecting
+    // the static reference marks.
+    if (showCenterLines) _paintAttitude(canvas, w, h);
     if (showThirds) _paintThirds(canvas, w, h);
     if (showCrosshair) _paintCrosshair(canvas, w, h);
     if (showReadout) _paintReadout(canvas, w, h);
   }
 
-  void _paintCenterLines(Canvas canvas, double w, double h) {
-    // Solid (not dashed) lines through dead center, both axes. Used for
-    // aligning a vertical subject (mic stand, doorway) or a horizon to
-    // the true center of frame — finer-grained than the rule-of-thirds
-    // grid.
-    final paint = Paint()
+  void _paintAttitude(Canvas canvas, double w, double h) {
+    // Aircraft-style attitude indicator. The pair of lines shows where
+    // the camera's home position (yaw=0, pitch=0, roll=0) sits in the
+    // current view:
+    //   * Camera pans right (yaw +) → the vertical reference shifts
+    //     LEFT (home is now to the left of the camera's view).
+    //   * Camera tilts up (pitch +) → the horizontal reference shifts
+    //     DOWN (home is now below the camera's view).
+    //   * Gimbal rolls (roll +) → the cross rotates so the "horizon"
+    //     stays visually level relative to gravity (the camera image is
+    //     rotated by +roll, so we counter-rotate by -roll in painter
+    //     coords).
+    //
+    // To re-center the camera you steer the moving cross onto the
+    // static crosshair at frame center.
+
+    final cx = w / 2;
+    final cy = h / 2;
+
+    // Approximate vertical FOV from the camera's reported horizontal
+    // FOV by the displayed aspect ratio. Tiny 2 Lite reports 86° wide
+    // / 78° normal / 65° narrow; the 16:9 frame is what we render.
+    final aspect = h / w;
+    final fovV = fovH * aspect;
+
+    // Avoid div-by-zero on edge cases (some snapshots have fov=0
+    // before the first state event arrives).
+    final yawOffPx = fovH <= 0 ? 0.0 : -yaw / fovH * w;
+    final pitchOffPx = fovV <= 0 ? 0.0 : pitch / fovV * h;
+    final homeX = cx + yawOffPx;
+    final homeY = cy + pitchOffPx;
+
+    canvas.save();
+    canvas.translate(homeX, homeY);
+    canvas.rotate(-roll * math.pi / 180);
+
+    // Length needs to span the rotated frame's diagonal at the most
+    // extreme yaw/pitch offsets so the lines never "stop" inside the
+    // visible area.
+    final span = math.sqrt(w * w + h * h) * 1.2;
+
+    final line = Paint()
       ..color = _white45
-      ..strokeWidth = 1.0
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(0, h / 2), Offset(w, h / 2), paint);
-    canvas.drawLine(Offset(w / 2, 0), Offset(w / 2, h), paint);
+    canvas.drawLine(Offset(-span, 0), Offset(span, 0), line);
+    canvas.drawLine(Offset(0, -span), Offset(0, span), line);
+
+    // Small ring on the moving cross so the user can spot the home
+    // marker even when it's far from frame center.
+    final ring = Paint()
+      ..color = _white60
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(Offset.zero, 6.0, ring);
+
+    canvas.restore();
   }
 
   void _paintThirds(Canvas canvas, double w, double h) {
@@ -127,8 +195,10 @@ class _GridPainter extends CustomPainter {
   }
 
   void _paintCrosshair(Canvas canvas, double w, double h) {
-    // Small + at frame center. Big enough to be visible but not enough
-    // to obscure a face that happens to be centered.
+    // Small + at frame center — the "you are pointing here" fixed
+    // reticle. Aircraft analogy: this is the airplane symbol fixed to
+    // the cockpit; the attitude indicator's moving cross is the world
+    // horizon.
     final cx = w / 2;
     final cy = h / 2;
     const arm = 12.0;
@@ -213,7 +283,10 @@ class _GridPainter extends CustomPainter {
   bool shouldRepaint(covariant _GridPainter old) =>
       old.yaw != yaw ||
       old.pitch != pitch ||
+      old.roll != roll ||
+      old.fovH != fovH ||
       old.showCrosshair != showCrosshair ||
+      old.showCenterLines != showCenterLines ||
       old.showThirds != showThirds ||
       old.showReadout != showReadout;
 }
