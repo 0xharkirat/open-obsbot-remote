@@ -183,4 +183,27 @@ void main() {
       expect(find.text('Wake'), findsOneWidget);
     });
   });
+
+  group('Presets tab (PR D)', () {
+    Future<void> goToPresets(WidgetTester tester) async {
+      await _pumpShell(tester, size: const Size(400, 900));
+      await tester.tap(find.text('Presets'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('renders all 6 preset badges P1..P6', (tester) async {
+      await goToPresets(tester);
+      for (int i = 1; i <= 6; i++) {
+        expect(find.text('P$i'), findsOneWidget, reason: 'P$i missing');
+      }
+    });
+
+    testWidgets('empty presets show "(empty)" + "Hold to save here"',
+        (tester) async {
+      await goToPresets(tester);
+      // No presets saved on a stub client → all 6 are empty.
+      expect(find.text('(empty)'), findsNWidgets(6));
+      expect(find.text('Hold to save here'), findsNWidgets(6));
+    });
+  });
 }

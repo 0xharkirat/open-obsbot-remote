@@ -391,8 +391,16 @@ class _ButtonsTabState extends State<_ButtonsTab> {
 }
 
 // ---------------------------------------------------------------------------
-// Tab 3 — Presets: existing 4 preset buttons.
-// (PR D will expand to 6 cards in a 2×3 grid with thumbnails.)
+// Tab 3 — Presets (v1.2 PR D refinement).
+//
+// 6 preset cards (P1..P6) laid out 2×3. Each card surfaces:
+//   - "P#" badge + the saved name (or "(empty)" if never saved).
+//   - Zoom badge (e.g. "1.7×") when the preset has a captured zoom.
+//   - Tap = recall with the current `client.moveDuration`.
+//   - Long-press = popup with Save current position / Rename / Recall instant.
+//
+// Per-preset thumbnails are out of scope for v1.2 (needs a bridge
+// `preset.thumbnail` endpoint that snaps the current MJPEG frame).
 // ---------------------------------------------------------------------------
 
 class _PresetsTab extends StatelessWidget {
@@ -404,17 +412,21 @@ class _PresetsTab extends StatelessWidget {
     return AnimatedBuilder(
       animation: client,
       builder: (BuildContext ctx, _) {
+        final presets = client.state.presets;
         return Padding(
           padding: const EdgeInsets.all(12),
           child: GridView.count(
             crossAxisCount: 2,
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
-            childAspectRatio: 2.4,
+            childAspectRatio: 1.3,
             children: <Widget>[
-              for (int i = 0; i < 4; i++)
-                _PresetButton(
-                    client: client, id: i, label: 'P${i + 1}'),
+              for (int i = 0; i < 6; i++)
+                _PresetCard(
+                  client: client,
+                  id: i,
+                  entry: _lookupPreset(presets, i),
+                ),
             ],
           ),
         );
@@ -423,38 +435,176 @@ class _PresetsTab extends StatelessWidget {
   }
 }
 
-class _PresetButton extends StatelessWidget {
+PresetEntry? _lookupPreset(List<PresetEntry> presets, int id) {
+  for (final p in presets) {
+    if (p.id == id) return p;
+  }
+  return null;
+}
+
+class _PresetCard extends StatelessWidget {
   final WsClient client;
   final int id;
-  final String label;
-  const _PresetButton({
+  final PresetEntry? entry;
+  const _PresetCard({
     required this.client,
     required this.id,
-    required this.label,
+    required this.entry,
   });
+
+  String get _badge => 'P${id + 1}';
+  bool get _saved => entry != null && entry!.name.isNotEmpty;
+  String get _displayName => _saved ? entry!.name : '(empty)';
+  String? get _zoomBadge =>
+      entry == null ? null : '${entry!.zoom.toStringAsFixed(1)}×';
+
+  Future<void> _showMenu(BuildContext ctx) async {
+    final choice = await showModalBottomSheet<String>(
+      context: ctx,
+      builder: (BuildContext c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.bookmark_add_outlined),
+              title: const Text('Save current position'),
+              subtitle: Text(
+                'Overwrite $_badge with the camera\'s current pan / tilt / zoom.',
+              ),
+              onTap: () => Navigator.of(c).pop('save'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.flash_on),
+              title: const Text('Recall instantly'),
+              subtitle: const Text('Ignore Move duration; snap to preset.'),
+              enabled: _saved,
+              onTap: () => Navigator.of(c).pop('recall_instant'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Rename…'),
+              enabled: _saved,
+              onTap: () => Navigator.of(c).pop('rename'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'save') {
+      // Default save name = preserve existing or fall back to "P#".
+      final name = _saved ? entry!.name : _badge;
+      client.presetSave(id, name);
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Text('Saved $_badge at current position'),
+            duration: const Duration(milliseconds: 1000),
+          ),
+        );
+      }
+    } else if (choice == 'recall_instant') {
+      client.presetRecall(id, duration: Duration.zero);
+    } else if (choice == 'rename') {
+      if (!ctx.mounted) return;
+      final ctrl = TextEditingController(text: entry?.name ?? '');
+      final newName = await showDialog<String>(
+        context: ctx,
+        builder: (BuildContext c) => AlertDialog(
+          title: Text('Rename $_badge'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            maxLength: 40,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Stage, Vocalist, Lectern',
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(c).pop(null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(c).pop(ctrl.text.trim()),
+              child: const Text('Rename'),
+            ),
+          ],
+        ),
+      );
+      if (newName != null && newName.isNotEmpty) {
+        client.presetSave(id, newName);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onLongPress: () {
-        client.presetSave(id, label);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Saved $label at current position'),
-            duration: const Duration(milliseconds: 800),
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Card(
+      elevation: 0,
+      color: _saved ? cs.surfaceContainerHigh : cs.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.outlineVariant, width: 1),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _saved ? () => client.presetRecall(id) : () => _showMenu(context),
+        onLongPress: () => _showMenu(context),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _saved ? cs.primary : cs.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      _badge,
+                      style: TextStyle(
+                        color: _saved ? cs.onPrimary : cs.outline,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_zoomBadge != null)
+                    Text(
+                      _zoomBadge!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.outline,
+                      ),
+                    ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                _displayName,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: _saved ? cs.onSurface : cs.outline,
+                  fontStyle: _saved ? FontStyle.normal : FontStyle.italic,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _saved ? 'Tap to recall  •  hold to edit' : 'Hold to save here',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.outline,
+                ),
+              ),
+            ],
           ),
-        );
-      },
-      child: FilledButton.tonal(
-        onPressed: () => client.presetRecall(id),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.w700)),
-            const Text('hold to save', style: TextStyle(fontSize: 10)),
-          ],
         ),
       ),
     );
