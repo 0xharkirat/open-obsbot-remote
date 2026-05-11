@@ -159,6 +159,8 @@ before implementation.
 
 ## PR sequence (after PR #4 + #5 merge)
 
+Redesign first, then exposure inside the new Image tab.
+
 | # | Branch | What |
 |---|---|---|
 | A | `feat/tab-bar-shell` | Pure layout: 5-tab shell, preview pinned, no behavior change |
@@ -166,10 +168,12 @@ before implementation.
 | C | `feat/buttons-tab` | Hold-button pad in Tab 2 |
 | D | `feat/presets-tab` | Preset cards 2×3 |
 | E | `feat/sequencer-tab` | Timeline cards |
-| F | `feat/image-tab` | All image controls + exposure / EV bias *(also covers `feat/exposure-controls`)* |
-| G | `feat/forui-shell` | First forui screen migration (pair + header) |
-| H | `feat/forui-tabs` | forui for all tab content |
-| I | `chore/release-v1.2.0` | Bump versions, CHANGELOG, GH release |
+| F | `feat/image-tab` | Image tab shell — HDR / FOV / Face AE / Face focus / Flip / Color sliders |
+| G | `feat/exposure-controls` | Exposure mode, EV-bias, anti-flicker, WB inside Image tab. **See `docs/EXPOSURE_REFERENCE.md`.** |
+| H | `feat/bridge-tray` | macOS menubar (tray) for the Open OBSBOT Bridge.app: status / Reveal PIN / Show window / Quit. Window can close while bridge keeps running. |
+| I | `feat/forui-shell` | First forui screen migration (pair + header) |
+| J | `feat/forui-tabs` | forui for all tab content |
+| K | `chore/release-v1.2.0` | Bump versions, CHANGELOG, GH release |
 
 Each PR ships smoke 27/27 + touch regression at 360 / 390 / 768.
 
@@ -187,6 +191,31 @@ Each PR ships smoke 27/27 + touch regression at 360 / 390 / 768.
 - **`design:design-handoff`** — generate exact spec sheet to drop into
   PR description.
 
+## Bridge tray (PR H)
+
+The Open OBSBOT Bridge.app currently opens a full window every launch
+and exits when the window closes. Real-world use is "set + forget" —
+the user wants the bridge running quietly in the background and the
+window only when they need to reveal the PIN or check status.
+
+Tray pattern (macOS menubar, Windows system tray, Linux indicator):
+
+- Always-visible status icon in the system tray
+- Click the icon → small menu:
+  - **Status: Connected / Idle** (header line)
+  - Reveal PIN (60-second show, same as window UI)
+  - Show main window
+  - Open log file (Console.app)
+  - Restart bridge subprocess
+  - Quit
+- Closing the main window hides the window instead of quitting — the
+  tray icon keeps the bridge subprocess alive
+
+Implementation: `tray_manager` Flutter package (cross-platform). On
+macOS we also gain `LSUIElement = true` consideration so the dock icon
+disappears in tray-only mode (offer as a setting; default keeps dock
+icon for discoverability).
+
 ## Out of scope (v1.3+)
 
 - Per-preset thumbnail capture (requires bridge `preset.thumbnail`
@@ -194,3 +223,4 @@ Each PR ships smoke 27/27 + touch regression at 360 / 390 / 768.
 - Multi-camera support (single bridge, two USB cameras).
 - Native iOS/Android packaging (TestFlight, Play Store).
 - forui migration of every dialog / snackbar (low priority).
+- Linux + Windows native builds (separate platform-port branch).
