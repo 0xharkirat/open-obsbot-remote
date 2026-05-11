@@ -146,4 +146,41 @@ void main() {
       expect(client.moveDuration, const Duration(milliseconds: 1000));
     });
   });
+
+  group('Buttons tab (PR C)', () {
+    Future<void> goToButtons(WidgetTester tester) async {
+      await _pumpShell(tester, size: const Size(400, 900));
+      await tester.tap(find.text('Buttons'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows 8 hold-direction buttons (4 cardinal + 4 diagonal)',
+        (tester) async {
+      await goToButtons(tester);
+      for (final lbl in <String>[
+        'Up', 'Down', 'Left', 'Right',
+        'Up-Left', 'Up-Right', 'Down-Left', 'Down-Right',
+      ]) {
+        expect(find.text(lbl), findsOneWidget, reason: 'missing $lbl');
+      }
+    });
+
+    testWidgets('shows speed slider with Slow / Fast labels',
+        (tester) async {
+      await goToButtons(tester);
+      expect(find.text('Slow'), findsOneWidget);
+      expect(find.text('Fast'), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+      // Default 100%.
+      expect(find.text('100%'), findsOneWidget);
+    });
+
+    testWidgets('shows Recenter / Sleep / Wake quick actions',
+        (tester) async {
+      await goToButtons(tester);
+      expect(find.text('Recenter'), findsOneWidget);
+      expect(find.text('Sleep'), findsOneWidget);
+      expect(find.text('Wake'), findsOneWidget);
+    });
+  });
 }

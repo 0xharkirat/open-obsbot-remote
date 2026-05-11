@@ -245,75 +245,136 @@ class _JoystickTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Tab 2 — Buttons: 4-way hold pad + recenter/sleep/wake.
-// (PR C will rebuild this as an 8-way pad with a speed slider.)
+// Tab 2 — Buttons (v1.2 PR C refinement).
+//
+// 8-way hold-button pad (4 cardinal + 4 diagonal) for users who prefer
+// discrete directional input over the analog joystick. A "Slow ↔ Fast"
+// speed slider scales the underlying gimbal velocity from 0.1× to 1.0×
+// of the per-direction defaults (yaw ±80°/s, pitch ±40°/s).
+//
+// Same Recenter / Sleep / Wake quick-actions as the Joystick tab.
 // ---------------------------------------------------------------------------
 
-class _ButtonsTab extends StatelessWidget {
+class _ButtonsTab extends StatefulWidget {
   final WsClient client;
   const _ButtonsTab({required this.client});
 
   @override
+  State<_ButtonsTab> createState() => _ButtonsTabState();
+}
+
+class _ButtonsTabState extends State<_ButtonsTab> {
+  /// Multiplier applied to the per-direction velocity. 1.0× = full speed
+  /// (matches v1.1 behavior); slider lets the user dial down to 0.1×
+  /// for slow framing pans.
+  double _speed = 1.0;
+
+  static const double _baseYaw = 80;   // °/s
+  static const double _basePitch = 40; // °/s
+
+  @override
   Widget build(BuildContext context) {
+    final yaw = _baseYaw * _speed;
+    final pit = _basePitch * _speed;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Row(children: <Widget>[
-            Expanded(
-              child: HoldDirBtn(
-                icon: Icons.keyboard_arrow_left,
-                label: 'Left',
-                client: client,
-                yawSpeed: -80,
-                pitchSpeed: 0,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: HoldDirBtn(
-                icon: Icons.keyboard_arrow_up,
-                label: 'Up',
-                client: client,
-                yawSpeed: 0,
-                pitchSpeed: 40,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: HoldDirBtn(
-                icon: Icons.keyboard_arrow_down,
-                label: 'Down',
-                client: client,
-                yawSpeed: 0,
-                pitchSpeed: -40,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: HoldDirBtn(
-                icon: Icons.keyboard_arrow_right,
-                label: 'Right',
-                client: client,
-                yawSpeed: 80,
-                pitchSpeed: 0,
-              ),
-            ),
+          _padRow(<Widget>[
+            _dir(Icons.north_west, 'Up-Left', -yaw, pit),
+            _dir(Icons.north, 'Up', 0, pit),
+            _dir(Icons.north_east, 'Up-Right', yaw, pit),
           ]),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          _padRow(<Widget>[
+            _dir(Icons.west, 'Left', -yaw, 0),
+            _center(),
+            _dir(Icons.east, 'Right', yaw, 0),
+          ]),
+          const SizedBox(height: 8),
+          _padRow(<Widget>[
+            _dir(Icons.south_west, 'Down-Left', -yaw, -pit),
+            _dir(Icons.south, 'Down', 0, -pit),
+            _dir(Icons.south_east, 'Down-Right', yaw, -pit),
+          ]),
+          const SizedBox(height: 16),
+          _speedSlider(context),
+          const SizedBox(height: 16),
           Row(children: <Widget>[
-            Expanded(child: _flatBtn(context, 'Recenter',
-                Icons.center_focus_strong, () => client.ptzRecenter())),
+            Expanded(
+                child: _flatBtn(context, 'Recenter',
+                    Icons.center_focus_strong, () => widget.client.ptzRecenter())),
             const SizedBox(width: 8),
-            Expanded(child: _flatBtn(context, 'Sleep', Icons.bedtime,
-                () => client.runStatus('sleep'))),
+            Expanded(
+                child: _flatBtn(context, 'Sleep', Icons.bedtime,
+                    () => widget.client.runStatus('sleep'))),
             const SizedBox(width: 8),
-            Expanded(child: _flatBtn(context, 'Wake', Icons.wb_sunny,
-                () => client.runStatus('run'))),
+            Expanded(
+                child: _flatBtn(context, 'Wake', Icons.wb_sunny,
+                    () => widget.client.runStatus('run'))),
           ]),
         ],
       ),
+    );
+  }
+
+  Widget _padRow(List<Widget> children) {
+    return Row(
+      children: <Widget>[
+        for (int i = 0; i < children.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(child: children[i]),
+        ],
+      ],
+    );
+  }
+
+  Widget _dir(IconData icon, String label, double yawSpeed, double pitchSpeed) {
+    return HoldDirBtn(
+      icon: icon,
+      label: label,
+      client: widget.client,
+      yawSpeed: yawSpeed,
+      pitchSpeed: pitchSpeed,
+    );
+  }
+
+  Widget _center() {
+    // Empty center cell keeps the 3x3 grid balanced; we use the
+    // explicit Recenter button below instead.
+    return const SizedBox(height: 56);
+  }
+
+  Widget _speedSlider(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Text('Speed', style: theme.textTheme.labelLarge),
+            const Spacer(),
+            Text('${(_speed * 100).round()}%',
+                style: theme.textTheme.labelMedium),
+          ],
+        ),
+        Row(
+          children: <Widget>[
+            Text('Slow', style: theme.textTheme.bodySmall),
+            Expanded(
+              child: Slider(
+                min: 0.1,
+                max: 1.0,
+                divisions: 9,
+                value: _speed,
+                onChanged: (double v) => setState(() => _speed = v),
+              ),
+            ),
+            Text('Fast', style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ],
     );
   }
 
