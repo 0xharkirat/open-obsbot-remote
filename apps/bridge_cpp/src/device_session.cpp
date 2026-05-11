@@ -226,18 +226,21 @@ void DeviceSession::motion_loop() {
             start_zoom  = snap_.zoom;
         }
 
-        // Adaptive tick: keep at least 0.1° step / tick on gimbal axes
-        // AND at least one *integer percent* of zoom-change per tick so
-        // we don't ship duplicate uint32_t waypoints to the lens motor.
+        // Adaptive tick: keep at least 0.1° step / tick so the motor
+        // doesn't jitter on sub-resolution gimbal moves.
         //
-        // Pre-fix, slow zoom plans were choppy: at 1.0 → 2.0× over 30 s
-        // with 100 ms ticks, per-tick zoom delta = 0.0033 ≈ 0.33 percent.
-        // After `(uint32_t)(iz * 100.f)` cast, three consecutive ticks
-        // sent the same integer percent (e.g. 150, 150, 150, 151, 151,
-        // 151, 152, …). The lens hopped one percent then idled, then
-        // hopped — visible stutter, not smooth motion. Stretching the
-        // tick so each waypoint advances by ≥1 percent makes the SDK
-        // see a fresh target every time and the motor glides.
+        // For zoom: we deliberately do NOT stretch the tick on slow
+        // plans. An earlier pass tried to ensure ≥1 integer-percent
+        // per tick so the uint32_t SDK target always changed — but
+        // pairing that with SDK speed 1 produced visible "1 percent
+        // every 300 ms" stepping. Instead we keep the tick fine
+        // (100 ms default), accept that consecutive
+        // `cameraSetZoomWithSpeedAbsoluteR` calls may carry the same
+        // uint32_t, and rely on SDK speed 1 to glide between integer
+        // waypoints. While the lens is mid-glide toward percent N,
+        // re-sending "go to N" is a no-op; when iz finally advances
+        // past N + 1 the lens picks up the new target without ever
+        // having idled.
         int tick_ms = t.tick_ms > 0 ? t.tick_ms : 100;
         int ticks   = std::max(1, t.duration_ms / tick_ms);
         const float largest_axis = std::max({
@@ -247,26 +250,12 @@ void DeviceSession::motion_loop() {
             t.zoom_set  ? std::abs(t.zoom_ratio - start_zoom) * 90.f : 0.f,
         });
         const float per_tick = largest_axis / ticks;
-        if (per_tick > 0.f && per_tick < 0.1f) {
-            // Stretch tick to keep step ≥0.1° equivalent.
+        if (per_tick > 0.f && per_tick < 0.1f && !t.zoom_set) {
+            // Stretch tick to keep step ≥0.1° equivalent. Gimbal-only —
+            // zoom keeps the fine cadence per the note above.
             const int new_tick = (int)(tick_ms * (0.1f / per_tick));
             tick_ms = std::min(new_tick, 500);
             ticks   = std::max(1, t.duration_ms / tick_ms);
-        }
-        // Zoom-specific adaptive stretch: minimum 1 integer-percent per
-        // tick so successive `cameraSetZoomWithSpeedAbsoluteR` calls
-        // never get the same uint32_t value back-to-back. The largest
-        // step we'll stretch to is 1 s (1000 ms) — beyond that the eased
-        // motion gets visibly steppy.
-        if (t.zoom_set) {
-            const float zoom_delta_pct =
-                std::abs(t.zoom_ratio - start_zoom) * 100.f;
-            const float pct_per_tick = zoom_delta_pct / (float)ticks;
-            if (pct_per_tick > 0.f && pct_per_tick < 1.f) {
-                const int new_tick = (int)(tick_ms * (1.f / pct_per_tick));
-                tick_ms = std::min(std::max(tick_ms, new_tick), 1000);
-                ticks   = std::max(1, t.duration_ms / tick_ms);
-            }
         }
 
         const auto t0 = steady_clock::now();
