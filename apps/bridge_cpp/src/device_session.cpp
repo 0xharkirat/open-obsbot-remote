@@ -226,8 +226,18 @@ void DeviceSession::motion_loop() {
             start_zoom  = snap_.zoom;
         }
 
-        // Adaptive tick: keep at least 0.1° step / tick so the motor
-        // doesn't jitter on sub-resolution moves.
+        // Adaptive tick: keep at least 0.1° step / tick on gimbal axes
+        // AND at least one *integer percent* of zoom-change per tick so
+        // we don't ship duplicate uint32_t waypoints to the lens motor.
+        //
+        // Pre-fix, slow zoom plans were choppy: at 1.0 → 2.0× over 30 s
+        // with 100 ms ticks, per-tick zoom delta = 0.0033 ≈ 0.33 percent.
+        // After `(uint32_t)(iz * 100.f)` cast, three consecutive ticks
+        // sent the same integer percent (e.g. 150, 150, 150, 151, 151,
+        // 151, 152, …). The lens hopped one percent then idled, then
+        // hopped — visible stutter, not smooth motion. Stretching the
+        // tick so each waypoint advances by ≥1 percent makes the SDK
+        // see a fresh target every time and the motor glides.
         int tick_ms = t.tick_ms > 0 ? t.tick_ms : 100;
         int ticks   = std::max(1, t.duration_ms / tick_ms);
         const float largest_axis = std::max({
@@ -242,6 +252,21 @@ void DeviceSession::motion_loop() {
             const int new_tick = (int)(tick_ms * (0.1f / per_tick));
             tick_ms = std::min(new_tick, 500);
             ticks   = std::max(1, t.duration_ms / tick_ms);
+        }
+        // Zoom-specific adaptive stretch: minimum 1 integer-percent per
+        // tick so successive `cameraSetZoomWithSpeedAbsoluteR` calls
+        // never get the same uint32_t value back-to-back. The largest
+        // step we'll stretch to is 1 s (1000 ms) — beyond that the eased
+        // motion gets visibly steppy.
+        if (t.zoom_set) {
+            const float zoom_delta_pct =
+                std::abs(t.zoom_ratio - start_zoom) * 100.f;
+            const float pct_per_tick = zoom_delta_pct / (float)ticks;
+            if (pct_per_tick > 0.f && pct_per_tick < 1.f) {
+                const int new_tick = (int)(tick_ms * (1.f / pct_per_tick));
+                tick_ms = std::min(std::max(tick_ms, new_tick), 1000);
+                ticks   = std::max(1, t.duration_ms / tick_ms);
+            }
         }
 
         const auto t0 = steady_clock::now();
@@ -261,7 +286,15 @@ void DeviceSession::motion_loop() {
                 dev_->gimbalSetSpeedPositionR(ir, ip, iy, 90, 90, 90);
             }
             if (t.zoom_set) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(iz * 100.f), 10);
+                // SDK speed 1 (slowest) for intra-plan waypoints — at
+                // speed 10 the lens snaps each percent in ~50 ms then
+                // waits for the next waypoint, which the user sees as
+                // step-step-step rather than a smooth glide. With
+                // speed 1 the motor never quite catches up to the
+                // current waypoint before the next one arrives, so
+                // the motion is continuous. Terminal landing below
+                // uses speed 10 to lock the final position fast.
+                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(iz * 100.f), 1);
             }
 
             // Mirror progress into snap_ so state events show motion.
