@@ -227,20 +227,10 @@ void DeviceSession::motion_loop() {
         }
 
         // Adaptive tick: keep at least 0.1° step / tick so the motor
-        // doesn't jitter on sub-resolution gimbal moves.
-        //
-        // For zoom: we deliberately do NOT stretch the tick on slow
-        // plans. An earlier pass tried to ensure ≥1 integer-percent
-        // per tick so the uint32_t SDK target always changed — but
-        // pairing that with SDK speed 1 produced visible "1 percent
-        // every 300 ms" stepping. Instead we keep the tick fine
-        // (100 ms default), accept that consecutive
-        // `cameraSetZoomWithSpeedAbsoluteR` calls may carry the same
-        // uint32_t, and rely on SDK speed 1 to glide between integer
-        // waypoints. While the lens is mid-glide toward percent N,
-        // re-sending "go to N" is a no-op; when iz finally advances
-        // past N + 1 the lens picks up the new target without ever
-        // having idled.
+        // doesn't jitter on sub-resolution gimbal moves. Zoom uses the
+        // float-API (cameraSetZoomAbsoluteR, see below) which honors
+        // sub-percent targets, so the fine 100 ms cadence works for
+        // any duration without integer-quantization stutter.
         int tick_ms = t.tick_ms > 0 ? t.tick_ms : 100;
         int ticks   = std::max(1, t.duration_ms / tick_ms);
         const float largest_axis = std::max({
@@ -275,15 +265,14 @@ void DeviceSession::motion_loop() {
                 dev_->gimbalSetSpeedPositionR(ir, ip, iy, 90, 90, 90);
             }
             if (t.zoom_set) {
-                // SDK speed 1 (slowest) for intra-plan waypoints — at
-                // speed 10 the lens snaps each percent in ~50 ms then
-                // waits for the next waypoint, which the user sees as
-                // step-step-step rather than a smooth glide. With
-                // speed 1 the motor never quite catches up to the
-                // current waypoint before the next one arrives, so
-                // the motion is continuous. Terminal landing below
-                // uses speed 10 to lock the final position fast.
-                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(iz * 100.f), 1);
+                // Float-API cameraSetZoomAbsoluteR: accepts sub-percent
+                // float targets, lens motor handles continuous motion
+                // internally on Tiny 2 Lite. (tests/zoom_probe.mjs
+                // verified the uint32-API
+                // cameraSetZoomWithSpeedAbsoluteR is broken on Tiny 2
+                // Lite — gets stuck at 1.33×. Float API gives smooth
+                // 3 s 1.0→2.0 sweep + accepts fine waypoints.)
+                dev_->cameraSetZoomAbsoluteR(iz, -1);
             }
 
             // Mirror progress into snap_ so state events show motion.
@@ -313,7 +302,11 @@ void DeviceSession::motion_loop() {
                     90, 90, 90);
             }
             if (t.zoom_set) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(t.zoom_ratio * 100.f), 10);
+                // Terminal landing on the float API — same call shape
+                // as intra-plan waypoints so the lens doesn't
+                // momentarily snap when transitioning into the final
+                // exact target.
+                dev_->cameraSetZoomAbsoluteR(t.zoom_ratio, -1);
                 std::lock_guard<std::mutex> g(snap_mu_);
                 snap_.zoom = t.zoom_ratio;
                 pending_zoom_ = t.zoom_ratio;
@@ -627,12 +620,12 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
         // pushing toward the old target while the user just snapped to a
         // new value.
         if (terminal) motion_cancel();
-        // Lower zoom-motor speed (4) when mid-drag = smoother; speed 10
-        // on terminal. (No tier-based pacing here — that's handled by
-        // the planner branch above.)
-        uint32_t zspeed_motor = terminal ? 10u : 4u;
-        int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR(
-            (uint32_t)(v * 100.f), zspeed_motor);
+        // Float-API cameraSetZoomAbsoluteR: smooth on Tiny 2 Lite. The
+        // uint-API cameraSetZoomWithSpeedAbsoluteR is broken on this
+        // product — gets stuck at 1.33×. The speed param is ignored on
+        // Tiny 2 Lite anyway (the SDK header tags zoom_speed as
+        // "tail2/tail2s only").
+        int32_t r = dev_->cameraSetZoomAbsoluteR(v, -1);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = v;
@@ -655,7 +648,9 @@ void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
             return err("invalid_param", "zoom out of camera range");
         }
         if (speed < 1 || speed > 10) return err("invalid_param", "speed must be 1..10");
-        int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(value * 100.f), (uint32_t)speed);
+        // SDK speed ignored on Tiny 2 Lite — pass through anyway to the
+        // float API which handles speed internally per product.
+        int32_t r = dev_->cameraSetZoomAbsoluteR(value, speed);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = value;
@@ -1044,11 +1039,11 @@ void DeviceSession::cmd_preset_recall(int id, int duration_ms, ReplyFn reply) {
 
         int32_t r = 0;
         if (duration_ms <= 0) {
-            // Instant: hardware preset recall + immediate zoom snap.
+            // Instant: hardware preset recall + immediate zoom snap
+            // (float API; uint-API is broken on Tiny 2 Lite).
             r = dev_->aiTrgGimbalPresetR(id);
             if (r == 0 && found && p.zoom > 0.5f) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR(
-                    (uint32_t)(p.zoom * 100.f), 10);
+                dev_->cameraSetZoomAbsoluteR(p.zoom, -1);
                 std::lock_guard<std::mutex> g(snap_mu_);
                 snap_.zoom = p.zoom;
                 pending_zoom_ = p.zoom;
@@ -1483,8 +1478,7 @@ void DeviceSession::sequence_loop() {
                 }
             }
             if (found && p.zoom > 0.5f) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR(
-                    (uint32_t)(p.zoom * 100.f), 10);
+                dev_->cameraSetZoomAbsoluteR(p.zoom, -1);
                 std::lock_guard<std::mutex> g(snap_mu_);
                 snap_.zoom = p.zoom;
                 pending_zoom_ = p.zoom;
