@@ -616,6 +616,33 @@ class WsClient extends ChangeNotifier {
 
   void fov(int f) => _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
 
+  /// Camera face-detection-driven auto-exposure. Off by default per the
+  /// v1.1 "auto-exposure makes scene dark" finding.
+  void faceAe(bool e) =>
+      _send({'action': 'image.set_face_ae', 'id': _id(), 'enabled': e});
+
+  /// Bias auto-focus to detected faces.
+  void faceFocus(bool e) =>
+      _send({'action': 'image.set_face_focus', 'id': _id(), 'enabled': e});
+
+  /// Mirror the image horizontally (useful for selfie / monitor setups).
+  void flipH(bool e) =>
+      _send({'action': 'image.set_flip_h', 'id': _id(), 'enabled': e});
+
+  /// Update one or more color sliders (0..100). Only fields you pass are
+  /// sent; unset fields are left untouched on the camera.
+  void colorSet({int? brightness, int? contrast, int? saturation, int? sharpness}) {
+    final Map<String, dynamic> msg = <String, dynamic>{
+      'action': 'image.set_color',
+      'id': _id(),
+    };
+    if (brightness != null) msg['brightness'] = brightness;
+    if (contrast != null) msg['contrast'] = contrast;
+    if (saturation != null) msg['saturation'] = saturation;
+    if (sharpness != null) msg['sharpness'] = sharpness;
+    _send(msg);
+  }
+
   void presetSave(int id, String name) => _send({
     'action': 'preset.save',
     'id': _id(),

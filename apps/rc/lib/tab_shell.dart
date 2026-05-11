@@ -637,6 +637,21 @@ class _SequenceTab extends StatelessWidget {
 // PR F will round this out (sliders for color); PR G adds exposure controls.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Tab 5 — Image (v1.2 PR F refinement).
+//
+// Sections per docs/UI_REDESIGN_SPEC.md:
+//   - Auto-track (formerly "AI"): Off / Person / Group.
+//   - View FOV segmented: Wide (86°) / Normal (78°) / Narrow (65°).
+//   - HDR toggle.
+//   - Face: Auto-expose for face + Focus on face toggles.
+//   - Mirror: Flip horizontal toggle.
+//   - Color sliders: Brightness / Contrast / Saturation / Sharpness (0..100).
+//
+// Exposure mode + EV bias + anti-flicker + white balance are deferred
+// to PR G (`feat/exposure-controls`) — see docs/EXPOSURE_REFERENCE.md.
+// ---------------------------------------------------------------------------
+
 class _ImageTab extends StatelessWidget {
   final WsClient client;
   const _ImageTab({required this.client});
@@ -647,53 +662,62 @@ class _ImageTab extends StatelessWidget {
       animation: client,
       builder: (BuildContext ctx, _) {
         final s = client.state;
+        final theme = Theme.of(ctx);
         return SingleChildScrollView(
           padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              _section(theme, 'Auto-track'),
+              _aiSegmented(ctx, s),
+              const SizedBox(height: 16),
+              _section(theme, 'View'),
+              _fovSegmented(ctx, s),
+              const SizedBox(height: 16),
+              _section(theme, 'Tone'),
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: _toggleBtn(
-                      context,
-                      'Track person',
-                      s.aiMode == 'human',
-                      () => client.aiSetMode(
-                        s.aiMode == 'human' ? 'none' : 'human',
-                        'normal',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _toggleBtn(context, 'HDR', s.hdr,
+                    child: _toggleBtn(ctx, 'HDR', s.hdr,
                         () => client.hdr(!s.hdr)),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _toggleBtn(
-                      context,
-                      'View: ${_fovLabel(s.fov)}',
-                      false,
-                      () {
-                        final next =
-                            s.fov == 86 ? 78 : (s.fov == 78 ? 65 : 86);
-                        client.fov(next);
-                      },
-                    ),
+                    child: _toggleBtn(ctx, 'Auto-expose for face', s.faceAe,
+                        () => client.faceAe(!s.faceAe)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Focus on face', s.faceFocus,
+                        () => client.faceFocus(!s.faceFocus)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Flip horizontal', s.flipH,
+                        () => client.flipH(!s.flipH)),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              // PR F lands face-AE / face-focus / flip-H / color sliders.
+              _section(theme, 'Color'),
+              _colorSlider(ctx, 'Brightness', s.brightness,
+                  (v) => client.colorSet(brightness: v)),
+              _colorSlider(ctx, 'Contrast', s.contrast,
+                  (v) => client.colorSet(contrast: v)),
+              _colorSlider(ctx, 'Saturation', s.saturation,
+                  (v) => client.colorSet(saturation: v)),
+              _colorSlider(ctx, 'Sharpness', s.sharpness,
+                  (v) => client.colorSet(sharpness: v)),
+              const SizedBox(height: 16),
               Text(
-                'Face exposure, focus-on-face, flip-horizontal and color '
-                'sliders land in PR F. Exposure mode + EV bias + WB land '
-                'in PR G — see docs/EXPOSURE_REFERENCE.md.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.outline,
+                'Exposure mode • EV bias • Anti-flicker • White balance '
+                'land in PR G — see docs/EXPOSURE_REFERENCE.md.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -704,11 +728,80 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  String _fovLabel(int fov) {
-    if (fov == 86) return 'Wide';
-    if (fov == 78) return 'Normal';
-    if (fov == 65) return 'Narrow';
-    return '$fov°';
+  Widget _section(ThemeData theme, String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
+      child: Text(
+        label.toUpperCase(),
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.primary,
+          letterSpacing: 1.0,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _aiSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<String>(
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'none', label: Text('Off')),
+        ButtonSegment<String>(
+            value: 'human', label: Text('Person'), icon: Icon(Icons.person)),
+        ButtonSegment<String>(
+            value: 'group', label: Text('Group'), icon: Icon(Icons.groups)),
+      ],
+      selected: <String>{s.aiMode},
+      onSelectionChanged: (Set<String> sel) {
+        final next = sel.first;
+        client.aiSetMode(next, 'normal');
+      },
+    );
+  }
+
+  Widget _fovSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<int>(
+      segments: const <ButtonSegment<int>>[
+        ButtonSegment<int>(value: 86, label: Text('Wide')),
+        ButtonSegment<int>(value: 78, label: Text('Normal')),
+        ButtonSegment<int>(value: 65, label: Text('Narrow')),
+      ],
+      selected: <int>{s.fov},
+      onSelectionChanged: (Set<int> sel) => client.fov(sel.first),
+    );
+  }
+
+  Widget _colorSlider(BuildContext ctx, String label, int value,
+      void Function(int) onChanged) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 96,
+            child: Text(label, style: theme.textTheme.bodySmall),
+          ),
+          Expanded(
+            child: Slider(
+              min: 0,
+              max: 100,
+              divisions: 100,
+              value: value.toDouble().clamp(0, 100),
+              onChanged: (double v) => onChanged(v.round()),
+            ),
+          ),
+          SizedBox(
+            width: 36,
+            child: Text(
+              '$value',
+              textAlign: TextAlign.right,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _toggleBtn(BuildContext c, String label, bool on, VoidCallback t) {

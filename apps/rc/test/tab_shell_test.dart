@@ -60,11 +60,13 @@ void main() {
     });
 
     testWidgets('tapping Image tab swaps the content', (tester) async {
-      await _pumpShell(tester, size: const Size(400, 800));
+      await _pumpShell(tester, size: const Size(400, 1100));
       await tester.tap(find.text('Image'));
       await tester.pumpAndSettle();
-      // Image tab content includes the "View:" FOV button.
-      expect(find.textContaining('View:'), findsOneWidget);
+      // Image tab content includes the View FOV segmented control.
+      expect(find.text('Wide'), findsOneWidget);
+      expect(find.text('Normal'), findsOneWidget);
+      expect(find.text('Narrow'), findsOneWidget);
       // Joystick pad disappears (tab swap, not pinned).
       expect(find.byType(PtzPad), findsNothing);
     });
@@ -218,6 +220,47 @@ void main() {
       await tester.pumpAndSettle();
       // Two steps → two "Hold" labels in the timeline.
       expect(find.text('Hold'), findsNWidgets(2));
+    });
+  });
+
+  group('Image tab (PR F)', () {
+    Future<void> goToImage(WidgetTester tester) async {
+      await _pumpShell(tester, size: const Size(400, 1200));
+      await tester.tap(find.text('Image'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows Auto-track segmented (Off / Person / Group)',
+        (tester) async {
+      await goToImage(tester);
+      expect(find.text('Off'), findsOneWidget);
+      expect(find.text('Person'), findsOneWidget);
+      expect(find.text('Group'), findsOneWidget);
+    });
+
+    testWidgets('shows View segmented (Wide / Normal / Narrow)',
+        (tester) async {
+      await goToImage(tester);
+      expect(find.text('Wide'), findsOneWidget);
+      expect(find.text('Normal'), findsOneWidget);
+      expect(find.text('Narrow'), findsOneWidget);
+    });
+
+    testWidgets('shows HDR / face / flip toggles', (tester) async {
+      await goToImage(tester);
+      expect(find.text('HDR'), findsOneWidget);
+      expect(find.text('Auto-expose for face'), findsOneWidget);
+      expect(find.text('Focus on face'), findsOneWidget);
+      expect(find.text('Flip horizontal'), findsOneWidget);
+    });
+
+    testWidgets('shows 4 color sliders with names', (tester) async {
+      await goToImage(tester);
+      expect(find.text('Brightness'), findsOneWidget);
+      expect(find.text('Contrast'), findsOneWidget);
+      expect(find.text('Saturation'), findsOneWidget);
+      expect(find.text('Sharpness'), findsOneWidget);
+      expect(find.byType(Slider), findsNWidgets(4));
     });
   });
 
