@@ -82,12 +82,16 @@ class _ControlScreenState extends State<ControlScreen> {
             ],
           ),
           body: SafeArea(
-            child: Column(
-              children: <Widget>[
-                _statusBar(s),
-                Expanded(child: TabShell(client: widget.client)),
-              ],
-            ),
+            // Status chips removed in the post-review pass — every field
+            // they carried has a dedicated home now:
+            //   * Pan / Tilt → overlaid on the preview (grid readout).
+            //   * Zoom       → next to the vertical zoom slider.
+            //   * AI mode    → Image tab → Auto-track segmented.
+            //   * FOV        → Image tab → View segmented.
+            //   * runStatus  → tray icon glyph in the menubar.
+            // Dropping the bar frees ~40 px of vertical space and gives
+            // the live preview more room to breathe on phones.
+            child: TabShell(client: widget.client),
           ),
         );
       },
@@ -136,42 +140,6 @@ class _ControlScreenState extends State<ControlScreen> {
             widget.client.setGridReadout(!widget.client.gridReadout);
         }
       },
-    );
-  }
-
-  Widget _statusBar(CameraState s) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: <Widget>[
-          _chip('YAW', '${s.yaw.toStringAsFixed(1)}°'),
-          _chip('PITCH', '${s.pitch.toStringAsFixed(1)}°'),
-          _chip('ZOOM', '${s.zoom.toStringAsFixed(2)}×'),
-          _chip('AI', s.aiMode),
-          _chip('FOV', '${s.fov}°'),
-          if (s.runStatus != 'run') _chip('STATUS', s.runStatus.toUpperCase()),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Text.rich(TextSpan(children: <TextSpan>[
-        TextSpan(text: '$k ', style: TextStyle(
-          color: Theme.of(context).colorScheme.outline,
-          fontSize: 12,
-        )),
-        TextSpan(text: v, style: const TextStyle(
-          fontWeight: FontWeight.w600, fontSize: 14,
-        )),
-      ])),
     );
   }
 
@@ -479,17 +447,24 @@ class _ZoomSliderState extends State<ZoomSlider> {
               onChanged: (double nv) {
                 setState(() => _dragValue = nv);
                 final now = DateTime.now();
-                if (now.difference(_lastSent) >= _minSendGap) {
-                  widget.client.zoomSet(nv);
-                  _lastSent = now;
-                }
+                if (now.difference(_lastSent) < _minSendGap) return;
+                _lastSent = now;
+                // When the user has picked a slow move-duration (e.g.
+                // 5 s, 30 s, 3 min) the bridge planner runs to that
+                // target. Sending a new value every 100 ms while
+                // dragging would cancel-and-restart the planner at
+                // each tick — lens motor stutters, never reaching
+                // the target. So: mid-drag is always *instant* so the
+                // lens follows your finger; the chosen move-duration
+                // is applied only on release (terminal=true below).
+                widget.client.zoomSet(nv, duration: Duration.zero);
               },
               onChangeEnd: (double nv) {
-                // Always send terminal value so we never end on a stale tick.
-                // `terminal:true` bypasses the bridge's mid-drag coalesce so
-                // the final lens position always lands exactly where the
-                // user released — even if the gap from the previous tick is
-                // tiny.
+                // Final value uses the user's chosen move-duration so
+                // a slow chip ("30 s") gives a smooth ease-in-out from
+                // the current lens position to nv over that window.
+                // `terminal:true` bypasses the bridge's mid-drag
+                // coalesce so the lens always lands exactly on nv.
                 widget.client.zoomSet(nv, terminal: true);
                 _lastSent = DateTime.now();
                 Future<void>.delayed(const Duration(milliseconds: 200),

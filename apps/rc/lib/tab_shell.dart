@@ -147,35 +147,56 @@ class _TabShellState extends State<TabShell>
 /// Top "global" action row used at the top of the Joystick + Buttons tabs.
 /// Recenter / Sleep / Wake placed in the same position so the user's
 /// muscle memory carries between tabs.
+///
+/// Uses plain `OutlinedButton` (no `.icon`) and a tight padding style.
+/// `OutlinedButton.icon` was wrapping the "Recenter" label to two lines
+/// on 360–390 px phones because the icon + label intrinsic width
+/// exceeded the slot. Tooltips carry the icon's semantic.
 class _QuickActions extends StatelessWidget {
   final WsClient client;
   const _QuickActions({required this.client});
 
   @override
   Widget build(BuildContext context) {
+    final style = OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      visualDensity: VisualDensity.compact,
+    );
     return Row(
       children: <Widget>[
         Expanded(
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.center_focus_strong, size: 18),
-            label: const Text('Recenter'),
-            onPressed: () => client.ptzRecenter(),
+          child: Tooltip(
+            message: 'Recenter the gimbal to home position',
+            child: OutlinedButton(
+              style: style,
+              onPressed: () => client.ptzRecenter(),
+              child: const Text('Recenter', maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.bedtime, size: 18),
-            label: const Text('Sleep'),
-            onPressed: () => client.runStatus('sleep'),
+          child: Tooltip(
+            message: 'Put the camera to sleep',
+            child: OutlinedButton(
+              style: style,
+              onPressed: () => client.runStatus('sleep'),
+              child: const Text('Sleep', maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
           ),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.wb_sunny, size: 18),
-            label: const Text('Wake'),
-            onPressed: () => client.runStatus('run'),
+          child: Tooltip(
+            message: 'Wake the camera up',
+            child: OutlinedButton(
+              style: style,
+              onPressed: () => client.runStatus('run'),
+              child: const Text('Wake', maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
           ),
         ),
       ],
