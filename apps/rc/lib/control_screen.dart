@@ -49,7 +49,10 @@ class _ControlScreenState extends State<ControlScreen> {
                   child: Text('${widget.client.lastLatencyMs} ms'),
                 ),
               ),
-              _speedMenu(context),
+              // Move-duration is controlled by the chip strip at the
+              // bottom of every advanced-mode tab — no need to mirror
+              // it in the AppBar. Simple mode (which has no chips)
+              // still surfaces the popup in its own AppBar.
               _gridMenu(context),
               IconButton(
                 tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
@@ -88,33 +91,6 @@ class _ControlScreenState extends State<ControlScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _speedMenu(BuildContext ctx) {
-    final cur = widget.client.moveDuration;
-    // Pick the icon of the closest preset; default to hourglass for
-    // anything not in the chip list.
-    IconData currentIcon = Icons.timer;
-    for (final p in kMoveDurationPresets) {
-      if (p.duration == cur) { currentIcon = p.icon; break; }
-    }
-    return PopupMenuButton<Duration>(
-      tooltip: 'Move duration (Instant ↔ slow pan)',
-      icon: Icon(currentIcon),
-      onSelected: (d) => widget.client.setMoveDuration(d),
-      itemBuilder: (BuildContext c) => <PopupMenuEntry<Duration>>[
-        for (final p in kMoveDurationPresets)
-          CheckedPopupMenuItem<Duration>(
-            value: p.duration,
-            checked: p.duration == cur,
-            child: Row(children: <Widget>[
-              Icon(p.icon, size: 16),
-              const SizedBox(width: 8),
-              Text(p.label),
-            ]),
-          ),
-      ],
     );
   }
 

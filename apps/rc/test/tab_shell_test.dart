@@ -128,14 +128,6 @@ void main() {
       expect(client.moveDuration, const Duration(milliseconds: 1000));
     });
 
-    testWidgets('shows the shared Speed slider (Slow / Fast)',
-        (tester) async {
-      await _pumpShell(tester, size: const Size(400, 900));
-      // Joystick tab now mirrors Buttons tab: same speed slider + same
-      // duration chips at the bottom.
-      expect(find.text('Slow'), findsOneWidget);
-      expect(find.text('Fast'), findsOneWidget);
-    });
   });
 
   group('Buttons tab', () {
@@ -153,16 +145,6 @@ void main() {
       ]) {
         expect(find.text(lbl), findsOneWidget, reason: 'missing $lbl');
       }
-    });
-
-    testWidgets('shows speed slider with Slow / Fast labels',
-        (tester) async {
-      await goToButtons(tester);
-      expect(find.text('Slow'), findsOneWidget);
-      expect(find.text('Fast'), findsOneWidget);
-      // Buttons tab now has two sliders: the speed slider + the
-      // vertical zoom slider added in this revamp.
-      expect(find.byType(Slider), findsNWidgets(2));
     });
 
     testWidgets('shows Recenter / Sleep / Wake (same as Joystick tab)',
@@ -186,23 +168,16 @@ void main() {
       expect(find.byType(ZoomSlider), findsOneWidget);
     });
 
-    testWidgets('shares Speed slider state with Joystick tab',
+    testWidgets('shows duration chips identical to Joystick tab',
         (tester) async {
-      final client = _StubWsClient();
-      await tester.binding.setSurfaceSize(const Size(400, 1100));
-      await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: TabShell(client: client))),
-      );
-      await tester.pump();
-      // Set velocity scale on Joystick tab.
-      await client.setVelocityScale(0.4);
-      await tester.pump();
-      // Switch to Buttons tab — value should have persisted because both
-      // tabs read from `client.velocityScale`.
-      await tester.tap(find.text('Buttons'));
-      await tester.pumpAndSettle();
-      expect(client.velocityScale, closeTo(0.4, 0.001));
-      expect(find.text('40%'), findsOneWidget);
+      await goToButtons(tester);
+      // The chip strip moved into a shared `_BottomControls` widget so
+      // it's literally the same widget on both tabs. Sanity-check by
+      // confirming all 8 preset labels render here too.
+      for (final p in kMoveDurationPresets) {
+        expect(find.text(p.label), findsOneWidget,
+            reason: 'chip ${p.label} missing on Buttons tab');
+      }
     });
   });
 

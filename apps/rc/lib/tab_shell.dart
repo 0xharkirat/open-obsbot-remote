@@ -305,57 +305,31 @@ class _InlinePresetCard extends StatelessWidget {
   }
 }
 
-/// Shared bottom-of-tab control bundle:
+/// Shared bottom-of-tab control bundle.
 ///
-///   - Speed slider (Slow ↔ Fast) bound to `client.velocityScale` — same
-///     control on Joystick + Buttons so changing it on one tab persists
-///     to the other. Affects the analog joystick deflection AND the
-///     8-way hold buttons.
-///   - Move-duration chips bound to `client.moveDuration` — applies to
-///     preset.recall (P1..P6 tap) and to slow-pan ptz.angle commands.
+/// In v1.2 this carried both a live-velocity slider AND the move-duration
+/// chips. User review pointed out the redundancy — slider scaled live
+/// joystick / button velocity (0.1×–1×) while the chips controlled
+/// preset-recall timing, but the conceptual overlap was confusing and
+/// having two near-identical "speed" controls on the same row hurt more
+/// than it helped.
 ///
-/// Putting these on a single shared widget keeps the Joystick and
-/// Buttons tabs visually identical below the gimbal control.
+/// Now we keep only the chips. The joystick already gives analog speed
+/// control via deflection magnitude, and the 8-way buttons issue full
+/// velocity. Chip-controlled `client.moveDuration` drives:
+///   - P1..P6 preset recall (tap a preset card).
+///   - Any future ptz.angle command that doesn't pass an explicit
+///     duration.
+///
+/// Same widget on Joystick + Buttons tabs so the two surfaces are
+/// visually identical below the gimbal control.
 class _BottomControls extends StatelessWidget {
   final WsClient client;
   const _BottomControls({required this.client});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Text('Speed', style: theme.textTheme.labelMedium),
-            const SizedBox(width: 8),
-            Text('Slow', style: theme.textTheme.bodySmall),
-            Expanded(
-              child: Slider(
-                min: 0.1,
-                max: 1.0,
-                divisions: 9,
-                value: client.velocityScale,
-                label: '${(client.velocityScale * 100).round()}%',
-                onChanged: (double v) => client.setVelocityScale(v),
-              ),
-            ),
-            Text('Fast', style: theme.textTheme.bodySmall),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 40,
-              child: Text(
-                '${(client.velocityScale * 100).round()}%',
-                textAlign: TextAlign.right,
-                style: theme.textTheme.bodySmall,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        _DurationChips(client: client),
-      ],
-    );
+    return _DurationChips(client: client);
   }
 }
 
