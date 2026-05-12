@@ -35,8 +35,24 @@ Branch names are lowercase, hyphenated, scoped:
    ./scripts/build-bridge-mac.sh                       # full clean build
    pkill -9 -f obsbot-bridge && open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
    sleep 8
-   cd tests && node bridge_smoke.mjs                   # 27/27 must pass
+   cd tests
+   node bridge_smoke.mjs        # 27 tests, connect / preset / sequence / image
+   node zoom_speed.mjs          # 9  tests, zoom planner duration timings
+   node slow_motion.mjs         # 7  tests, duration_ms timings 200ms to 60s
+   node sequencer_save.mjs      # 6  tests, duration_ms persistence + legacy migration
+   node exposure.mjs            # 8  tests, exposure mode + EV bias + anti-flicker + WB
+   node zoom_smoothness.mjs     # samples zoom over 5s and 30s plans
    ```
+
+   Plus the offline widget tests:
+
+   ```bash
+   cd apps/rc && flutter test    # 21 widget tests (tab_shell + pin_entry)
+   ```
+
+   The full battery is **78 / 78**. New PRs are expected to land green;
+   if a test is flaking, fix it or document the flake in the PR
+   description before merging.
 
    For UI / web changes also run the touch test described in
    `docs/TOUCH_FINDINGS_2026-05-10.md` reproduction recipe.
@@ -65,10 +81,12 @@ Branch names are lowercase, hyphenated, scoped:
 
 ## What blocks a PR
 
-- Smoke battery less than 27/27 pass.
-- New compile warnings under `dart analyze` or `cmake --build`.
-- Untouched flake re-introduces (e.g. yaw sign regression).
-- New file > 500 LOC without justification in PR description.
+- Smoke battery does not stay at 78 / 78 (or whatever the current full
+  battery count is, including any new tests this PR adds).
+- New compile warnings under `flutter analyze` or `cmake --build`.
+- A previously fixed flake re-opens (e.g. yaw sign regression, joystick
+  scroll-eat).
+- New file over 500 LOC without justification in PR description.
 - Lint failures (run `dart fix --apply` first).
 
 ## Release branches

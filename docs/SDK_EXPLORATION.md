@@ -1,5 +1,29 @@
 # OBSBOT SDK Exploration Report
 
+> **Status: reference doc, with v1.2 addendum.** This is the SDK
+> exploration done on 2026-05-01 against SDK 1.3.0. The compatibility
+> matrix, API surface list, and architectural notes are still accurate.
+>
+> Empirical findings since v1.2 implementation:
+>
+> - **`cameraSetZoomWithSpeedAbsoluteR(uint32_t, uint32_t)` is broken on
+>   Tiny 2 Lite.** Calls get stuck around 1.33x regardless of the speed
+>   param. The SDK header tags `zoom_speed` as "tail2 / tail2s only" so
+>   on Tiny 2 Lite the speed param is effectively ignored. The bridge
+>   uses `cameraSetZoomAbsoluteR(float zoom, int speed = -1)` instead,
+>   which accepts sub-percent float zoom values and produces smooth
+>   continuous lens motion (1.0x to 2.0x in about 3 seconds at default
+>   speed). Verified by `tests/zoom_probe.mjs` against a live camera.
+> - **`cameraSetExposureModeR` and `cameraSetAAEEvBiasR` are tagged
+>   "tail air" only** in the SDK header. The bridge attempts the calls
+>   on Tiny 2 Lite anyway and reports `ok=false err="unsupported"` if
+>   the firmware rejects, so the UI can grey out the controls without
+>   crashing. Empirical behavior on Tiny 2 Lite still needs
+>   confirmation.
+> - **`cameraSetAntiFlickR` and `cameraSetWhiteBalanceR` work on
+>   Tiny 2 Lite** and round-trip via the state event (`anti_flicker` /
+>   `wb_auto` / `wb_kelvin` fields).
+
 **SDK location:** `obsbot-sdk/`
 **SDK version:** `LIB_MAJOR_VER 1.3.0` (from `include/util/comm.hpp`)
 **Date explored:** 2026-05-01

@@ -1,9 +1,38 @@
-# Slow-motion floor — design
+# Slow-motion floor - design
+
+> **Status: shipped, with a wire-format change.** This was the original
+> design for an `ultra` / `cinema` slow-motion tier driven by a
+> `MoveSpeed` enum. What shipped (in PR #2 / v1.1) replaces the enum
+> with an explicit `duration_ms` integer everywhere a move duration
+> matters: `ptz.angle`, `zoom.set`, `preset.recall`, sequence steps.
+> The MotionPlanner architecture described below (worker thread,
+> waypoint interpolation, ease-in-out-sine, adaptive tick,
+> cancel-replace) all landed as-is.
+>
+> Two more deltas landed during v1.2:
+>
+> 1. **Zoom uses the float-API.** This design called for
+>    `cameraSetZoomWithSpeedAbsoluteR(zoom_pct, zoom_speed)`. Empirical
+>    probing on Tiny 2 Lite showed that the uint-API gets stuck around
+>    1.33x regardless of speed, and the speed param is SDK-tagged
+>    "tail2 / tail2s only" so on Tiny 2 Lite it is ignored anyway. The
+>    bridge now uses `cameraSetZoomAbsoluteR(value, -1)` which takes a
+>    float in [1.0, 2.0] and produces smooth continuous motion (1.0x to
+>    2.0x in about 3 seconds at default speed). See gotcha #26 in
+>    `CLAUDE.md`.
+> 2. **No adaptive tick on the zoom axis.** The original design
+>    stretched the tick when per-tick delta dropped below 0.1 deg
+>    equivalent. The float-API accepts sub-percent waypoints, so the
+>    zoom path keeps the fine 100 ms cadence at any duration. The
+>    adaptive stretch still applies to the gimbal axes.
+>
+> The rest of this doc is preserved as a design log so future work can
+> revisit the rationale.
 
 Goal: every camera operation (pan, tilt, zoom, preset recall, sequencer
-step) honors a single `MoveSpeed` enum, and the slowest tier delivers
-true cinematographer-grade slow movement — much slower than the SDK's
-own minimum.
+step) honors a single move-duration, and the slowest tier delivers true
+cinematographer-grade slow movement (much slower than the SDK's own
+minimum).
 
 ## What "ultra slow" means in practice
 

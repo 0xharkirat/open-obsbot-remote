@@ -1,4 +1,22 @@
-# Mobile touch findings — 2026-05-10
+# Mobile touch findings - 2026-05-10
+
+> **Resolution status (as of v1.2):**
+>
+> - **P0-1 (PTZ sign convention)** is fixed in v1.1: bridge negates yaw
+>   and pitch in `cmd_ptz_velocity` so positive `yaw_speed` pans right
+>   and positive `pitch_speed` tilts up in the viewer frame for every
+>   client.
+> - **P0-2 (joystick eats scroll)** is permanently solved in v1.2 by
+>   moving the joystick to its own tab. The surrounding TabBarView
+>   swipes horizontally only, so vertical-first drags no longer have a
+>   scrollable ancestor to fight.
+> - **P0-3 (directional buttons flaky)** is fixed in v1.2 by rewriting
+>   `HoldDirBtn` to use a raw `Listener` on a `Material` surface
+>   instead of a `Listener` wrapped inside a `FilledButton.tonal`. The
+>   pre-fix button's internal `TapGestureRecognizer` won the gesture
+>   arena on quick taps and swallowed `Listener.onPointerUp`.
+> - The reproduction recipe at the bottom of this doc is kept as a
+>   regression-test template. Re-run it with each future UI revamp.
 
 Reproduced via Playwright Chromium with CDP touch emulation
 (`Emulation.setTouchEmulationEnabled` + mobile UA + 1× device-scale).

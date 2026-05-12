@@ -57,6 +57,7 @@ Responsibilities:
 - Auto-restart the subprocess after unexpected exits.
 - Kill stale listeners on ports `8765` and `8766` before spawning.
 - Enforce single-instance behavior.
+- Run a macOS menubar tray icon (added in v1.2). Tray title carries a live status glyph (running / no camera / stopped / error). Tray menu items: Reveal pairing PIN, Show main window, Open log file, Restart bridge subprocess, Quit. Closing the main window hides it instead of quitting; the tray icon keeps the bridge subprocess alive so live streams do not get interrupted.
 
 Important paths:
 
@@ -111,9 +112,16 @@ Responsibilities:
 - Send `hello` with a saved token when available.
 - Pair with the bridge PIN when no valid token exists.
 - Subscribe to state events.
-- Render simple mode and advanced mode controls.
-- Store the bridge address, token, selected move speed, and local UI preferences.
+- Render Simple mode (one-handed preset operation) and Advanced mode controls.
+- In Advanced mode, render the v1.2 three-tab shell below the pinned live preview:
+  - Joystick: analog `PtzPad` plus vertical zoom slider, inline P1 to P6 preset row, duration chips.
+  - Buttons: 8-way hold-button pad plus vertical zoom slider, inline P1 to P6 preset row, duration chips.
+  - Image: Auto-track / View / Tone / Exposure / Anti-flicker / White balance / Color sections with per-section Reset buttons.
+- Render the live preview with an optional grid overlay (centre crosshair, attitude indicator that translates with pan/tilt and rotates with roll, rule of thirds, top-left Pan / Tilt readout). Toggles are persisted via SharedPreferences.
+- Store the bridge address, token, selected move duration, grid toggles, and local UI preferences.
 - Render MJPEG preview. Web uses an HTML `<img>` element because Flutter web image widgets do not decode multipart MJPEG streams.
+
+The pair screen is built on the `forui` design system (`FScaffold` + `FHeader.nested` + `FButton`). The rest of the app is on Material widgets; the two coexist via a transparent `Material` shim where text inputs need a Material ancestor.
 
 ## Auth Flow
 
@@ -172,8 +180,10 @@ Sequences live in the bridge so they keep running if the phone disconnects.
 Each step contains:
 
 ```json
-{ "preset_id": 1, "seconds": 20, "speed": "medium" }
+{ "preset_id": 1, "seconds": 20, "transition_ms": 5000 }
 ```
+
+`seconds` is how long the camera holds at the preset. `transition_ms` is how long the bridge takes to move from the previous preset to this one (`0` is instant). `transition_ms` replaced the v1.1 `speed: "instant" | "slow" | "medium" | "fast"` enum. The bridge still accepts the old `speed` field on disk via `legacy_speed_to_ms()` so existing `sequences.json` files keep working.
 
 Loop modes:
 

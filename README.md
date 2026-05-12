@@ -37,19 +37,41 @@ OBSBOT camera
 
 ## Features
 
-- Live MJPEG preview over the LAN.
-- PTZ joystick, absolute angle moves, stop, and recenter.
-- Zoom with camera-reported min/max range.
-- Camera presets with names and active-preset highlight.
-- Move-speed choices for preset recalls: instant, slow, medium, fast.
-- Saved timed sequences with once, forward loop, and ping-pong loop modes.
-- AI modes: none, human, group, hand, whiteboard, desk.
-- Image controls: HDR, FOV, brightness, contrast, saturation, sharpness, face AE, face focus, horizontal flip.
-- Sleep and wake.
-- PIN pairing with long-lived tokens. Tokens gate WebSocket commands and MJPEG preview URLs.
-- Simple mode for quick preset control and advanced mode for tuning.
+### Camera control
+
+- Live MJPEG preview over the LAN with an optional on-frame grid overlay (rule-of-thirds, centre crosshair, attitude indicator, live Pan / Tilt readout).
+- PTZ joystick (analog drag with vertical zoom slider) plus an 8-way hold-button pad for users who prefer discrete input.
+- Absolute angle moves, velocity moves, stop, and recenter.
+- Zoom with the camera-reported min and max range (1.0x to 2.0x on Tiny 2 Lite).
+- Six camera presets (P1 to P6) inlined directly on the Joystick and Buttons tabs so you can save or recall while still holding the gimbal control. Long-press a preset card for Save / Recall instantly / Rename.
+- **Pick how long every move takes**: a chip strip at the bottom of each tab lets you choose Instant, 1 sec, 5 sec, 15 sec, 30 sec, 1 min, 3 min, or 5 min. The bridge runs an ease-in-out motion planner so a 30-second pan looks like a cinema-grade slow pan, not a stutter.
+- Saved timed sequences with Once / Forward loop / Ping-pong loop modes. Inline timeline editor with drag-to-reorder steps; sequence keeps running if the phone disconnects.
+
+### Image controls
+
+- HDR toggle (with the 3-second firmware debounce baked in).
+- View FOV segmented control: Wide (86 deg), Normal (78 deg), Narrow (65 deg).
+- Auto-track: Off / Person / Group (the AI work mode, in plain language).
+- Brightness, Contrast, Saturation, Sharpness sliders (0 to 100), each with a single-tap reset to default.
+- Face AE, Face focus, Horizontal flip toggles.
+- Exposure mode (Auto / Manual) plus EV bias slider (best-effort on Tiny 2 Lite: the SDK tags exposure as "tail air"; the bridge attempts the call and the UI greys it out if the firmware rejects).
+- Anti-flicker: Off / 50 Hz / 60 Hz.
+- White balance: Auto toggle plus Temperature slider (2800 to 6500 K) when Auto is off.
+- Per-section Reset buttons next to each header on the Image tab, matching the OBSBOT Center workflow.
+
+### Bridge app
+
+- macOS menubar tray icon with live status (Running / Connected / Stopped / Error). Closing the window hides it instead of quitting, so the bridge keeps running quietly during a livestream.
+- Tray menu: Reveal pairing PIN (60-second show), Show main window, Open log file, Restart bridge subprocess, Quit.
+- PIN pairing with long-lived bearer tokens. Tokens gate WebSocket commands and MJPEG preview URLs.
 - Bridge auto-restart and single-instance enforcement.
 - Logs at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
+
+### Remote UI
+
+- Three-tab layout in advanced mode (Joystick / Buttons / Image), plus a Simple mode for one-handed preset operation.
+- Sleep and Wake quick actions on every tab (top of the control area, in the same place on Joystick and Buttons so muscle memory carries over).
+- OBSBOT-brand red accent on a near-black surface for low-light operation.
 
 ## Known Limits
 
@@ -91,7 +113,7 @@ macOS asks one more time. Click **Open Anyway** (not Move to Bin).
 
 <img src="docs/images/step-3-open-anyway-again.png" alt="Second confirmation - Open Anyway" width="280"/>
 
-You may be asked for your Mac password. Enter it to continue. The app will open. You only need to do steps 1–3 once.
+You may be asked for your Mac password. Enter it to continue. The app will open. You only need to do steps 1 to 3 once.
 
 ### Step 4 - Allow Camera access
 
