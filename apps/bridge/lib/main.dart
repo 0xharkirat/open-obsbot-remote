@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'bridge_prefs.dart';
 import 'bridge_supervisor.dart';
 import 'footer.dart';
 import 'tray_controller.dart';
@@ -12,6 +13,7 @@ import 'tray_controller.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
+  final prefs = await BridgePrefs.load();
 
   await windowManager.waitUntilReadyToShow(
     const WindowOptions(
@@ -26,16 +28,25 @@ Future<void> main() async {
       // intercepts onWindowClose and keeps the bridge subprocess alive.
       // Quit happens only via the tray menu or Cmd-Q from the app menu.
       await windowManager.setPreventClose(true);
-      await windowManager.show();
-      await windowManager.focus();
+      if (prefs.menubarOnly) {
+        // Menubar-only mode: don't show the window at launch. The user
+        // can restore it via the tray's "Show main window" item. The
+        // AppDelegate already flipped activation policy to .accessory
+        // so the dock icon stays hidden too.
+        await windowManager.hide();
+      } else {
+        await windowManager.show();
+        await windowManager.focus();
+      }
     },
   );
 
-  runApp(const ObsbotBridgeApp());
+  runApp(ObsbotBridgeApp(prefs: prefs));
 }
 
 class ObsbotBridgeApp extends StatefulWidget {
-  const ObsbotBridgeApp({super.key});
+  final BridgePrefs prefs;
+  const ObsbotBridgeApp({super.key, required this.prefs});
   @override
   State<ObsbotBridgeApp> createState() => _ObsbotBridgeAppState();
 }
@@ -94,6 +105,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
           supervisor: supervisor,
           lanIps: _lanIps,
           revealRequest: _revealRequest,
+          prefs: widget.prefs,
         ),
       ),
     );
@@ -107,11 +119,13 @@ class HomeScreen extends StatefulWidget {
   /// "Reveal pairing PIN" item). HomeScreen listens and shows the PIN
   /// for the standard 60-second window.
   final ValueNotifier<int> revealRequest;
+  final BridgePrefs prefs;
   const HomeScreen({
     super.key,
     required this.supervisor,
     required this.lanIps,
     required this.revealRequest,
+    required this.prefs,
   });
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -206,6 +220,11 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.play_circle_outline),
               onPressed: supervisor.start,
             ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _showSettings,
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -705,6 +724,71 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showSettings() async {
+    bool menubarOnly = widget.prefs.menubarOnly;
+    final initial = menubarOnly;
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext c) {
+        return StatefulBuilder(
+          builder: (BuildContext c, void Function(void Function()) setSt) {
+            return AlertDialog(
+              title: const Text('Settings'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Hide dock icon (menubar-only)'),
+                    subtitle: const Text(
+                      'Run as a pure menubar app. Restore the window from '
+                      'the tray menu. Restart required.',
+                    ),
+                    value: menubarOnly,
+                    onChanged: (bool v) async {
+                      setSt(() => menubarOnly = v);
+                      await widget.prefs.setMenubarOnly(v);
+                    },
+                  ),
+                  if (menubarOnly != initial)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Theme.of(c).colorScheme.tertiary,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Restart OBSBOT Bridge to apply.',
+                              style: TextStyle(
+                                color: Theme.of(c).colorScheme.tertiary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(c).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
