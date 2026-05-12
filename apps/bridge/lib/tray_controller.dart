@@ -40,6 +40,24 @@ class TrayController with WindowListener, TrayListener {
       // Linux too, but the Bridge .app is macOS-only today.
       return;
     }
+    // Load the bundled template icon. macOS auto-tints it to the
+    // menubar foreground colour (white in dark mode, dark in light
+    // mode) because we pass isTemplate: true. The actual asset is a
+    // black-on-transparent camera-iris glyph in
+    // assets/tray/cameraTemplate.png (22 x 22) + cameraTemplate@2x.png
+    // (44 x 44) for retina. macOS picks the variant via the @2x
+    // suffix in the resolved filename.
+    try {
+      await trayManager.setIcon(
+        'assets/tray/cameraTemplate.png',
+        isTemplate: true,
+      );
+    } catch (e) {
+      // If asset loading fails for any reason (e.g. running outside a
+      // proper .app bundle during dev), fall back to a text title so
+      // the menubar entry is still discoverable.
+      await trayManager.setTitle('OBSBOT');
+    }
     await trayManager.setToolTip('OBSBOT Bridge');
     await _refreshTrayLabel();
     await _rebuildMenu();
@@ -69,25 +87,35 @@ class TrayController with WindowListener, TrayListener {
   }
 
   Future<void> _refreshTrayLabel() async {
-    String glyph;
+    // The tray icon itself is the visual; the tooltip carries the
+    // status text so the menubar stays uncluttered. (Pre-v1.2.1 we
+    // used a Unicode-glyph title because no PNG asset was bundled;
+    // the icon is in now.)
+    String tip;
     switch (supervisor.status) {
       case BridgeStatus.running:
-        glyph = supervisor.cameraConnected ? '● OBSBOT' : '◐ OBSBOT';
+        tip = supervisor.cameraConnected
+            ? 'OBSBOT Bridge - running, camera connected'
+            : 'OBSBOT Bridge - running, no camera plugged in';
         break;
       case BridgeStatus.starting:
-        glyph = '◌ OBSBOT';
+        tip = 'OBSBOT Bridge - starting up';
         break;
       case BridgeStatus.error:
-        glyph = '✗ OBSBOT';
+        tip =
+            'OBSBOT Bridge - error: ${supervisor.lastError ?? "unknown"}';
         break;
       case BridgeStatus.stopped:
-        glyph = '○ OBSBOT';
+        tip = 'OBSBOT Bridge - stopped';
         break;
     }
     try {
-      await trayManager.setTitle(glyph);
+      await trayManager.setToolTip(tip);
+      // Clear any leftover Unicode title from older builds. Title is
+      // empty by default in v1.2.1+; the icon is the entire visual.
+      await trayManager.setTitle('');
     } catch (_) {
-      // setTitle is macOS-only on tray_manager; safe to swallow.
+      // tray_manager.setTitle is macOS-only; safe to swallow.
     }
   }
 
