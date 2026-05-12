@@ -21,6 +21,11 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
   was stale and the user had no way to resync without reconnecting.
 - **"Refresh from camera" button** on the Image tab (top-right). One
   tap, brief toast confirms the resync.
+- **Narrow-width overflow regression test.** `tab_shell_test.dart`
+  pumps the TabShell at 320 px (narrowest realistic phone) and asserts
+  no `RenderFlex` overflow errors fire while the three quick-action
+  buttons are visible. Locks in the fix; future regressions surface
+  in CI.
 
 ### Changed
 
@@ -30,6 +35,23 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
   `cameraSetAAEEvBiasR` returns r=0. The SDK header's "tail air" tag
   was misleading; the bridge no longer guards these calls behind the
   unsupported branch. UI disclaimer line on the Image tab is gone.
+- **forui migration extended into tab content.** PR Q migrates two
+  high-traffic surfaces from Material to forui:
+  - `_QuickActions` (the Recenter / Sleep / Wake row at the top of
+    the Joystick + Buttons tabs) — 3-per-row `OutlinedButton` →
+    `FButton.raw` with `variant: FButtonVariant.outline`. Each
+    button's child is a Flexible+Text with `maxLines: 1` +
+    `TextOverflow.ellipsis` to structurally prevent the 360 px
+    overflow we shipped before the v1.2 fix.
+  - `_toggleBtn` (HDR / Face exposure / Face focus / Flip / Auto WB
+    pair-row toggles on the Image tab) — `FilledButton` with
+    hand-rolled `colorScheme` overrides → `FButton.raw` with
+    `variant: on ? FButtonVariant.primary : FButtonVariant.outline`.
+    On-state now uses the brand red consistently from the forui
+    theme instead of duplicating the color logic per call site.
+- **Segmented controls + sliders** intentionally stay on Material for
+  this PR; the migration is mechanical but high-volume and benefits
+  from a separate PR with its own test pass.
 
 ### Fixed
 
