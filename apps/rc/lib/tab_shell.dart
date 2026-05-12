@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 
 import 'control_screen.dart';
+import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'ws_client.dart';
 
@@ -371,7 +372,7 @@ class _DurationChips extends StatelessWidget {
             ChoiceChip(
               label: Text(kMoveDurationPresets[i].label),
               avatar: Icon(
-                kMoveDurationPresets[i].icon,
+                iconForMoveDuration(kMoveDurationPresets[i].duration),
                 size: 16,
                 color: kMoveDurationPresets[i].duration == cur
                     ? cs.onPrimary
