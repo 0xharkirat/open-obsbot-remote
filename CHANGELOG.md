@@ -13,6 +13,23 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
   the persisted preference via NSUserDefaults before the Flutter
   engine boots so the dock icon never flickers on launch. Restart
   required to apply.
+- **`image.refresh` action.** Bridge re-reads live exposure_mode,
+  ev_bias, anti_flicker, wb_type+kelvin from the camera via the SDK
+  getters and stamps its snapshot, which flows out to every connected
+  phone as a normal state event. Useful when OBSBOT Center or another
+  phone changed those values out-of-band — without it our cached state
+  was stale and the user had no way to resync without reconnecting.
+- **"Refresh from camera" button** on the Image tab (top-right). One
+  tap, brief toast confirms the resync.
+
+### Changed
+
+- **Exposure mode + EV bias no longer reported as "unsupported".**
+  Empirical probe (`tests/exposure_probe.mjs`) on Tiny 2 Lite firmware
+  6.2.8.1 showed every variant of `cameraSetExposureModeR` and
+  `cameraSetAAEEvBiasR` returns r=0. The SDK header's "tail air" tag
+  was misleading; the bridge no longer guards these calls behind the
+  unsupported branch. UI disclaimer line on the Image tab is gone.
 
 ### Fixed
 
@@ -22,6 +39,10 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
   via tray, red-dot just hides), false is the correct answer. Also
   required for menubar-only mode — the hidden launch window was being
   misread as "last window closed" and the app died instantly.
+- **`tests/exposure.mjs` had `allowUnsupported: true` masking real
+  failures.** Now expects `ok=true` for exposure_mode + ev_bias and
+  asserts the state-event reflects the requested value (with 1/3-stop
+  snap tolerance). 4 new tests + 1 refresh test, 11/11 pass.
 
 ### Removed
 

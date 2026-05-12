@@ -382,9 +382,9 @@ class WsClient extends ChangeNotifier {
   }
 
   // v1.2 PR G — exposure / anti-flicker / white balance.
-  // The bridge tags exposure mode + EV bias as best-effort: on Tiny 2
-  // Lite they may return ack ok=false with err="unsupported". UI can
-  // still send the commands; failures are reflected in the ack stream.
+  // Empirical probe on Tiny 2 Lite firmware 6.2.8.1 (PR P, 2026-05-12)
+  // confirmed every exposure_mode + ev_bias variant returns r=0 — the
+  // "tail air" tag in the SDK headers is misleading. All controls work.
 
   void setExposureMode(String mode) => _send({
         'action': 'image.set_exposure_mode',
@@ -408,6 +408,15 @@ class WsClient extends ChangeNotifier {
         'action': 'image.set_wb_auto',
         'id': _id(),
         'enabled': enabled,
+      });
+
+  /// Ask the bridge to re-read live exposure / anti-flicker / WB state
+  /// from the camera and stamp its snapshot. Useful when OBSBOT Center
+  /// or other tools have changed values out-of-band; without it the UI
+  /// shows our last-known state which can drift indefinitely.
+  void imageRefresh() => _send({
+        'action': 'image.refresh',
+        'id': _id(),
       });
 
   void setWbTemp(int kelvin) => _send({
