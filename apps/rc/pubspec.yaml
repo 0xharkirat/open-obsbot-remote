@@ -40,6 +40,8 @@ dependencies:
   web: ^1.1.1
   url_launcher: ^6.3.2
   forui: ^0.21.3
+  obsbot_protocol:
+    path: ../../packages/obsbot_protocol
 
 dev_dependencies:
   flutter_test:
