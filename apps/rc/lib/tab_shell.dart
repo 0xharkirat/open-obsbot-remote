@@ -570,6 +570,31 @@ class _ImageTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // Refresh-from-camera row. If another app (OBSBOT Center,
+              // a different phone connected first) changed exposure /
+              // anti-flicker / WB out-of-band, our snapshot is stale.
+              // Tapping refresh re-reads live state from the camera.
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                  ),
+                  icon: const Icon(Icons.refresh, size: 14),
+                  label: const Text('Refresh from camera'),
+                  onPressed: () {
+                    client.imageRefresh();
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Re-read live state from camera'),
+                        duration: Duration(milliseconds: 900),
+                      ),
+                    );
+                  },
+                ),
+              ),
               _section(theme, 'Auto-track'),
               _aiSegmented(ctx, s),
               const SizedBox(height: 16),
@@ -666,17 +691,6 @@ class _ImageTab extends StatelessWidget {
                   (v) => client.colorSet(sharpness: v),
                   resetTo: _defaultColor,
                   onReset: () => client.colorSet(sharpness: _defaultColor)),
-              const SizedBox(height: 16),
-              Text(
-                'Exposure mode + EV bias are tagged "tail air" in the '
-                'SDK. On Tiny 2 Lite the bridge attempts them and replies '
-                'ack ok=false with err="unsupported" if the firmware '
-                'rejects.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
             ],
           ),
         );

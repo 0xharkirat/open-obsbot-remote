@@ -19,10 +19,12 @@
 >   -3.0 to +3.0 in 1/3 stops). Our UI shows the user-friendly range
 >   -2.0 to +2.0 EV in 1/6-stop steps; the bridge snaps to the
 >   nearest SDK enum value when writing.
-> - **"tail air" tag on EV bias APIs.** Verified empirically on
->   Tiny 2 Lite: the SDK returns non-zero so the bridge reports
->   `ok=false err="unsupported"` and the UI greys out the EV bias
->   slider. Anti-flicker and white balance work fine.
+> - **"tail air" tag on EV bias APIs.** RE-VERIFIED empirically on
+>   Tiny 2 Lite firmware 6.2.8.1 (PR P, 2026-05-12 via
+>   `tests/exposure_probe.mjs`): every exposure_mode + ev_bias variant
+>   returns r=0. The earlier "unsupported" finding was wrong (likely a
+>   firmware revision difference). The `unsupported` guard is now
+>   removed; the bridge surfaces these as normal commands.
 > - **AE Mode "Face".** Not surfaced in v1.2. Out of scope until
 >   the SDK actually supports it on Tiny 2 Lite (the "Face" segmented
 >   in OBSBOT Center appears to be tied to `cameraSetFaceAER`, which
@@ -59,17 +61,16 @@ shape before touching the bridge.
 
 ## Open questions before implementing
 
-1. **Why the refresh icon next to Auto Exposure + Auto WB?** - likely
-   means the SDK / camera firmware can lose the auto state and OBSBOT
-   Center polls to re-sync. We should verify whether
-   `cameraGetExposureModeR` / `cameraGetMAEIsoR` drift, and decide
-   whether to:
-   - mirror the refresh button in our UI (passive), or
-   - have the bridge auto-re-apply on a periodic tick (active).
-   This matters because the user reported "auto exposure makes
-   camera very dark always" - possibly the firmware is silently
-   reverting to a different mode and OBSBOT Center's refresh button
-   re-applies the user's preference.
+1. **Why the refresh icon next to Auto Exposure + Auto WB?** - RESOLVED
+   in PR P (2026-05-12). We mirror it in our UI with a single
+   "Refresh from camera" action on the Image tab that calls the
+   bridge `image.refresh` command. The bridge reads back
+   exposure_mode / ev_bias / anti_flicker / wb_type+kelvin via
+   `cameraGetExposureModeR`, `cameraGetAAEEvBiasR`,
+   `cameraGetAntiFlickR`, `cameraGetWhiteBalanceR` and stamps its
+   snapshot, which then flows out to every connected phone as a
+   normal state event. Useful when OBSBOT Center or another phone
+   changed values out-of-band.
 
 2. **`Compensation` slider scale**: OBSBOT Center shows centered-at-0
    with no units. The libdev API exposes `DevAEEvBiasType` as a discrete
@@ -77,9 +78,9 @@ shape before touching the bridge.
    Need to confirm the Compensation slider maps to this enum or to a
    different finer-grained UVC parameter.
 
-3. **"tail air" category on EV bias APIs**: SDK header tags
-   `cameraSetAAEEvBiasR` / `cameraSetPAEEvBiasR` / `cameraSetSAEEvBiasR`
-   under `tail air` - needs empirical test whether Tiny 2 Lite accepts.
+3. **"tail air" category on EV bias APIs**: RESOLVED in PR P. Tiny 2
+   Lite firmware 6.2.8.1 accepts every enum (0..18) and every
+   exposure_mode value with r=0. SDK header tag is misleading.
 
 4. **AE Mode "Face"**: maps to `cameraSetFaceAER(true)`? Or to a
    separate exposure-mode enum? Verify before adding the toggle.

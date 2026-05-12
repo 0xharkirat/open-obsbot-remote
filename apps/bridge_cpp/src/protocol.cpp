@@ -252,6 +252,15 @@ void dispatch_message(DeviceSession& session,
         session.cmd_image_set_wb_temp(msg.value("kelvin", 4700), reply_cb);
         return;
     }
+    // v1.2.1 PR P — re-read live exposure / anti-flicker / WB state
+    // from the camera. Defensive against firmware drift or other
+    // apps (OBSBOT Center, etc.) that may have changed values while
+    // we were disconnected. UI binds to a "Refresh from camera"
+    // button on the Image tab.
+    if (action == "image.refresh") {
+        session.cmd_image_refresh(reply_cb);
+        return;
+    }
 
     if (action == "system.run_status") {
         string s = msg.value("status", "run");

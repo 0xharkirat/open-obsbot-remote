@@ -868,10 +868,11 @@ void DeviceSession::cmd_image_set_flip_h(bool e, ReplyFn reply) {
 // --- v1.2 PR G: exposure / anti-flicker / white balance ---------------------
 //
 // cameraSetExposureModeR + cameraSetAAEEvBiasR are SDK-tagged "tail air"
-// only. We attempt them on Tiny 2 Lite because the API surface is
-// uniform across products; if the SDK rejects, we report ok=false with
-// "unsupported" so the client UI can gray out the controls but the
-// rest of the panel keeps working.
+// only in libdev's headers, but empirical probing on a live Tiny 2 Lite
+// (firmware 6.2.8.1, chore/exposure-empirical-probe, 2026-05-12) showed
+// every variant returns r=0 — the firmware accepts them. The earlier
+// "unsupported" guard was unnecessary and made the UI grey out
+// permanently-working controls.
 
 namespace {
 // DevAEEvBiasType maps -3.0..+3.0 in 1/3 stops onto enum 0..18.
@@ -916,7 +917,7 @@ void DeviceSession::cmd_image_set_exposure_mode(const std::string& mode, ReplyFn
             snap_.exposure_mode = (mode == "manual") ? "manual" : "auto";
             return ok();
         }
-        return err("unsupported", "exposure mode not supported on this camera");
+        return err("device_busy", "exposure mode failed");
     }, std::move(reply));
 }
 
@@ -931,7 +932,7 @@ void DeviceSession::cmd_image_set_ev_bias(float bias, ReplyFn reply) {
             snap_.ev_bias = ev_bias_from_enum(idx);
             return ok();
         }
-        return err("unsupported", "EV bias not supported on this camera");
+        return err("device_busy", "EV bias failed");
     }, std::move(reply));
 }
 
@@ -986,6 +987,40 @@ void DeviceSession::cmd_image_set_wb_temp(int kelvin, ReplyFn reply) {
             return ok();
         }
         return err("device_busy", "wb temp failed");
+    }, std::move(reply));
+}
+
+// v1.2.1 PR P — re-read live exposure / anti-flicker / WB state from
+// the camera. Best-effort per field: if any individual read fails the
+// snap_ field is left at its current value (no clobber to a bogus
+// default). Always returns ok() unless the device is missing.
+void DeviceSession::cmd_image_refresh(ReplyFn reply) {
+    submit([this]() -> CmdResult {
+        REQUIRE_DEV();
+        int32_t exp_mode = -1;
+        if (dev_->cameraGetExposureModeR(exp_mode) == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            // DevExposureManual=1, DevExposureAllAuto=2.
+            snap_.exposure_mode = (exp_mode == 1) ? "manual" : "auto";
+        }
+        Device::DevAEEvBiasType bias_enum;
+        if (dev_->cameraGetAAEEvBiasR(bias_enum) == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ev_bias = ev_bias_from_enum(static_cast<int>(bias_enum));
+        }
+        int32_t flick = -1;
+        if (dev_->cameraGetAntiFlickR(flick) == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.anti_flicker = anti_flicker_from_enum(flick);
+        }
+        Device::DevWhiteBalanceType wb_type;
+        int32_t wb_kelvin = 0;
+        if (dev_->cameraGetWhiteBalanceR(wb_type, wb_kelvin) == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.wb_auto = (wb_type == Device::DevWhiteBalanceAuto);
+            if (wb_kelvin > 0) snap_.wb_kelvin = wb_kelvin;
+        }
+        return ok();
     }, std::move(reply));
 }
 
