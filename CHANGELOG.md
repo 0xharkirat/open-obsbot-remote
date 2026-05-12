@@ -4,6 +4,21 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+- `velocityScale` field on `WsClient` (plus its `velocity_scale`
+  SharedPreferences key and the v1.2 `PtzPad` multiplier). The
+  user-facing speed slider was dropped during the v1.2 review pass.
+  The field hung around defaulting to 1.0; removing it simplifies
+  the PTZ math back to "joystick deflection magnitude = analog
+  speed".
+
 ## [1.2.0] - 2026-05-12
 
 Real-world livestream feedback drove this round. The big themes: redesign

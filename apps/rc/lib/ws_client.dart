@@ -368,12 +368,6 @@ class WsClient extends ChangeNotifier {
   bool _gridThirds = false;
   bool _gridReadout = true;
 
-  /// Live-velocity multiplier (0.1 .. 1.0) applied to both the joystick
-  /// pad's analog deflection AND the 8-way hold buttons. Persisted as
-  /// `velocity_scale`. Defaults to 1.0 (full speed) so existing users
-  /// don't get a surprise slowdown on first launch.
-  double _velocityScale = 1.0;
-
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
@@ -382,18 +376,8 @@ class WsClient extends ChangeNotifier {
       _gridCenterLines = p.getBool('grid_center_lines') ?? _gridCenterLines;
       _gridThirds = p.getBool('grid_thirds') ?? _gridThirds;
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
-      final vs = p.getDouble('velocity_scale');
-      if (vs != null) _velocityScale = vs.clamp(0.1, 1.0);
       notifyListeners();
     });
-  }
-
-  double get velocityScale => _velocityScale;
-  Future<void> setVelocityScale(double v) async {
-    _velocityScale = v.clamp(0.1, 1.0);
-    notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setDouble('velocity_scale', _velocityScale);
   }
 
   bool get gridCrosshair => _gridCrosshair;
