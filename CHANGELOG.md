@@ -4,6 +4,8 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-12
+
 Real-world livestream feedback drove this round. The big themes: redesign
 the advanced UI around three consistent tabs, expose every camera-image
 control inside the app (so the user never needs OBSBOT Center for daily
