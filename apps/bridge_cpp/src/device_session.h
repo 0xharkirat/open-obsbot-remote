@@ -91,6 +91,17 @@ struct DeviceSnapshot {
     bool auto_focus = true;
     int  manual_focus = 50;
     bool flip_h = false;
+
+    // Exposure / WB (v1.2 PR G). Tiny 2 Lite SDK support is partial:
+    //   - anti_flicker, wb_auto, wb_kelvin work via the standard SDK calls.
+    //   - exposure_mode + ev_bias are tagged "tail air" in dev.hpp; the
+    //     bridge attempts the SDK calls and reports ok=false on failure
+    //     so the client UI can grey out the controls.
+    std::string exposure_mode = "auto";    // "auto" | "manual"
+    float ev_bias = 0.0f;                  // -3.0 .. +3.0 (1/3 stops)
+    std::string anti_flicker = "off";      // "off" | "50" | "60" | "auto"
+    bool wb_auto = true;
+    int wb_kelvin = 4700;                  // typical midpoint when auto off
 };
 
 // Result of a command execution.
@@ -145,6 +156,16 @@ public:
     void cmd_image_set_face_ae(bool e, ReplyFn reply);
     void cmd_image_set_face_focus(bool e, ReplyFn reply);
     void cmd_image_set_flip_h(bool e, ReplyFn reply);
+
+    // v1.2 PR G — exposure / anti-flicker / white balance.
+    // exposure_mode + ev_bias are tagged "tail air" in the SDK and may
+    // return non-zero on Tiny 2 Lite; the cmd reports ok=false then.
+    void cmd_image_set_exposure_mode(const std::string& mode, ReplyFn reply);
+    void cmd_image_set_ev_bias(float bias, ReplyFn reply);
+    void cmd_image_set_anti_flicker(const std::string& mode, ReplyFn reply);
+    void cmd_image_set_wb_auto(bool enabled, ReplyFn reply);
+    void cmd_image_set_wb_temp(int kelvin, ReplyFn reply);
+
     void cmd_system_run_status(const std::string& s, ReplyFn reply);
     void cmd_preset_recall(int id, int duration_ms, ReplyFn reply);
     void cmd_preset_save(int id, const std::string& name, ReplyFn reply);

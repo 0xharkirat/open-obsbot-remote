@@ -26,7 +26,7 @@ Source for the matrix: `docs/SDK_EXPLORATION.md`. The numbers above are estimate
 3. **Status decoding.** In `poll_status_locked()`, extend the `if (productType() == ...)` branch to read the right union member. For Meet series read `cs.meet.*`. For Tail Air read `cs.tail_air.*`.
 4. **Zoom range.** In `on_dev_changed()`, set `snap_.zoom_max` per model.
 5. **Camera-specific actions.** If your camera has features the protocol doesn't currently expose (e.g. Meet's virtual background, Tail Air's recording), add new actions in `protocol.cpp` + `device_session.{h,cpp}`. Document in `docs/PROTOCOL.md` first.
-6. **UI.** Most controls live in `apps/rc/lib/control_screen.dart`. Add gating per-camera so e.g. virtual background only shows for Meet.
+6. **UI.** In v1.2 the advanced-mode controls split across `apps/rc/lib/control_screen.dart` (the screen shell, AppBar actions like grid menu and Sequence) and `apps/rc/lib/tab_shell.dart` (the 3-tab body: Joystick, Buttons, Image). Add gating per-camera in the relevant section so, for example, virtual background only shows for Meet, or zone-tracking only shows for Tiny SE. Simple mode is in `apps/rc/lib/simple_mode_screen.dart`.
 7. **Test on real hardware** for at least an hour — libdev's failure modes are weird and surface only over time.
 8. **Update this file** with what you learned.
 

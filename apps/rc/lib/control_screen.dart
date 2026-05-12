@@ -3,7 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'cache_menu.dart';
-import 'preview_widget.dart';
+import 'sequencer_screen.dart';
+import 'tab_shell.dart';
 import 'ws_client.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -48,7 +49,24 @@ class _ControlScreenState extends State<ControlScreen> {
                   child: Text('${widget.client.lastLatencyMs} ms'),
                 ),
               ),
-              _speedMenu(context),
+              // Move-duration is controlled by the chip strip at the
+              // bottom of every advanced-mode tab — no need to mirror
+              // it in the AppBar. Simple mode (which has no chips)
+              // still surfaces the popup in its own AppBar.
+              _gridMenu(context),
+              IconButton(
+                tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
+                icon: Icon(
+                  s.sequence.running
+                      ? Icons.multiline_chart
+                      : Icons.timeline,
+                ),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SequencerScreen(client: widget.client),
+                  ),
+                ),
+              ),
               if (widget.onSwitchSimple != null)
                 IconButton(
                   tooltip: 'Simple mode',
@@ -64,336 +82,79 @@ class _ControlScreenState extends State<ControlScreen> {
             ],
           ),
           body: SafeArea(
-            child: LayoutBuilder(
-              builder: (BuildContext ctx, BoxConstraints c) {
-                final landscape = c.maxWidth > c.maxHeight;
-                return landscape
-                    ? _buildLandscape(s)
-                    : _buildPortrait(s);
-              },
-            ),
+            // Status chips removed in the post-review pass — every field
+            // they carried has a dedicated home now:
+            //   * Pan / Tilt → overlaid on the preview (grid readout).
+            //   * Zoom       → next to the vertical zoom slider.
+            //   * AI mode    → Image tab → Auto-track segmented.
+            //   * FOV        → Image tab → View segmented.
+            //   * runStatus  → tray icon glyph in the menubar.
+            // Dropping the bar frees ~40 px of vertical space and gives
+            // the live preview more room to breathe on phones.
+            child: TabShell(client: widget.client),
           ),
         );
       },
     );
   }
 
-  Widget _speedMenu(BuildContext ctx) {
-    final cur = widget.client.moveDuration;
-    // Pick the icon of the closest preset; default to hourglass for
-    // anything not in the chip list.
-    IconData currentIcon = Icons.timer;
-    for (final p in kMoveDurationPresets) {
-      if (p.duration == cur) { currentIcon = p.icon; break; }
-    }
-    return PopupMenuButton<Duration>(
-      tooltip: 'Move duration (Instant ↔ slow pan)',
-      icon: Icon(currentIcon),
-      onSelected: (d) => widget.client.setMoveDuration(d),
-      itemBuilder: (BuildContext c) => <PopupMenuEntry<Duration>>[
-        for (final p in kMoveDurationPresets)
-          CheckedPopupMenuItem<Duration>(
-            value: p.duration,
-            checked: p.duration == cur,
-            child: Row(children: <Widget>[
-              Icon(p.icon, size: 16),
-              const SizedBox(width: 8),
-              Text(p.label),
-            ]),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildPortrait(CameraState s) {
-    // Mobile-portrait layout. Hero controls (preview + joystick + zoom
-    // slider) are PINNED above a scrollable region; only the action
-    // rows scroll. This is the only layout that works on touch devices
-    // — wrapping the whole page in SingleChildScrollView lets the
-    // scroll view's GestureRecognizer win the gesture arena over the
-    // joystick's GestureDetector, so vertical-first joystick drags get
-    // eaten as scrolls and the camera doesn't move. See
-    // docs/TOUCH_FINDINGS_2026-05-10.md for the reproduction.
-    return Column(
-      children: <Widget>[
-        _statusBar(s),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: PreviewWidget(client: widget.client),
+  Widget _gridMenu(BuildContext ctx) {
+    return PopupMenuButton<String>(
+      tooltip: 'Grid overlay',
+      icon: const Icon(Icons.grid_on),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        CheckedPopupMenuItem<String>(
+          value: 'crosshair',
+          checked: widget.client.gridCrosshair,
+          child: const Text('Center crosshair'),
         ),
-        // Joystick + zoom slider — fixed slice, NOT inside the scroll view.
-        SizedBox(
-          height: 280,
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: PtzPad(client: widget.client),
-                ),
-              ),
-              SizedBox(
-                width: 80,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: ZoomSlider(client: widget.client, state: s),
-                ),
-              ),
-            ],
-          ),
+        CheckedPopupMenuItem<String>(
+          value: 'center',
+          checked: widget.client.gridCenterLines,
+          // Renamed in the live-test feedback round: the "center lines"
+          // are no longer static — they translate with yaw / pitch and
+          // rotate with roll, like an aircraft attitude indicator. Use
+          // the airplane glyph so the menu hints at the new behavior.
+          child: const Text('Attitude indicator (steer to align)'),
         ),
-        // Bottom action rows scroll on small phones where they don't fit.
-        Expanded(
-          child: SingleChildScrollView(
-            child: _bottomBar(s),
-          ),
+        CheckedPopupMenuItem<String>(
+          value: 'thirds',
+          checked: widget.client.gridThirds,
+          child: const Text('Rule of thirds'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'readout',
+          checked: widget.client.gridReadout,
+          child: const Text('Pan / Tilt readout'),
         ),
       ],
+      onSelected: (v) {
+        switch (v) {
+          case 'crosshair':
+            widget.client.setGridCrosshair(!widget.client.gridCrosshair);
+          case 'center':
+            widget.client.setGridCenterLines(!widget.client.gridCenterLines);
+          case 'thirds':
+            widget.client.setGridThirds(!widget.client.gridThirds);
+          case 'readout':
+            widget.client.setGridReadout(!widget.client.gridReadout);
+        }
+      },
     );
   }
 
-  Widget _buildLandscape(CameraState s) {
-    return Column(
-      children: <Widget>[
-        _statusBar(s),
-        Expanded(
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                flex: 6,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: <Widget>[
-                      PreviewWidget(client: widget.client),
-                      const SizedBox(height: 8),
-                      Expanded(child: PtzPad(client: widget.client)),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 90,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: ZoomSlider(client: widget.client, state: s),
-                ),
-              ),
-              Expanded(
-                flex: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: _bottomControls(s),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _statusBar(CameraState s) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 4,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: <Widget>[
-          _chip('YAW', '${s.yaw.toStringAsFixed(1)}°'),
-          _chip('PITCH', '${s.pitch.toStringAsFixed(1)}°'),
-          _chip('ZOOM', '${s.zoom.toStringAsFixed(2)}×'),
-          _chip('AI', s.aiMode),
-          _chip('FOV', '${s.fov}°'),
-          if (s.runStatus != 'run') _chip('STATUS', s.runStatus.toUpperCase()),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Text.rich(TextSpan(children: <TextSpan>[
-        TextSpan(text: '$k ', style: TextStyle(
-          color: Theme.of(context).colorScheme.outline,
-          fontSize: 12,
-        )),
-        TextSpan(text: v, style: const TextStyle(
-          fontWeight: FontWeight.w600, fontSize: 14,
-        )),
-      ])),
-    );
-  }
-
-  Widget _bottomBar(CameraState s) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: _bottomControls(s),
-      ),
-    );
-  }
-
-  List<Widget> _bottomControls(CameraState s) {
-    return <Widget>[
-      Row(children: <Widget>[
-        Expanded(child: _bigBtn('Recenter', Icons.center_focus_strong,
-            () => widget.client.ptzRecenter())),
-        const SizedBox(width: 8),
-        Expanded(child: _bigBtn('Sleep', Icons.bedtime,
-            () => widget.client.runStatus('sleep'))),
-        const SizedBox(width: 8),
-        Expanded(child: _bigBtn('Wake', Icons.wb_sunny,
-            () => widget.client.runStatus('run'))),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: <Widget>[
-        Expanded(child: _toggleBtn('AI HUMAN', s.aiMode == 'human',
-            () => widget.client.aiSetMode(
-                s.aiMode == 'human' ? 'none' : 'human', 'normal'))),
-        const SizedBox(width: 8),
-        Expanded(child: _toggleBtn('HDR', s.hdr,
-            () => widget.client.hdr(!s.hdr))),
-        const SizedBox(width: 8),
-        Expanded(child: _toggleBtn('FOV ${s.fov}°', false, () {
-          final next = s.fov == 86 ? 78 : (s.fov == 78 ? 65 : 86);
-          widget.client.fov(next);
-        })),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: <Widget>[
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_left,
-          label: 'Left',
-          client: widget.client,
-          yawSpeed: -80,
-          pitchSpeed: 0,
-        )),
-        const SizedBox(width: 8),
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_up,
-          label: 'Up',
-          client: widget.client,
-          yawSpeed: 0,
-          pitchSpeed: 40,
-        )),
-        const SizedBox(width: 8),
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_down,
-          label: 'Down',
-          client: widget.client,
-          yawSpeed: 0,
-          pitchSpeed: -40,
-        )),
-        const SizedBox(width: 8),
-        Expanded(child: _HoldDirBtn(
-          icon: Icons.keyboard_arrow_right,
-          label: 'Right',
-          client: widget.client,
-          yawSpeed: 80,
-          pitchSpeed: 0,
-        )),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: <Widget>[
-        Expanded(child: _presetBtn(0, 'P1', s)),
-        const SizedBox(width: 8),
-        Expanded(child: _presetBtn(1, 'P2', s)),
-        const SizedBox(width: 8),
-        Expanded(child: _presetBtn(2, 'P3', s)),
-        const SizedBox(width: 8),
-        Expanded(child: _presetBtn(3, 'P4', s)),
-      ]),
-    ];
-  }
-
-  Widget _bigBtn(String label, IconData icon, VoidCallback onTap) {
-    return SizedBox(
-      height: 56,
-      child: FilledButton.tonalIcon(
-        onPressed: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        icon: Icon(icon),
-        label: Text(label, overflow: TextOverflow.ellipsis),
-      ),
-    );
-  }
-
-  Widget _toggleBtn(String label, bool on, VoidCallback onTap) {
-    return SizedBox(
-      height: 56,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          backgroundColor: on
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
-          foregroundColor: on
-              ? Theme.of(context).colorScheme.onPrimary
-              : Theme.of(context).colorScheme.onSurface,
-        ),
-        onPressed: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        child: Text(label, textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis),
-      ),
-    );
-  }
-
-  Widget _presetBtn(int id, String label, CameraState s) {
-    return SizedBox(
-      height: 64,
-      child: GestureDetector(
-        onLongPress: () {
-          HapticFeedback.heavyImpact();
-          widget.client.presetSave(id, label);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Saved $label at current position'),
-                duration: const Duration(milliseconds: 800)),
-          );
-        },
-        child: FilledButton.tonal(
-          onPressed: () {
-            HapticFeedback.lightImpact();
-            widget.client.presetRecall(id);
-          },
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(label, style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w700)),
-              const Text('hold to save', style: TextStyle(fontSize: 9)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ----------------------------------------------------------------------------
 
-class _HoldDirBtn extends StatefulWidget {
+class HoldDirBtn extends StatefulWidget {
   final IconData icon;
   final String label;
   final WsClient client;
   final double yawSpeed;
   final double pitchSpeed;
-  const _HoldDirBtn({
+  const HoldDirBtn({
+    super.key,
     required this.icon,
     required this.label,
     required this.client,
@@ -402,10 +163,29 @@ class _HoldDirBtn extends StatefulWidget {
   });
 
   @override
-  State<_HoldDirBtn> createState() => _HoldDirBtnState();
+  State<HoldDirBtn> createState() => HoldDirBtnState();
 }
 
-class _HoldDirBtnState extends State<_HoldDirBtn> {
+/// Press-and-hold directional button used by the 8-way pad on the
+/// Buttons tab.
+///
+/// Pre-revamp this wrapped a `Listener` inside a `FilledButton.tonal`
+/// with a no-op `onPressed: () {}`. Two problems on Flutter web (Mac
+/// Safari + iPhone Safari) + in Material's gesture arena:
+///
+///   - The button's internal `TapGestureRecognizer` won the gesture
+///     arena on a quick tap, so the inner `Listener.onPointerUp` never
+///     fired and the ticker kept running until the next button press.
+///   - On vertical drags (Up / Down on the 3×3 pad) the surrounding
+///     `SingleChildScrollView` claimed the pointer once the user's
+///     finger moved a few pixels, cancelling the press silently with
+///     no velocity actually delivered to the bridge — user reported
+///     "up / down don't work".
+///
+/// This rewrite uses a raw `Listener` directly on a `Material` surface
+/// (no Button wrapper) so press / release / cancel events are first-
+/// class and no upstream recognizer can steal them.
+class HoldDirBtnState extends State<HoldDirBtn> {
   Timer? _ticker;
   bool _down = false;
 
@@ -444,26 +224,33 @@ class _HoldDirBtnState extends State<_HoldDirBtn> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 56,
-      child: FilledButton.tonal(
-        style: FilledButton.styleFrom(
-          backgroundColor: _down ? cs.primary : cs.surfaceContainerHighest,
-          foregroundColor: _down ? cs.onPrimary : cs.onSurface,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => _start(),
+      onPointerUp: (_) => _end(),
+      onPointerCancel: (_) => _end(),
+      child: Material(
+        color: _down ? cs.primary : cs.surfaceContainerHighest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
-        onPressed: () {},
-        child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (_) => _start(),
-          onPointerUp: (_) => _end(),
-          onPointerCancel: (_) => _end(),
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(widget.icon, size: 22),
-              Text(widget.label, style: const TextStyle(fontSize: 11)),
+              Icon(
+                widget.icon,
+                size: 22,
+                color: _down ? cs.onPrimary : cs.onSurface,
+              ),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _down ? cs.onPrimary : cs.onSurface,
+                ),
+              ),
             ],
           ),
         ),
@@ -495,9 +282,12 @@ class _PtzPadState extends State<PtzPad> {
     _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) {
       final dx = _delta.dx;
       final dy = _delta.dy;
-      // map -1..1 → speed
-      final yawSpeed = (dx * 120).clamp(-150.0, 150.0);
-      final pitchSpeed = (-dy * 60).clamp(-80.0, 80.0);
+      // map -1..1 → speed, then scale by the shared velocity slider
+      // (`client.velocityScale`) so the joystick + the 8-way pad share
+      // a single "how fast" knob.
+      final scale = widget.client.velocityScale;
+      final yawSpeed = (dx * 120 * scale).clamp(-150.0, 150.0);
+      final pitchSpeed = (-dy * 60 * scale).clamp(-80.0, 80.0);
       widget.client.ptzVelocity(yawSpeed: yawSpeed, pitchSpeed: pitchSpeed);
     });
   }
@@ -657,17 +447,24 @@ class _ZoomSliderState extends State<ZoomSlider> {
               onChanged: (double nv) {
                 setState(() => _dragValue = nv);
                 final now = DateTime.now();
-                if (now.difference(_lastSent) >= _minSendGap) {
-                  widget.client.zoomSet(nv);
-                  _lastSent = now;
-                }
+                if (now.difference(_lastSent) < _minSendGap) return;
+                _lastSent = now;
+                // When the user has picked a slow move-duration (e.g.
+                // 5 s, 30 s, 3 min) the bridge planner runs to that
+                // target. Sending a new value every 100 ms while
+                // dragging would cancel-and-restart the planner at
+                // each tick — lens motor stutters, never reaching
+                // the target. So: mid-drag is always *instant* so the
+                // lens follows your finger; the chosen move-duration
+                // is applied only on release (terminal=true below).
+                widget.client.zoomSet(nv, duration: Duration.zero);
               },
               onChangeEnd: (double nv) {
-                // Always send terminal value so we never end on a stale tick.
-                // `terminal:true` bypasses the bridge's mid-drag coalesce so
-                // the final lens position always lands exactly where the
-                // user released — even if the gap from the previous tick is
-                // tiny.
+                // Final value uses the user's chosen move-duration so
+                // a slow chip ("30 s") gives a smooth ease-in-out from
+                // the current lens position to nv over that window.
+                // `terminal:true` bypasses the bridge's mid-drag
+                // coalesce so the lens always lands exactly on nv.
                 widget.client.zoomSet(nv, terminal: true);
                 _lastSent = DateTime.now();
                 Future<void>.delayed(const Duration(milliseconds: 200),

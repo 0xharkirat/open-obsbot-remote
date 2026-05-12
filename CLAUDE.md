@@ -123,3 +123,103 @@ See README.md "Features" and "Known Limits" sections. Tiny 2 Lite is the tested 
 - Don't rewrite working code unless asked. Add features behind toggles, keep the demo path intact.
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
 - When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.
+
+## Current dev state (v1.2 ready for merge)
+
+**Last release:** v1.1.0 (commit `87bbe0a`). After v1.1 the workflow is PR-styled. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`. Squash-merge to `main` is the default.
+
+**v1.2 work lives on a single PR** (`PR #16` / branch `fix/ui-revamp-from-review`) that supersedes the original A through K plan. The branch carries every commit from the v1.2 stack, plus the post-review fix-ups. Once that PR merges, `[Unreleased]` in `CHANGELOG.md` becomes `[1.2.0]`.
+
+### Final v1.2 shape
+
+| Area | Result |
+|---|---|
+| Advanced UI | 3 tabs: Joystick / Buttons / Image. Same template on Joystick and Buttons: top quick-actions row, gimbal control + vertical zoom slider, inline P1 to P6 preset row, duration chip strip at the bottom. |
+| Sequence editor | Inline timeline; opened via an AppBar action (`Icons.timeline`). The Sequence tab was dropped. |
+| Presets | Inlined on Joystick and Buttons (long-press for Save / Recall instantly / Rename). The Presets tab was dropped. |
+| Status chip bar | Removed. Pan/Tilt is in the preview overlay, zoom is next to its slider, AI/FOV live on the Image tab, run-status is the tray icon glyph. |
+| Image tab | Auto-track (Off / Person / Group), View (Wide / Normal / Narrow), Tone toggles (HDR / Face exposure / Face focus / Flip), Exposure (Auto / Manual + EV bias slider), Anti-flicker, White balance (Auto + Temperature), Color sliders. Per-section Reset buttons + per-slider inline reset. |
+| Grid overlay | 4 layers (crosshair / attitude indicator / rule of thirds / Pan-Tilt readout). Toggled from an AppBar grid menu; persisted via SharedPreferences. |
+| Color scheme | OBSBOT red `#FF3B30` accent on deep neutral `#0F1115`. |
+| Bridge tray | macOS menubar via `tray_manager`. Closing the window hides it; the bridge keeps running. |
+| forui migration | Pair screen migrated (FScaffold / FHeader.nested / FButton on `FThemes.zinc.dark.touch`). TabShell wrapped in FTheme; tab content stays on Material via a transparent Material shim where inputs need a Material ancestor. |
+| Plain language sweep | "Yaw / Pitch" -> "Pan / Tilt", "Auto-expose for face" -> "Face exposure", "AI HUMAN/GROUP" -> "Person/Group", "FOV 86" -> "Wide". |
+
+### Test harness
+
+Run before merging. All run against a connected Tiny 2 Lite.
+
+```bash
+NODE=/Users/hark/.nvm/versions/node/v22.21.1/bin/node
+$NODE tests/bridge_smoke.mjs       # 27 tests: connect / preset / sequence / image / sign convention
+$NODE tests/sequencer_save.mjs     # 6 tests:  duration_ms persistence + legacy speed migration
+$NODE tests/slow_motion.mjs        # 7 tests:  duration_ms timings (200ms / 1s / 5s / 15s / 60s)
+$NODE tests/zoom_speed.mjs         # 9 tests:  zoom planner duration timings
+$NODE tests/exposure.mjs           # 8 tests:  exposure mode + EV bias + anti-flicker + WB
+$NODE tests/zoom_smoothness.mjs    # samples zoom over 5s and 30s plans; flags lens stalls
+```
+
+Plus offline widget tests:
+
+```bash
+cd apps/rc && flutter test
+# tab_shell_test.dart   - 20 tests for the 3-tab structure + Image tab sections
+# pin_entry_test.dart   - 1  test  for the forui pair screen
+```
+
+Total: **78 / 78** with no log warnings on live camera.
+
+### MotionPlanner architecture (`apps/bridge_cpp/src/device_session.{h,cpp}`)
+
+- Single worker thread (`motion_loop`) owns interpolation between waypoints.
+- `MotionTarget { optional yaw/pitch/roll/zoom + duration_ms + tick_ms + tag }`.
+- `motion_start(target)` enqueues + signals cv; `motion_cancel()` preempts (cancel-replace).
+- Easing: `ease_in_out_sine` for cinematographic deceleration.
+- Adaptive tick on gimbal axes: stretches tick to keep per-step delta at least 0.1 deg per tick (avoids motor jitter at sub-SDK floors).
+- Gimbal: `gimbalSetSpeedPositionR(..., speed=90)` per waypoint. Speed is the SDK ceiling; we control the rate by how often we update the target.
+- Zoom: `cameraSetZoomAbsoluteR(value, -1)` per waypoint, where `value` is a float. The uint-API `cameraSetZoomWithSpeedAbsoluteR` is broken on Tiny 2 Lite (gets stuck around 1.33x); the float-API produces smooth continuous motion.
+- Any direct gimbal/zoom command (instant jog, velocity, terminal zoom snap) calls `motion_cancel()` first to preempt the in-flight planner.
+
+### Protocol (v1.2 deltas vs v1.1)
+
+- `ptz.angle`, `zoom.set`, `preset.recall` take `"duration_ms": <int>` (ms). `0` is instant; positive integers run the planner with ease-in-out-sine.
+- `zoom.set` also takes an optional `"final": true` flag (terminal release value; bypasses the mid-drag coalesce).
+- `sequence.set` / `sequence.save_as` step shape is `{ "preset_id", "seconds", "transition_ms" }`. The old `"speed": "instant" | "slow" | "medium" | "fast" | "cinema"` enum is gone; legacy saves still load via `legacy_speed_to_ms()`.
+- `ptz.velocity` no longer carries `speed`. Rate is implicit from `yaw_speed` and `pitch_speed`; the planner is not invoked.
+- New image actions: `image.set_exposure_mode` (auto / manual), `image.set_ev_bias` (float -3.0 to +3.0), `image.set_anti_flicker` (off / 50 / 60 / auto), `image.set_wb_auto` (boolean), `image.set_wb_temp` (kelvin 2800 to 6500).
+- State event `image` block gains `exposure_mode`, `ev_bias`, `anti_flicker`, `wb_auto`, `wb_kelvin`. `sequence` block gains `steps` so the editor can hydrate after reconnecting.
+
+### Skills checklist per PR (see `.agents/skills/`)
+
+Tab/layout work uses:
+- `flutter-build-responsive-layout` (constraints-driven, not device-class).
+- `flutter-add-widget-preview` (preview tabs at all breakpoints without launching the app).
+
+Design + a11y work uses:
+- `design:design-system`, `design:ux-copy`, `design:design-critique`,
+- `design:accessibility-review`, `design:design-handoff`.
+
+19 skills total under `.agents/skills/`. Prefer these over Playwright-only flows (see `memory/project_tooling_pref.md`). Playwright is still the right tool for end-to-end web-shell verification (it caught the "Recenter wraps" and "preview not visible after cache" issues during v1.2).
+
+### Reference docs
+
+- `docs/PROTOCOL.md` (refreshed for v1.2: duration_ms, exposure, WB, anti-flicker, sequence step migration).
+- `docs/ARCHITECTURE.md` (system shape + bundle layout).
+- `docs/SLOW_MOTION_DESIGN.md` (design doc that landed as `duration_ms`; see header for the rename).
+- `docs/UI_REDESIGN_SPEC.md` (original 5-tab plan + post-review revision section explaining the 3-tab final state).
+- `docs/EXPOSURE_REFERENCE.md` (OBSBOT Center capture; PR G shipped these).
+- `docs/CONTRIBUTING.md` (PR workflow rules; smoke battery is 78/78).
+- `docs/TOUCH_FINDINGS_2026-05-10.md` (v1.1 touch-emulation reproduction; resolution footnote at the bottom).
+
+### Things that bit us during v1.2
+
+21. **`speed_str()` switch non-exhaustive.** When adding new MoveSpeed values pre-removal, sequencer save silently downgraded `ultra`/`cinema` to `medium` on disk. The MoveSpeed enum is now gone (v1.2 uses `duration_ms`) but `tests/sequencer_save.mjs` keeps a migration test so the same trap cannot reopen.
+22. **Zoom planner pre-stamped target.** `cmd_zoom_set` planner branch wrote `snap_.zoom = v` before the planner ran, so state events showed the target instantly instead of progressively. Removed the pre-stamp; planner ticks own `snap_.zoom` while running.
+23. **Instant zoom didn't cancel planner.** Terminal/instant zoom path skipped `motion_cancel()`, so an in-flight slow zoom kept pushing the old target. Added `if (terminal) motion_cancel();` to the instant branch.
+24. **Joystick eats scroll.** Pre-redesign single-page layout meant the joystick `PtzPad` swallowed scroll gestures in the surrounding `ListView`. Could not be fixed incrementally. Solved structurally by giving the joystick its own tab; scrolling action rows live on other tabs.
+25. **`Yaw` / `Pitch` jargon.** Operators do not know these. Replaced with `Pan` / `Tilt` everywhere a user reads it (grid overlay readout, Image tab copy).
+26. **`cameraSetZoomWithSpeedAbsoluteR` is broken on Tiny 2 Lite.** The uint-API gets stuck around 1.33x regardless of the speed param. The SDK's zoom_speed field is tagged "tail2 / tail2s only" in `dev.hpp`, so on Tiny 2 Lite it is effectively ignored. The float-API `cameraSetZoomAbsoluteR(value, -1)` works (smooth 3-second 1.0x -> 2.0x sweep at default speed) and accepts sub-percent waypoints. Verified by `tests/zoom_probe.mjs` (kept locally; the helper bridge action was removed before merge).
+27. **`HoldDirBtn` lost pointer events on web.** Wrapping `Listener` inside a `FilledButton.tonal` with a no-op `onPressed: () {}` let the button's internal `TapGestureRecognizer` win the gesture arena on quick taps, so `Listener.onPointerUp` never fired and the velocity ticker stayed running. The rewrite uses a raw `Listener` on a `Material` surface so press / release / cancel are first-class.
+28. **ZoomSlider mid-drag fought the planner.** During a drag the slider sent the user's chosen `duration_ms` on every tick; the planner cancelled and restarted every 100 ms. Mid-drag is now always `duration: Duration.zero` (instant); the chosen duration is applied only on release (`final: true`).
+29. **forui `FButton` overflow at 3-per-row narrow widths.** At 360 px the Joystick quick-actions row gives each button ~110 px; `FButton`'s intrinsic padding overflows even with `mainAxisSize.min` + `size.sm`. Kept those buttons on Material `OutlinedButton`. Image tab toggles (2 per row, ~184 px each) could use FButton but were left on Material in this PR for simplicity. Worth filing an upstream issue or shimming.
+30. **`SharedPreferences` plugin hangs in flutter_test.** `WsClient`'s constructor calls `SharedPreferences.getInstance()` which under the test harness has no platform implementation. Tests must call `SharedPreferences.setMockInitialValues({})` in `setUp` to unblock. Added to `apps/rc/test/tab_shell_test.dart` + `pin_entry_test.dart`.

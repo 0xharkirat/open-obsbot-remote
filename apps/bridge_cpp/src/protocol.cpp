@@ -61,7 +61,13 @@ json build_state_event(const DeviceSnapshot& s) {
             {"face_focus", s.face_focus},
             {"auto_focus", s.auto_focus},
             {"manual_focus", s.manual_focus},
-            {"flip_h", s.flip_h}
+            {"flip_h", s.flip_h},
+            // v1.2 PR G additions.
+            {"exposure_mode", s.exposure_mode},
+            {"ev_bias", s.ev_bias},
+            {"anti_flicker", s.anti_flicker},
+            {"wb_auto", s.wb_auto},
+            {"wb_kelvin", s.wb_kelvin},
         }},
         {"presets", presets},
         {"active_preset_id", s.active_preset_id},
@@ -186,7 +192,6 @@ void dispatch_message(DeviceSession& session,
         session.cmd_zoom_set_smooth(v, s, reply_cb);
         return;
     }
-
     if (action == "ai.set_mode") {
         string m = msg.value("mode", "none");
         string sub = msg.value("sub_mode", "normal");
@@ -225,6 +230,28 @@ void dispatch_message(DeviceSession& session,
     if (action == "image.set_face_ae")    { session.cmd_image_set_face_ae(msg.value("enabled", false), reply_cb); return; }
     if (action == "image.set_face_focus") { session.cmd_image_set_face_focus(msg.value("enabled", false), reply_cb); return; }
     if (action == "image.set_flip_h")     { session.cmd_image_set_flip_h(msg.value("enabled", false), reply_cb); return; }
+
+    // v1.2 PR G — exposure / anti-flicker / white balance.
+    if (action == "image.set_exposure_mode") {
+        session.cmd_image_set_exposure_mode(msg.value("mode", std::string("auto")), reply_cb);
+        return;
+    }
+    if (action == "image.set_ev_bias") {
+        session.cmd_image_set_ev_bias(static_cast<float>(msg.value("bias", 0.0)), reply_cb);
+        return;
+    }
+    if (action == "image.set_anti_flicker") {
+        session.cmd_image_set_anti_flicker(msg.value("mode", std::string("off")), reply_cb);
+        return;
+    }
+    if (action == "image.set_wb_auto") {
+        session.cmd_image_set_wb_auto(msg.value("enabled", true), reply_cb);
+        return;
+    }
+    if (action == "image.set_wb_temp") {
+        session.cmd_image_set_wb_temp(msg.value("kelvin", 4700), reply_cb);
+        return;
+    }
 
     if (action == "system.run_status") {
         string s = msg.value("status", "run");

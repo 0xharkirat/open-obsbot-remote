@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_mjpeg/flutter_mjpeg.dart';
 
+import 'grid_overlay.dart';
 import 'ws_client.dart';
 import 'web_mjpeg_stub.dart' if (dart.library.js_interop) 'web_mjpeg_web.dart';
 
@@ -14,7 +15,23 @@ import 'web_mjpeg_stub.dart' if (dart.library.js_interop) 'web_mjpeg_web.dart';
 ///                             Image widget on mobile doesn't grok multipart).
 class PreviewWidget extends StatelessWidget {
   final WsClient client;
-  const PreviewWidget({super.key, required this.client});
+  /// Show small `+` reticle at frame center.
+  final bool showCrosshair;
+  /// Show solid horizontal + vertical lines through dead center.
+  final bool showCenterLines;
+  /// Show rule-of-thirds dashed grid.
+  final bool showThirds;
+  /// Show top-left Pan / Tilt degrees readout.
+  final bool showReadout;
+
+  const PreviewWidget({
+    super.key,
+    required this.client,
+    this.showCrosshair = true,
+    this.showCenterLines = false,
+    this.showThirds = false,
+    this.showReadout = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +54,19 @@ class PreviewWidget extends StatelessWidget {
         aspectRatio: 16 / 9,
         child: ColoredBox(
           color: Colors.black,
-          child: kIsWeb ? _webStream(url) : _mobileStream(url),
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              kIsWeb ? _webStream(url) : _mobileStream(url),
+              GridOverlay(
+                client: client,
+                showCrosshair: showCrosshair,
+                showCenterLines: showCenterLines,
+                showThirds: showThirds,
+                showReadout: showReadout,
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -227,7 +227,10 @@ void DeviceSession::motion_loop() {
         }
 
         // Adaptive tick: keep at least 0.1° step / tick so the motor
-        // doesn't jitter on sub-resolution moves.
+        // doesn't jitter on sub-resolution gimbal moves. Zoom uses the
+        // float-API (cameraSetZoomAbsoluteR, see below) which honors
+        // sub-percent targets, so the fine 100 ms cadence works for
+        // any duration without integer-quantization stutter.
         int tick_ms = t.tick_ms > 0 ? t.tick_ms : 100;
         int ticks   = std::max(1, t.duration_ms / tick_ms);
         const float largest_axis = std::max({
@@ -237,8 +240,9 @@ void DeviceSession::motion_loop() {
             t.zoom_set  ? std::abs(t.zoom_ratio - start_zoom) * 90.f : 0.f,
         });
         const float per_tick = largest_axis / ticks;
-        if (per_tick > 0.f && per_tick < 0.1f) {
-            // Stretch tick to keep step ≥0.1° equivalent.
+        if (per_tick > 0.f && per_tick < 0.1f && !t.zoom_set) {
+            // Stretch tick to keep step ≥0.1° equivalent. Gimbal-only —
+            // zoom keeps the fine cadence per the note above.
             const int new_tick = (int)(tick_ms * (0.1f / per_tick));
             tick_ms = std::min(new_tick, 500);
             ticks   = std::max(1, t.duration_ms / tick_ms);
@@ -261,7 +265,14 @@ void DeviceSession::motion_loop() {
                 dev_->gimbalSetSpeedPositionR(ir, ip, iy, 90, 90, 90);
             }
             if (t.zoom_set) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(iz * 100.f), 10);
+                // Float-API cameraSetZoomAbsoluteR: accepts sub-percent
+                // float targets, lens motor handles continuous motion
+                // internally on Tiny 2 Lite. (tests/zoom_probe.mjs
+                // verified the uint32-API
+                // cameraSetZoomWithSpeedAbsoluteR is broken on Tiny 2
+                // Lite — gets stuck at 1.33×. Float API gives smooth
+                // 3 s 1.0→2.0 sweep + accepts fine waypoints.)
+                dev_->cameraSetZoomAbsoluteR(iz, -1);
             }
 
             // Mirror progress into snap_ so state events show motion.
@@ -291,7 +302,11 @@ void DeviceSession::motion_loop() {
                     90, 90, 90);
             }
             if (t.zoom_set) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(t.zoom_ratio * 100.f), 10);
+                // Terminal landing on the float API — same call shape
+                // as intra-plan waypoints so the lens doesn't
+                // momentarily snap when transitioning into the final
+                // exact target.
+                dev_->cameraSetZoomAbsoluteR(t.zoom_ratio, -1);
                 std::lock_guard<std::mutex> g(snap_mu_);
                 snap_.zoom = t.zoom_ratio;
                 pending_zoom_ = t.zoom_ratio;
@@ -605,12 +620,12 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
         // pushing toward the old target while the user just snapped to a
         // new value.
         if (terminal) motion_cancel();
-        // Lower zoom-motor speed (4) when mid-drag = smoother; speed 10
-        // on terminal. (No tier-based pacing here — that's handled by
-        // the planner branch above.)
-        uint32_t zspeed_motor = terminal ? 10u : 4u;
-        int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR(
-            (uint32_t)(v * 100.f), zspeed_motor);
+        // Float-API cameraSetZoomAbsoluteR: smooth on Tiny 2 Lite. The
+        // uint-API cameraSetZoomWithSpeedAbsoluteR is broken on this
+        // product — gets stuck at 1.33×. The speed param is ignored on
+        // Tiny 2 Lite anyway (the SDK header tags zoom_speed as
+        // "tail2/tail2s only").
+        int32_t r = dev_->cameraSetZoomAbsoluteR(v, -1);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = v;
@@ -633,7 +648,9 @@ void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
             return err("invalid_param", "zoom out of camera range");
         }
         if (speed < 1 || speed > 10) return err("invalid_param", "speed must be 1..10");
-        int32_t r = dev_->cameraSetZoomWithSpeedAbsoluteR((uint32_t)(value * 100.f), (uint32_t)speed);
+        // SDK speed ignored on Tiny 2 Lite — pass through anyway to the
+        // float API which handles speed internally per product.
+        int32_t r = dev_->cameraSetZoomAbsoluteR(value, speed);
         if (r == 0) {
             std::lock_guard<std::mutex> g(snap_mu_);
             snap_.zoom = value;
@@ -848,6 +865,130 @@ void DeviceSession::cmd_image_set_flip_h(bool e, ReplyFn reply) {
     }, std::move(reply));
 }
 
+// --- v1.2 PR G: exposure / anti-flicker / white balance ---------------------
+//
+// cameraSetExposureModeR + cameraSetAAEEvBiasR are SDK-tagged "tail air"
+// only. We attempt them on Tiny 2 Lite because the API surface is
+// uniform across products; if the SDK rejects, we report ok=false with
+// "unsupported" so the client UI can gray out the controls but the
+// rest of the panel keeps working.
+
+namespace {
+// DevAEEvBiasType maps -3.0..+3.0 in 1/3 stops onto enum 0..18.
+// idx = round((bias + 3.0) / (1/3))
+int ev_bias_to_enum(float bias) {
+    if (bias < -3.0f) bias = -3.0f;
+    if (bias >  3.0f) bias =  3.0f;
+    int idx = static_cast<int>((bias + 3.0f) * 3.0f + 0.5f);
+    if (idx < 0) idx = 0;
+    if (idx > 18) idx = 18;
+    return idx;
+}
+float ev_bias_from_enum(int idx) {
+    if (idx < 0) idx = 0;
+    if (idx > 18) idx = 18;
+    return (idx / 3.0f) - 3.0f;
+}
+int anti_flicker_to_enum(const std::string& m) {
+    if (m == "50") return 1;   // PowerLineFreq50
+    if (m == "60") return 2;   // PowerLineFreq60
+    if (m == "auto") return 3; // PowerLineFreqAuto
+    return 0;                  // PowerLineFreqOff
+}
+std::string anti_flicker_from_enum(int v) {
+    switch (v) {
+        case 1: return "50";
+        case 2: return "60";
+        case 3: return "auto";
+        default: return "off";
+    }
+}
+} // namespace
+
+void DeviceSession::cmd_image_set_exposure_mode(const std::string& mode, ReplyFn reply) {
+    submit([this, mode]() -> CmdResult {
+        REQUIRE_DEV();
+        int32_t ev = (mode == "manual") ? 1 /*DevExposureManual*/
+                                        : 2 /*DevExposureAllAuto*/;
+        int32_t r = dev_->cameraSetExposureModeR(ev);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.exposure_mode = (mode == "manual") ? "manual" : "auto";
+            return ok();
+        }
+        return err("unsupported", "exposure mode not supported on this camera");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_ev_bias(float bias, ReplyFn reply) {
+    submit([this, bias]() -> CmdResult {
+        REQUIRE_DEV();
+        int idx = ev_bias_to_enum(bias);
+        int32_t r = dev_->cameraSetAAEEvBiasR(
+            static_cast<Device::DevAEEvBiasType>(idx));
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.ev_bias = ev_bias_from_enum(idx);
+            return ok();
+        }
+        return err("unsupported", "EV bias not supported on this camera");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_anti_flicker(const std::string& mode, ReplyFn reply) {
+    submit([this, mode]() -> CmdResult {
+        REQUIRE_DEV();
+        int32_t r = dev_->cameraSetAntiFlickR(anti_flicker_to_enum(mode));
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.anti_flicker = anti_flicker_from_enum(anti_flicker_to_enum(mode));
+            return ok();
+        }
+        return err("device_busy", "anti-flicker failed");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_wb_auto(bool enabled, ReplyFn reply) {
+    submit([this, enabled]() -> CmdResult {
+        REQUIRE_DEV();
+        // Auto = DevWhiteBalanceAuto (0); param ignored.
+        // When switching to manual, preserve last kelvin.
+        int kelvin;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            kelvin = snap_.wb_kelvin;
+        }
+        const auto wb = enabled
+            ? Device::DevWhiteBalanceAuto
+            : Device::DevWhiteBalanceManual;
+        int32_t r = dev_->cameraSetWhiteBalanceR(wb, kelvin);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.wb_auto = enabled;
+            return ok();
+        }
+        return err("device_busy", "wb auto failed");
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_image_set_wb_temp(int kelvin, ReplyFn reply) {
+    submit([this, kelvin]() -> CmdResult {
+        REQUIRE_DEV();
+        int k = kelvin;
+        if (k < 2800) k = 2800;
+        if (k > 6500) k = 6500;
+        int32_t r = dev_->cameraSetWhiteBalanceR(
+            Device::DevWhiteBalanceManual, k);
+        if (r == 0) {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            snap_.wb_auto = false;
+            snap_.wb_kelvin = k;
+            return ok();
+        }
+        return err("device_busy", "wb temp failed");
+    }, std::move(reply));
+}
+
 void DeviceSession::cmd_system_run_status(const std::string& s, ReplyFn reply) {
     submit([this, s]() -> CmdResult {
         REQUIRE_DEV();
@@ -898,11 +1039,11 @@ void DeviceSession::cmd_preset_recall(int id, int duration_ms, ReplyFn reply) {
 
         int32_t r = 0;
         if (duration_ms <= 0) {
-            // Instant: hardware preset recall + immediate zoom snap.
+            // Instant: hardware preset recall + immediate zoom snap
+            // (float API; uint-API is broken on Tiny 2 Lite).
             r = dev_->aiTrgGimbalPresetR(id);
             if (r == 0 && found && p.zoom > 0.5f) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR(
-                    (uint32_t)(p.zoom * 100.f), 10);
+                dev_->cameraSetZoomAbsoluteR(p.zoom, -1);
                 std::lock_guard<std::mutex> g(snap_mu_);
                 snap_.zoom = p.zoom;
                 pending_zoom_ = p.zoom;
@@ -1337,8 +1478,7 @@ void DeviceSession::sequence_loop() {
                 }
             }
             if (found && p.zoom > 0.5f) {
-                dev_->cameraSetZoomWithSpeedAbsoluteR(
-                    (uint32_t)(p.zoom * 100.f), 10);
+                dev_->cameraSetZoomAbsoluteR(p.zoom, -1);
                 std::lock_guard<std::mutex> g(snap_mu_);
                 snap_.zoom = p.zoom;
                 pending_zoom_ = p.zoom;

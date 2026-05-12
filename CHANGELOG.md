@@ -4,6 +4,163 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+Real-world livestream feedback drove this round. The big themes: redesign
+the advanced UI around three consistent tabs, expose every camera-image
+control inside the app (so the user never needs OBSBOT Center for daily
+operation), and make the bridge a "set and forget" macOS app via a tray
+menubar.
+
+### Added
+
+- **Advanced mode UI redesign.** Three tabs below a pinned live preview:
+  Joystick, Buttons, Image. Same template on Joystick and Buttons so
+  muscle memory carries between them: quick actions row (Recenter /
+  Sleep / Wake), gimbal control + vertical zoom slider, inline preset
+  cards P1 to P6, and a duration chip strip at the bottom. Sequence
+  editor moves to an AppBar action (timeline icon).
+- **Move-duration chips.** Replaces the v1.1 `MoveSpeed` enum
+  (Instant / Slow / Medium / Fast / Cinema). The chip strip lets the
+  user pick any of Instant / 1 sec / 5 sec / 15 sec / 30 sec /
+  1 min / 3 min / 5 min for every preset recall and slow-pan move.
+  Bridge motion planner runs an ease-in-out-sine waypoint loop to
+  reach the target over the chosen wall-clock duration.
+- **Inline P1 to P6 preset row** on Joystick and Buttons tabs. Tap
+  recalls with the current move duration; long-press opens
+  Save / Recall instantly / Rename. The separate Presets tab is gone.
+- **Live preview overlay.** Four independently toggled layers via a
+  grid menu in the AppBar:
+  - Center crosshair (small `+` showing where the camera is pointing).
+  - Attitude indicator (a moving cross + ring showing where the
+    camera's home position is in the current view. Translates with
+    yaw / pitch, rotates with roll, like an aircraft attitude
+    indicator. To re-center, steer the moving cross onto the static
+    crosshair.)
+  - Rule of thirds (dashed lines).
+  - Live Pan / Tilt readout in the top-left corner with `PAN <-> X deg`
+    / `TILT up-down Y deg` glyphs.
+- **Exposure / Anti-flicker / White balance section** on the Image tab:
+  - Auto / Manual exposure segmented (best-effort on Tiny 2 Lite; the
+    SDK tags this as "tail air" only, the bridge attempts the call
+    and the UI greys it out if the firmware returns unsupported).
+  - EV bias slider (-2.0 to +2.0 EV in 1/6-stop steps) when in auto.
+  - Anti-flicker: Off / 50 Hz / 60 Hz segmented.
+  - Auto white balance toggle plus a manual Temperature slider
+    (2800 to 6500 K) when auto is off.
+- **Per-section Reset buttons** on the Image tab (View / Exposure /
+  Anti-flicker / White balance / Color) plus an inline reset icon on
+  every color slider. Greyed out when already at default. Mirrors the
+  OBSBOT Center workflow.
+- **macOS menubar tray** via `tray_manager`. Tray title carries a live
+  status glyph (Running with camera / no camera / Stopped / Error).
+  Menu items: Reveal pairing PIN, Show main window, Open log file,
+  Restart bridge subprocess, Quit. Closing the main window hides it
+  instead of quitting, so the bridge keeps running during a stream.
+- **OBSBOT-brand red accent** (`#FF3B30`) on a near-black neutral
+  surface (`#0F1115`). Replaces the v1.1 default Material blue.
+- **First forui design-system migration.** The Pair screen now uses
+  `FScaffold`, `FHeader.nested`, and `FButton` from the `forui`
+  package, themed `FThemes.zinc.dark.touch`. The rest of the app
+  keeps Material widgets; the two coexist via a thin Material shim
+  for inputs that need a Material ancestor.
+- **New bridge actions** in `docs/PROTOCOL.md`:
+  - `image.set_exposure_mode` (auto / manual)
+  - `image.set_ev_bias` (float -3.0 to +3.0, snapped to SDK enum)
+  - `image.set_anti_flicker` (off / 50 / 60 / auto)
+  - `image.set_wb_auto` (boolean)
+  - `image.set_wb_temp` (kelvin 2800 to 6500, also disables auto)
+- **New state event fields** under `image`: `exposure_mode`,
+  `ev_bias`, `anti_flicker`, `wb_auto`, `wb_kelvin`. Plus
+  `sequence.steps` so the editor can hydrate from a state event after
+  reconnecting.
+- **New test batteries** run against real Tiny 2 Lite:
+  - `tests/exposure.mjs` (8 tests for the v1.2 image controls).
+  - `tests/zoom_smoothness.mjs` (samples zoom over 5-second and
+    30-second slow plans, flags any lens stall).
+- **Widget tests** under `apps/rc/test/` for the new tab shell and
+  pair screen. 20+1 / 21 pass; runs offline (no bridge needed) via
+  `SharedPreferences.setMockInitialValues({})`.
+
+### Changed
+
+- **Zoom planner switched to the float-API.** The bridge previously
+  used `cameraSetZoomWithSpeedAbsoluteR(uint32_t, uint32_t)` which is
+  effectively broken on Tiny 2 Lite (gets stuck around 1.33x
+  regardless of the speed param). Empirical probing on a live camera
+  confirmed `cameraSetZoomAbsoluteR(float, -1)` produces smooth
+  continuous motion. Slow-zoom plans (5 sec, 30 sec, etc.) are now
+  visibly fluid instead of stepping.
+- **`Yaw` and `Pitch` jargon dropped** for plain Pan and Tilt in the
+  preview readout. Operators do not need to know the difference.
+- **AppBar duration popup removed in advanced mode.** The chip strip
+  at the bottom of every advanced tab already covers it. Simple mode
+  keeps its own AppBar popup (no chips there).
+- **Status chip bar removed** above the preview (yaw / pitch / zoom /
+  AI / FOV). Every field has a clear home now: Pan / Tilt in the
+  preview overlay, zoom next to the slider, AI on the Image tab's
+  Auto-track segmented, FOV on the Image tab's View segmented, run
+  status on the tray icon glyph. Frees about 40 px of vertical space
+  for the live preview.
+- **Image tab labels shortened** for clean rendering at 360 to 390 px
+  phone widths: "Auto-expose for face" -> "Face exposure",
+  "Focus on face" -> "Face focus", "Flip horizontal" -> "Flip",
+  "Auto white balance" -> "Auto WB".
+
+### Fixed
+
+- **Slow zoom motion was choppy.** Live-test feedback: "movement now
+  happens in discrete sets, not in one slow continuous set." Caused
+  by the uint-API's integer-percent quantization plus the SDK speed
+  param being ignored on Tiny 2 Lite. Switching to the float-API
+  resolves both. Verified live: 1.0x -> 2.0x over 8 seconds samples
+  as a smooth ease-in-out curve (1.00 / 1.04 / 1.09 / 1.17 / 1.26 /
+  1.38 / 1.50 / 1.57 / 1.70 / 1.80 / 1.89 / 1.95 / 1.98 / 2.00) with
+  no integer-percent steps.
+- **Up / Down hold buttons sometimes did nothing on web.** The pre-fix
+  `HoldDirBtn` wrapped a `Listener` inside a `FilledButton.tonal`.
+  The button's internal `TapGestureRecognizer` won the gesture arena
+  on quick taps, so the inner `Listener.onPointerUp` never fired and
+  the velocity ticker stayed running. The rewrite uses a raw
+  `Listener` on a `Material` surface so press / release / cancel are
+  first-class.
+- **Zoom slider mid-drag fought the planner.** ZoomSlider was sending
+  the current chip-chosen duration on every drag tick. The planner
+  cancelled and restarted every 100 ms, so the lens never made
+  progress. Mid-drag is now always instant (`duration: Duration.zero`)
+  so the lens follows the finger; the chosen duration is applied
+  only on release.
+- **"Recenter" label wrapped** to two lines at 360 to 390 px phone
+  widths because `OutlinedButton.icon` plus the icon plus the label
+  exceeded the slot. Replaced with a plain `OutlinedButton` plus a
+  Tooltip.
+- **Sequencer dropdown crashed on legacy values.** The Move duration
+  dropdown asserted "exactly one item with value: 2000" when
+  hydrating an existing sequence whose `transition_ms` was not one
+  of the chip presets (e.g. 2000 ms from v1.1 default, 22000 ms from
+  the legacy `cinema` mapping). The editor now snaps any incoming
+  value to the nearest chip preset for display; the bridge still
+  honors the raw saved value.
+
+### Removed
+
+- The Presets tab (presets are inlined on Joystick and Buttons).
+- The Sequence tab (moves to an AppBar action with the timeline icon).
+- The status chip bar above the preview (every field has a clearer
+  home elsewhere).
+- The advanced-mode AppBar Move-duration popup (chip strip covers it).
+
+### Protocol changes
+
+- All move commands accept `duration_ms` (`ptz.angle`, `zoom.set`,
+  `preset.recall`). `0` is instant; a positive integer runs the
+  bridge's motion planner.
+- `zoom.set` accepts an optional `final` flag (terminal release value;
+  bypasses the mid-drag coalesce).
+- Sequence steps use `transition_ms` instead of the v1.1 `speed`
+  enum. Old `sequences.json` files continue to load via the
+  `legacy_speed_to_ms()` migration helper.
+- `ptz.velocity` no longer carries a `speed` param. Rate is implicit
+  from `yaw_speed` and `pitch_speed`.
+
 ## [1.1.0] - 2026-05-10
 
 Real-world livestream feedback (temple program, Tiny 2 Lite over USB,

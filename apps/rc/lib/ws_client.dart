@@ -201,6 +201,14 @@ class CameraState {
   final int manualFocus;
   final bool flipH;
 
+  /// v1.2 PR G — exposure / anti-flicker / WB. Defaults match an
+  /// un-connected camera; real values arrive in the state event.
+  final String exposureMode; // "auto" | "manual"
+  final double evBias;       // -3.0..+3.0 (1/3 stops)
+  final String antiFlicker;  // "off" | "50" | "60" | "auto"
+  final bool wbAuto;
+  final int wbKelvin;        // 2800..6500
+
   final List<PresetEntry> presets;
   final int activePresetId;
   final SequenceState sequence;
@@ -231,6 +239,11 @@ class CameraState {
     required this.autoFocus,
     required this.manualFocus,
     required this.flipH,
+    required this.exposureMode,
+    required this.evBias,
+    required this.antiFlicker,
+    required this.wbAuto,
+    required this.wbKelvin,
     required this.presets,
     required this.activePresetId,
     required this.sequence,
@@ -262,6 +275,11 @@ class CameraState {
     autoFocus: true,
     manualFocus: 50,
     flipH: false,
+    exposureMode: 'auto',
+    evBias: 0.0,
+    antiFlicker: 'off',
+    wbAuto: true,
+    wbKelvin: 4700,
     presets: <PresetEntry>[],
     activePresetId: -1,
     sequence: SequenceState.empty,
@@ -312,6 +330,11 @@ class CameraState {
       autoFocus: img['auto_focus'] as bool? ?? true,
       manualFocus: i(img['manual_focus'], 50),
       flipH: img['flip_h'] as bool? ?? false,
+      exposureMode: img['exposure_mode'] as String? ?? 'auto',
+      evBias: d(img['ev_bias'], 0.0),
+      antiFlicker: img['anti_flicker'] as String? ?? 'off',
+      wbAuto: img['wb_auto'] as bool? ?? true,
+      wbKelvin: i(img['wb_kelvin'], 4700),
       presets: presets,
       activePresetId: i(j['active_preset_id'], -1),
       sequence: SequenceState.fromJson(seqJson),
@@ -338,14 +361,72 @@ class WsClient extends ChangeNotifier {
   /// launches via SharedPreferences key `move_duration_ms`.
   Duration _moveDuration = const Duration(milliseconds: 2000);
 
+  /// Grid overlay preferences (mirrored to SharedPreferences keys
+  /// `grid_crosshair`, `grid_center_lines`, `grid_thirds`, `grid_readout`).
+  bool _gridCrosshair = true;
+  bool _gridCenterLines = false;
+  bool _gridThirds = false;
+  bool _gridReadout = true;
+
+  /// Live-velocity multiplier (0.1 .. 1.0) applied to both the joystick
+  /// pad's analog deflection AND the 8-way hold buttons. Persisted as
+  /// `velocity_scale`. Defaults to 1.0 (full speed) so existing users
+  /// don't get a surprise slowdown on first launch.
+  double _velocityScale = 1.0;
+
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
-      if (ms != null) {
-        _moveDuration = Duration(milliseconds: ms);
-        notifyListeners();
-      }
+      if (ms != null) _moveDuration = Duration(milliseconds: ms);
+      _gridCrosshair = p.getBool('grid_crosshair') ?? _gridCrosshair;
+      _gridCenterLines = p.getBool('grid_center_lines') ?? _gridCenterLines;
+      _gridThirds = p.getBool('grid_thirds') ?? _gridThirds;
+      _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
+      final vs = p.getDouble('velocity_scale');
+      if (vs != null) _velocityScale = vs.clamp(0.1, 1.0);
+      notifyListeners();
     });
+  }
+
+  double get velocityScale => _velocityScale;
+  Future<void> setVelocityScale(double v) async {
+    _velocityScale = v.clamp(0.1, 1.0);
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setDouble('velocity_scale', _velocityScale);
+  }
+
+  bool get gridCrosshair => _gridCrosshair;
+  bool get gridCenterLines => _gridCenterLines;
+  bool get gridThirds => _gridThirds;
+  bool get gridReadout => _gridReadout;
+
+  Future<void> setGridCrosshair(bool v) async {
+    _gridCrosshair = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_crosshair', v);
+  }
+
+  Future<void> setGridCenterLines(bool v) async {
+    _gridCenterLines = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_center_lines', v);
+  }
+
+  Future<void> setGridThirds(bool v) async {
+    _gridThirds = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_thirds', v);
+  }
+
+  Future<void> setGridReadout(bool v) async {
+    _gridReadout = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('grid_readout', v);
   }
 
   Duration get moveDuration => _moveDuration;
@@ -615,6 +696,68 @@ class WsClient extends ChangeNotifier {
       _send({'action': 'image.set_hdr', 'id': _id(), 'enabled': e});
 
   void fov(int f) => _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
+
+  /// Camera face-detection-driven auto-exposure. Off by default per the
+  /// v1.1 "auto-exposure makes scene dark" finding.
+  void faceAe(bool e) =>
+      _send({'action': 'image.set_face_ae', 'id': _id(), 'enabled': e});
+
+  /// Bias auto-focus to detected faces.
+  void faceFocus(bool e) =>
+      _send({'action': 'image.set_face_focus', 'id': _id(), 'enabled': e});
+
+  /// Mirror the image horizontally (useful for selfie / monitor setups).
+  void flipH(bool e) =>
+      _send({'action': 'image.set_flip_h', 'id': _id(), 'enabled': e});
+
+  /// Update one or more color sliders (0..100). Only fields you pass are
+  /// sent; unset fields are left untouched on the camera.
+  void colorSet({int? brightness, int? contrast, int? saturation, int? sharpness}) {
+    final Map<String, dynamic> msg = <String, dynamic>{
+      'action': 'image.set_color',
+      'id': _id(),
+    };
+    if (brightness != null) msg['brightness'] = brightness;
+    if (contrast != null) msg['contrast'] = contrast;
+    if (saturation != null) msg['saturation'] = saturation;
+    if (sharpness != null) msg['sharpness'] = sharpness;
+    _send(msg);
+  }
+
+  // v1.2 PR G — exposure / anti-flicker / white balance.
+  // The bridge tags exposure mode + EV bias as best-effort: on Tiny 2
+  // Lite they may return ack ok=false with err="unsupported". UI can
+  // still send the commands; failures are reflected in the ack stream.
+
+  void setExposureMode(String mode) => _send({
+        'action': 'image.set_exposure_mode',
+        'id': _id(),
+        'mode': mode, // "auto" | "manual"
+      });
+
+  void setEvBias(double bias) => _send({
+        'action': 'image.set_ev_bias',
+        'id': _id(),
+        'bias': bias, // -3.0 .. +3.0 (1/3 stops). Snapped server-side.
+      });
+
+  void setAntiFlicker(String mode) => _send({
+        'action': 'image.set_anti_flicker',
+        'id': _id(),
+        'mode': mode, // "off" | "50" | "60" | "auto"
+      });
+
+  void setWbAuto(bool enabled) => _send({
+        'action': 'image.set_wb_auto',
+        'id': _id(),
+        'enabled': enabled,
+      });
+
+  void setWbTemp(int kelvin) => _send({
+        'action': 'image.set_wb_temp',
+        'id': _id(),
+        'kelvin': kelvin, // 2800 .. 6500
+      });
 
   void presetSave(int id, String name) => _send({
     'action': 'preset.save',
