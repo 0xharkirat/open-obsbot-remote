@@ -4,6 +4,25 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+### Added
+
+- **Menubar-only mode (macOS).** Optional setting in the bridge's Settings
+  dialog: "Hide dock icon (menubar-only)". When enabled, the bridge
+  launches without a dock icon and the main window stays hidden until
+  the user picks "Show main window" from the tray. AppDelegate reads
+  the persisted preference via NSUserDefaults before the Flutter
+  engine boots so the dock icon never flickers on launch. Restart
+  required to apply.
+
+### Fixed
+
+- **applicationShouldTerminateAfterLastWindowClosed now returns false.**
+  Before, closing the window in any mode could trigger an
+  auto-terminate. With the tray owning the bridge lifecycle (Quit
+  via tray, red-dot just hides), false is the correct answer. Also
+  required for menubar-only mode — the hidden launch window was being
+  misread as "last window closed" and the app died instantly.
+
 ## [1.2.0] - 2026-05-12
 
 Real-world livestream feedback drove this round. The big themes: redesign
