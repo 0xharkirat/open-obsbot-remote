@@ -282,12 +282,11 @@ class _PtzPadState extends State<PtzPad> {
     _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) {
       final dx = _delta.dx;
       final dy = _delta.dy;
-      // map -1..1 → speed, then scale by the shared velocity slider
-      // (`client.velocityScale`) so the joystick + the 8-way pad share
-      // a single "how fast" knob.
-      final scale = widget.client.velocityScale;
-      final yawSpeed = (dx * 120 * scale).clamp(-150.0, 150.0);
-      final pitchSpeed = (-dy * 60 * scale).clamp(-80.0, 80.0);
+      // Map -1..1 -> deg/sec. Joystick magnitude (deflection from
+      // centre) IS the speed control, so we keep this hardcoded; the
+      // dropped v1.2 velocity slider is gone.
+      final yawSpeed = (dx * 120).clamp(-150.0, 150.0);
+      final pitchSpeed = (-dy * 60).clamp(-80.0, 80.0);
       widget.client.ptzVelocity(yawSpeed: yawSpeed, pitchSpeed: pitchSpeed);
     });
   }

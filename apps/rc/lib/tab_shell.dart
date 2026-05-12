@@ -443,12 +443,12 @@ class _ButtonsTab extends StatelessWidget {
   final WsClient client;
   const _ButtonsTab({required this.client});
 
-  // Base velocities at scale=1.0. The shared `client.velocityScale`
-  // multiplier (driven by the bottom Speed slider) applies live, on
-  // every 80 ms tick of the HoldDirBtn — so adjusting the slider during
-  // a hold takes effect immediately.
-  static const double _baseYaw = 80;
-  static const double _basePitch = 40;
+  // Hold-button velocities in deg/s. The v1.2 user-facing speed slider
+  // was dropped per live-test feedback; users now control pace via the
+  // duration chips (preset recall + ptz.angle) and analog joystick
+  // deflection. Hold-buttons run at full velocity.
+  static const double _yaw = 80;
+  static const double _pit = 40;
 
   @override
   Widget build(BuildContext context) {
@@ -456,9 +456,8 @@ class _ButtonsTab extends StatelessWidget {
       animation: client,
       builder: (BuildContext ctx, _) {
         final s = client.state;
-        final scale = client.velocityScale;
-        final yaw = _baseYaw * scale;
-        final pit = _basePitch * scale;
+        const yaw = _yaw;
+        const pit = _pit;
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
