@@ -114,7 +114,7 @@ String formatMoveDuration(Duration d) {
   if (d.inMinutes >= 1) {
     final m = d.inMinutes;
     final s = d.inSeconds - m * 60;
-    return s == 0 ? '${m} min' : '${m}m ${s}s';
+    return s == 0 ? '$m min' : '${m}m ${s}s';
   }
   return '${(d.inMilliseconds / 1000).toStringAsFixed(d.inMilliseconds % 1000 == 0 ? 0 : 1)} sec';
 }

@@ -83,6 +83,30 @@ void main() {
       expect(find.text('Wake'), findsOneWidget);
     });
 
+    // Regression: PR Q migrated _QuickActions's 3-per-row buttons from
+    // Material OutlinedButton to forui FButton.raw. The old `.icon`
+    // variant overflowed at 320–360 px because the icon+label intrinsic
+    // width exceeded the per-slot Expanded width. This test renders the
+    // shell at the narrowest realistic phone width and asserts no
+    // RenderFlex overflow errors are caught by the framework.
+    testWidgets('Recenter row does not overflow at 320 px', (tester) async {
+      final prev = FlutterError.onError;
+      final overflows = <FlutterErrorDetails>[];
+      FlutterError.onError = (FlutterErrorDetails d) {
+        if (d.exceptionAsString().contains('overflow')) overflows.add(d);
+      };
+      try {
+        await _pumpShell(tester, size: const Size(320, 800));
+        expect(find.text('Recenter'), findsOneWidget);
+        expect(find.text('Sleep'), findsOneWidget);
+        expect(find.text('Wake'), findsOneWidget);
+        expect(overflows, isEmpty,
+            reason: '3-per-row quick-action buttons must not overflow at 320 px');
+      } finally {
+        FlutterError.onError = prev;
+      }
+    });
+
     testWidgets('shows all 8 move-duration chips', (tester) async {
       await _pumpShell(tester, size: const Size(400, 900));
       for (final p in kMoveDurationPresets) {
