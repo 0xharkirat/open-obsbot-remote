@@ -1,36 +1,77 @@
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persistent UI preferences for the bridge app.
+/// Persistent UI preferences + platform-channel helpers for the bridge app.
 ///
-/// Why SharedPreferences:
-///   - Flutter's shared_preferences_foundation on macOS writes through
-///     `NSUserDefaults` under the app's bundle ID, prefixing every key
-///     with `flutter.`. That's important for [menubarOnly]: AppDelegate.swift
-///     reads the same key from `UserDefaults.standard` before the Flutter
-///     engine boots, so it can decide whether to call
-///     `NSApp.setActivationPolicy(.accessory)` early enough to suppress
-///     the dock icon at launch.
-///   - Side-effect: the Swift side MUST use the key `flutter.bridge_menubar_only`;
-///     the Dart side uses `bridge_menubar_only`. They must stay in sync.
+/// Two responsibilities are bundled here because they always travel
+/// together for the Handy-style menubar lifecycle:
+///
+///   1. Persisted prefs (SharedPreferences).
+///   2. The `obsbot.bridge/dock` MethodChannel that lets Dart flip the
+///      app's NSApplication activation policy at runtime.
+///
+/// **Why the `flutter.` key prefix matters.** Flutter's
+/// shared_preferences_foundation plugin writes through NSUserDefaults
+/// with every key prefixed by `flutter.`. AppDelegate.swift reads
+/// `flutter.bridge_start_hidden` directly from `UserDefaults.standard`
+/// before the Flutter engine boots — that's how the dock icon never
+/// flickers on launch in start-hidden mode.
 class BridgePrefs {
   BridgePrefs._(this._prefs);
 
-  static const _kMenubarOnly = 'bridge_menubar_only';
+  /// SharedPreferences keys. Dart writes `bridge_start_hidden`; the
+  /// plugin stores it as `flutter.bridge_start_hidden` in NSUserDefaults.
+  static const _kStartHidden = 'bridge_start_hidden';
+
+  /// Legacy key from v1.2.1 PR O — same meaning, kept for migration.
+  static const _kMenubarOnlyLegacy = 'bridge_menubar_only';
+
+  static const _dockChannel = MethodChannel('obsbot.bridge/dock');
 
   final SharedPreferences _prefs;
 
   static Future<BridgePrefs> load() async {
     final p = await SharedPreferences.getInstance();
+    // One-shot migration: if the user set the old menubar-only pref,
+    // copy its value into the new start-hidden key so they get the
+    // same behavior after this update.
+    if (!p.containsKey(_kStartHidden) && p.containsKey(_kMenubarOnlyLegacy)) {
+      final old = p.getBool(_kMenubarOnlyLegacy) ?? false;
+      await p.setBool(_kStartHidden, old);
+    }
     return BridgePrefs._(p);
   }
 
-  /// Hide the dock icon. When true, AppDelegate sets activation policy
-  /// to `.accessory` at launch and `main()` skips the auto-show window
-  /// call so the app starts as a pure menubar resident. The user can
-  /// always restore the window via the tray menu.
-  bool get menubarOnly => _prefs.getBool(_kMenubarOnly) ?? false;
+  /// "Start hidden in menubar" — when true, the bridge boots without
+  /// showing the main window and with the dock icon hidden (Handy's
+  /// `start_hidden`). Default false.
+  ///
+  /// Onboarding override: even with this true, the bridge force-shows
+  /// the window when there are no paired phones yet, so the user can
+  /// see the pairing PIN. See `main.dart`.
+  bool get startHidden => _prefs.getBool(_kStartHidden) ?? false;
 
-  Future<void> setMenubarOnly(bool v) async {
-    await _prefs.setBool(_kMenubarOnly, v);
+  Future<void> setStartHidden(bool v) async {
+    await _prefs.setBool(_kStartHidden, v);
+  }
+
+  /// Switch the macOS activation policy at runtime.
+  ///
+  /// `true`  → `.regular`  (dock icon visible, app participates in
+  ///                        Cmd-Tab and dock click).
+  /// `false` → `.accessory` (no dock icon, tray-only).
+  ///
+  /// The Handy pattern: call `setDockVisible(true)` when showing the
+  /// main window, `setDockVisible(false)` when hiding it. Initial
+  /// state at launch is set in AppDelegate.swift based on the
+  /// `flutter.bridge_start_hidden` UserDefaults key, before the
+  /// Flutter engine boots — no flicker.
+  static Future<void> setDockVisible(bool visible) async {
+    try {
+      await _dockChannel
+          .invokeMethod<void>(visible ? 'setRegular' : 'setAccessory');
+    } catch (_) {
+      // Channel missing on non-macOS platforms; safe to swallow.
+    }
   }
 }

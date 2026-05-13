@@ -39,20 +39,27 @@ class AppDelegate: FlutterAppDelegate {
   // slip through. If we detect a running sibling at startup, focus it
   // and quit ourselves so the user always sees one window.
   //
-  // Also: read the persisted "menubar-only" preference from
+  // Also: read the persisted "start hidden" preference from
   // NSUserDefaults BEFORE super.applicationDidFinishLaunching, because
   // FlutterAppDelegate creates and shows the main window inside super.
-  // If the user opted into menubar-only mode, we flip activation policy
-  // to .accessory now so the dock icon never appears at launch.
+  // If start-hidden is enabled we flip activation policy to .accessory
+  // now so the dock icon never appears at launch.
   //
-  // The key is `flutter.bridge_menubar_only` because Flutter's
-  // shared_preferences_foundation prefixes every key with `flutter.`
-  // when it writes through NSUserDefaults. The Dart side writes
-  // `bridge_menubar_only` and SharedPreferences adds the prefix; both
-  // sides therefore stay in sync as long as the key constant doesn't
-  // drift (see bridge_prefs.dart).
+  // The Handy-style dynamic flip (dock icon follows window visibility
+  // once Flutter is up) is handled via the obsbot.bridge/dock
+  // MethodChannel in MainFlutterWindow.swift — Dart calls into the
+  // channel from windowManager show/hide events, see TrayController.
+  //
+  // Migration: v1.2.1 PR O used `bridge_menubar_only`; v1.2.1 PR R
+  // renamed to `bridge_start_hidden`. We accept either key here so a
+  // user mid-update doesn't see a one-launch regression. BridgePrefs.load
+  // copies the legacy value forward on first Dart-side read.
   override func applicationDidFinishLaunching(_ notification: Notification) {
-    if UserDefaults.standard.bool(forKey: "flutter.bridge_menubar_only") {
+    let defaults = UserDefaults.standard
+    let startHidden =
+      defaults.bool(forKey: "flutter.bridge_start_hidden") ||
+      defaults.bool(forKey: "flutter.bridge_menubar_only")
+    if startHidden {
       NSApp.setActivationPolicy(.accessory)
     }
     super.applicationDidFinishLaunching(notification)

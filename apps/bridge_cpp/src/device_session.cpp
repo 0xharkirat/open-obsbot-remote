@@ -248,6 +248,81 @@ void DeviceSession::motion_loop() {
             ticks   = std::max(1, t.duration_ms / tick_ms);
         }
 
+        // Per-tick gimbal speed (SDK 0..100 percentage). v1.2 used 90
+        // everywhere — motor raced to each tick target inside the
+        // window then waited, producing visible 100 ms-cadence
+        // stutter on every duration_ms > 0 move. Live feedback:
+        // "anything starting from 1 second time difference to change
+        // preset is so shaky." Fix: pick a speed roughly matched to
+        // the actual per-tick deg/s rate so the motor moves
+        // continuously rather than racing-and-waiting.
+        //
+        // Map per-tick rate (deg/s) -> SDK percent. Tiny 2 Lite gimbal
+        // top speed is ~150 deg/s, so percent ≈ rate / 1.5. Add ~30%
+        // headroom (multiplied by 1.3) so each tick has slack to
+        // converge to the eased target even if the SDK speed mapping
+        // isn't perfectly linear. Floor at 5 so very slow pans still
+        // move; cap at 100 (SDK max).
+        // Per-tick gimbal speed (SDK 0..100 percentage). v1.2 used 90
+        // everywhere — motor raced to each tick target inside the
+        // window then waited, producing visible 100 ms-cadence
+        // stutter on every duration_ms > 0 move. Live feedback:
+        // "anything starting from 1 second time difference to change
+        // preset is so shaky." Fix: pick a speed roughly matched to
+        // the actual per-tick deg/s rate so the motor moves
+        // continuously rather than racing-and-waiting.
+        //
+        // Map per-tick rate (deg/s) -> SDK percent. Tiny 2 Lite gimbal
+        // top speed is ~150 deg/s, so percent ≈ rate / 1.5. Headroom
+        // 2.0× so each tick has slack to converge to the eased target
+        // even at the steeper midpoints of ease_in_out_sine. Floor at
+        // 15 so very slow pans (60+ second plans) still cross the
+        // motor's minimum-command deadband; cap at 100.
+        const float duration_s_for_speed = std::max(0.001f, t.duration_ms / 1000.f);
+        auto rate_to_pct = [duration_s_for_speed](bool axis_set, float delta_deg) -> int {
+            if (!axis_set) return 90;
+            const float rate_dps = std::abs(delta_deg) / duration_s_for_speed;
+            const float pct = (rate_dps / 1.5f) * 2.0f;
+            int p = (int)pct;
+            if (p < 15) p = 15;
+            if (p > 100) p = 100;
+            return p;
+        };
+        const int yaw_pct   = rate_to_pct(t.yaw_set,   t.yaw_set   ? t.yaw_deg   - start_yaw   : 0.f);
+        const int pitch_pct = rate_to_pct(t.pitch_set, t.pitch_set ? t.pitch_deg - start_pitch : 0.f);
+        const int roll_pct  = rate_to_pct(t.roll_set,  t.roll_set  ? t.roll_deg  - start_roll  : 0.f);
+
+        // Hybrid zoom strategy (post-PR-S empirical):
+        //
+        //   - For short plans (<= 1000 ms) we one-shot the target. The
+        //     lens motor takes ~1 s to traverse 1.0×→2.0× at default
+        //     speed; trying to tick through fewer than 10 waypoints
+        //     would cause visible stepping.
+        //   - For longer plans we tick the target at a slow cadence
+        //     (zoom_tick_ms = 600 ms minimum). The lens converges to
+        //     each waypoint before the next arrives — no overshoot
+        //     oscillation — and the eased curve advances slowly
+        //     enough that the duration_ms is honoured.
+        //
+        // v1.2 ticked every 100 ms, re-arming the lens's internal
+        // plan on every call → visible in/out/in/out on any preset
+        // recall combining motion + zoom delta. Empirical fix: keep
+        // ticks ≥600 ms apart so the lens has time to settle.
+        const int zoom_tick_ms = std::max(600, tick_ms);
+        const bool zoom_oneshot = t.zoom_set && t.duration_ms <= 1000;
+        if (zoom_oneshot) {
+            dev_->cameraSetZoomAbsoluteR(t.zoom_ratio, -1);
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                pending_zoom_ = t.zoom_ratio;
+            }
+        }
+        // Track the last zoom waypoint we actually sent so the long-plan
+        // branch only re-fires the SDK call when the eased target has
+        // drifted into a new tick window.
+        auto last_zoom_send = steady_clock::now() - milliseconds(zoom_tick_ms);
+        float last_zoom_sent = start_zoom;
+
         const auto t0 = steady_clock::now();
         for (int i = 1; i <= ticks && !motion_cancel_.load() && !motion_quit_.load(); ++i) {
             const float progress = (float)i / (float)ticks;
@@ -258,21 +333,25 @@ void DeviceSession::motion_loop() {
             const float ir = t.roll_set  ? lerpf(start_roll,  t.roll_deg,  eased) : start_roll;
             const float iz = t.zoom_set  ? lerpf(start_zoom,  t.zoom_ratio, eased) : start_zoom;
 
-            // Drive gimbal at SDK ceiling so each waypoint is reached
-            // within the tick window. The planner owns the *target update
-            // rate*, not the per-segment motion rate.
+            // Drive gimbal with speed matched to per-tick rate so the
+            // motor flows through ticks instead of pulse-racing to
+            // each one.
             if (t.yaw_set || t.pitch_set || t.roll_set) {
-                dev_->gimbalSetSpeedPositionR(ir, ip, iy, 90, 90, 90);
+                dev_->gimbalSetSpeedPositionR(ir, ip, iy, roll_pct, pitch_pct, yaw_pct);
             }
-            if (t.zoom_set) {
-                // Float-API cameraSetZoomAbsoluteR: accepts sub-percent
-                // float targets, lens motor handles continuous motion
-                // internally on Tiny 2 Lite. (tests/zoom_probe.mjs
-                // verified the uint32-API
-                // cameraSetZoomWithSpeedAbsoluteR is broken on Tiny 2
-                // Lite — gets stuck at 1.33×. Float API gives smooth
-                // 3 s 1.0→2.0 sweep + accepts fine waypoints.)
-                dev_->cameraSetZoomAbsoluteR(iz, -1);
+            // Long-plan zoom: re-fire the SDK call only when enough
+            // time has elapsed since the last waypoint (≥600 ms by
+            // default). This keeps the lens motor stable while still
+            // honouring the user's duration_ms.
+            if (t.zoom_set && !zoom_oneshot) {
+                const auto now = steady_clock::now();
+                if (now - last_zoom_send >= milliseconds(zoom_tick_ms)) {
+                    dev_->cameraSetZoomAbsoluteR(iz, -1);
+                    last_zoom_send = now;
+                    last_zoom_sent = iz;
+                    std::lock_guard<std::mutex> g(snap_mu_);
+                    pending_zoom_ = iz;
+                }
             }
 
             // Mirror progress into snap_ so state events show motion.
@@ -283,7 +362,6 @@ void DeviceSession::motion_loop() {
                 if (t.roll_set)  snap_.roll  = ir;
                 if (t.zoom_set) {
                     snap_.zoom = iz;
-                    pending_zoom_ = iz;
                 }
             }
 
@@ -291,15 +369,20 @@ void DeviceSession::motion_loop() {
             const auto due = t0 + milliseconds(i * tick_ms);
             std::this_thread::sleep_until(due);
         }
+        (void)last_zoom_sent;  // useful for future logging / debugging
 
-        // Final exact landing (if not cancelled).
+        // Final exact landing (if not cancelled). Use the same scaled
+        // speed as the in-flight ticks so the motor doesn't lurch at
+        // the very end. SDK ceiling 90 here was previously fine
+        // because by this point the motor was already near target,
+        // but the lurch was still visible on long pans.
         if (!motion_cancel_.load() && !motion_quit_.load()) {
             if (t.yaw_set || t.pitch_set || t.roll_set) {
                 dev_->gimbalSetSpeedPositionR(
                     t.roll_set  ? t.roll_deg  : start_roll,
                     t.pitch_set ? t.pitch_deg : start_pitch,
                     t.yaw_set   ? t.yaw_deg   : start_yaw,
-                    90, 90, 90);
+                    roll_pct, pitch_pct, yaw_pct);
             }
             if (t.zoom_set) {
                 // Terminal landing on the float API — same call shape

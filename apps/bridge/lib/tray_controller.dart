@@ -1,71 +1,79 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
-import 'package:tray_manager/tray_manager.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'bridge_prefs.dart';
 import 'bridge_supervisor.dart';
+import 'native_tray.dart';
 
-/// macOS menubar tray for the bridge (v1.2 PR H).
+/// macOS menubar tray (v1.2 PR H, v1.2.1 PR R + S "Handy-style").
 ///
-/// Replaces the "set + forget" pain point of the bridge .app:
+/// PR S rewrite: dropped `tray_manager` in favour of a first-party
+/// NSStatusItem + NSMenu wrapper. The package's 0.5.2
+/// `popUpContextMenu` plumbing assigned then nulled `statusItem.menu`
+/// around each click, dropping NSMenu's target/action dispatch on
+/// macOS Sonoma+. Net effect: menu items rendered but clicks never
+/// fired the Dart-side TrayListener — Quit / Show window / Reveal
+/// PIN all became no-ops. The replacement attaches the NSMenu
+/// permanently and routes clicks through `@objc menuItemClicked:`
+/// straight to the `obsbot.bridge/tray` channel; rock-solid.
 ///
-///   - The bridge no longer needs the main window to stay alive.
-///     Closing the window hides it; the bridge subprocess keeps running
-///     and the tray menu provides quick actions.
-///   - The tray title shows the current bridge status (●  Running /
-///     ◌  Stopped / ✗  Error) so the user knows from a glance whether
-///     phones can still connect.
-///   - Tray menu mirrors the live "Reveal PIN" gesture from the main
-///     window so the user can pair from any context without restoring
-///     the window.
-///
-/// macOS-specific:
-///   - The `LSUIElement` setting in Info.plist is left at the default
-///     (false / not present) so the dock icon stays visible — easier
-///     discovery for first-time users. A future PR may make this
-///     configurable so power users can run as a pure menubar app.
-class TrayController with WindowListener, TrayListener {
+/// Behaviour unchanged from the user's perspective:
+///   - Bridge no longer needs the main window to stay alive. Closing
+///     the window hides it; the bridge subprocess keeps running and
+///     the tray menu provides quick actions.
+///   - Hybrid dock-visibility (PR R): the dock icon follows the main
+///     window. Hiding the window flips activation policy to
+///     `.accessory` (no dock icon); showing it flips back to
+///     `.regular`. Pattern lifted from Handy.
+///   - Tray carries Status, paired-phones count, version, and
+///     mirrors the live "Reveal PIN" gesture from the main window
+///     so the user can pair from any context without restoring the
+///     window.
+class TrayController with WindowListener implements NativeTrayListener {
   final BridgeSupervisor supervisor;
   final VoidCallback onRevealPin;
+  /// App version label (e.g. "1.2.1"). Shown as the first, disabled
+  /// item in the tray menu — Handy-style at-a-glance build indicator.
+  final String version;
   Timer? _refresh;
   bool _disposed = false;
 
-  TrayController({required this.supervisor, required this.onRevealPin});
+  TrayController({
+    required this.supervisor,
+    required this.onRevealPin,
+    this.version = '',
+  });
 
   Future<void> init() async {
     if (!Platform.isMacOS) {
-      // Tray is macOS-only for v1.2. tray_manager supports Windows +
-      // Linux too, but the Bridge .app is macOS-only today.
+      // Tray is macOS-only for v1.2.x. Native impl is AppKit.
+      // Windows + Linux ports will need their own NativeTray
+      // siblings.
       return;
     }
-    // Load the bundled template icon. macOS auto-tints it to the
-    // menubar foreground colour (white in dark mode, dark in light
-    // mode) because we pass isTemplate: true. The actual asset is a
-    // black-on-transparent camera-iris glyph in
-    // assets/tray/cameraTemplate.png (22 x 22) + cameraTemplate@2x.png
-    // (44 x 44) for retina. macOS picks the variant via the @2x
-    // suffix in the resolved filename.
     try {
-      await trayManager.setIcon(
+      await NativeTray.setIcon(
         'assets/tray/cameraTemplate.png',
         isTemplate: true,
       );
-    } catch (e) {
-      // If asset loading fails for any reason (e.g. running outside a
-      // proper .app bundle during dev), fall back to a text title so
-      // the menubar entry is still discoverable.
-      await trayManager.setTitle('OBSBOT');
+    } catch (_) {
+      // Asset load failure is non-fatal; the empty status item still
+      // works (text title will fall back).
+      await NativeTray.setTitle('OBSBOT');
     }
-    await trayManager.setToolTip('OBSBOT Bridge');
-    await _refreshTrayLabel();
+    await NativeTray.setTooltip('OBSBOT Bridge');
+    await _refreshTooltip();
     await _rebuildMenu();
-    trayManager.addListener(this);
+
+    NativeTray.addListener(this);
     windowManager.addListener(this);
 
     supervisor.addListener(_onSupervisorChange);
-    _refresh = Timer.periodic(const Duration(seconds: 5), (_) => _refreshTrayLabel());
+    _refresh = Timer.periodic(
+        const Duration(seconds: 5), (_) => _refreshTooltip());
   }
 
   Future<void> dispose() async {
@@ -74,23 +82,19 @@ class TrayController with WindowListener, TrayListener {
     _refresh?.cancel();
     supervisor.removeListener(_onSupervisorChange);
     if (Platform.isMacOS) {
-      trayManager.removeListener(this);
+      NativeTray.removeListener(this);
       windowManager.removeListener(this);
-      await trayManager.destroy();
+      await NativeTray.destroy();
     }
   }
 
   void _onSupervisorChange() {
     if (_disposed) return;
-    _refreshTrayLabel();
+    _refreshTooltip();
     _rebuildMenu();
   }
 
-  Future<void> _refreshTrayLabel() async {
-    // The tray icon itself is the visual; the tooltip carries the
-    // status text so the menubar stays uncluttered. (Pre-v1.2.1 we
-    // used a Unicode-glyph title because no PNG asset was bundled;
-    // the icon is in now.)
+  Future<void> _refreshTooltip() async {
     String tip;
     switch (supervisor.status) {
       case BridgeStatus.running:
@@ -102,20 +106,16 @@ class TrayController with WindowListener, TrayListener {
         tip = 'OBSBOT Bridge - starting up';
         break;
       case BridgeStatus.error:
-        tip =
-            'OBSBOT Bridge - error: ${supervisor.lastError ?? "unknown"}';
+        tip = 'OBSBOT Bridge - error: ${supervisor.lastError ?? "unknown"}';
         break;
       case BridgeStatus.stopped:
         tip = 'OBSBOT Bridge - stopped';
         break;
     }
     try {
-      await trayManager.setToolTip(tip);
-      // Clear any leftover Unicode title from older builds. Title is
-      // empty by default in v1.2.1+; the icon is the entire visual.
-      await trayManager.setTitle('');
+      await NativeTray.setTooltip(tip);
     } catch (_) {
-      // tray_manager.setTitle is macOS-only; safe to swallow.
+      // Channel error; swallow.
     }
   }
 
@@ -125,77 +125,80 @@ class TrayController with WindowListener, TrayListener {
     final paired = supervisor.pairedTokenCount;
     final clients = supervisor.wsClientCount;
 
-    final menu = Menu(
-      items: <MenuItem>[
-        MenuItem(
-          label: running
-              ? (cameraOk
-                  ? 'Status: Running (camera OK)'
-                  : 'Status: Running (no camera)')
-              : (supervisor.status == BridgeStatus.error
-                  ? 'Status: Error'
-                  : 'Status: Stopped'),
+    final items = <NativeTrayItem>[
+      if (version.isNotEmpty)
+        NativeTrayItem(
+          key: 'version',
+          label: 'OBSBOT Bridge v$version',
           disabled: true,
         ),
-        MenuItem(
-          label: '$clients phones connected ($paired paired)',
-          disabled: true,
-        ),
-        MenuItem.separator(),
-        MenuItem(
-          key: 'reveal_pin',
-          label: 'Reveal pairing PIN (60s)',
-          disabled: supervisor.pin.isEmpty,
-        ),
-        MenuItem(
-          key: 'show_window',
-          label: 'Show main window',
-        ),
-        MenuItem.separator(),
-        MenuItem(
-          key: 'open_log',
-          label: 'Open log file',
-          disabled: supervisor.logFilePath == null,
-        ),
-        MenuItem(
-          key: 'restart_bridge',
-          label: 'Restart bridge subprocess',
-        ),
-        MenuItem.separator(),
-        MenuItem(
-          key: 'quit',
-          label: 'Quit OBSBOT Bridge',
-        ),
-      ],
-    );
-    await trayManager.setContextMenu(menu);
+      if (version.isNotEmpty) const NativeTrayItem.separator(),
+      NativeTrayItem(
+        key: 'status',
+        label: running
+            ? (cameraOk
+                ? 'Status: Running (camera OK)'
+                : 'Status: Running (no camera)')
+            : (supervisor.status == BridgeStatus.error
+                ? 'Status: Error'
+                : 'Status: Stopped'),
+        disabled: true,
+      ),
+      NativeTrayItem(
+        key: 'clients',
+        label: '$clients phones connected ($paired paired)',
+        disabled: true,
+      ),
+      const NativeTrayItem.separator(),
+      // Pairing PIN, inline. Tailscale / Dropbox idiom: the most-used
+      // piece of info is one click away.
+      NativeTrayItem(
+        key: 'pin_display',
+        label: supervisor.pin.isNotEmpty
+            ? 'Pairing PIN:  ${supervisor.pin}'
+            : 'Pairing PIN:  (generating…)',
+        disabled: true,
+      ),
+      if (supervisor.pin.isNotEmpty)
+        const NativeTrayItem(key: 'copy_pin', label: 'Copy PIN to clipboard'),
+      NativeTrayItem(
+        key: 'reveal_pin',
+        label: 'Show PIN + QR code in main window',
+        disabled: supervisor.pin.isEmpty,
+      ),
+      const NativeTrayItem(key: 'show_window', label: 'Show main window'),
+      const NativeTrayItem.separator(),
+      NativeTrayItem(
+        key: 'open_log',
+        label: 'Open log file',
+        disabled: supervisor.logFilePath == null,
+      ),
+      const NativeTrayItem(
+        key: 'restart_bridge',
+        label: 'Restart bridge subprocess',
+      ),
+      const NativeTrayItem.separator(),
+      const NativeTrayItem(key: 'quit', label: 'Quit OBSBOT Bridge'),
+    ];
+    await NativeTray.setMenu(items);
   }
 
-  // ---- TrayListener -------------------------------------------------------
+  // ---- NativeTrayListener -------------------------------------------------
 
   @override
-  void onTrayIconMouseDown() {
-    // Left-click also pops the menu — same as right-click. Matches the
-    // OBSBOT Center / Slack / Dropbox idiom.
-    trayManager.popUpContextMenu();
-  }
-
-  @override
-  void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu();
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) async {
-    switch (menuItem.key) {
+  void onTrayMenuClick(String key) async {
+    switch (key) {
       case 'reveal_pin':
-        await windowManager.show();
-        await windowManager.focus();
+        await _showAndFocus();
         onRevealPin();
         break;
+      case 'copy_pin':
+        if (supervisor.pin.isNotEmpty) {
+          await Clipboard.setData(ClipboardData(text: supervisor.pin));
+        }
+        break;
       case 'show_window':
-        await windowManager.show();
-        await windowManager.focus();
+        await _showAndFocus();
         break;
       case 'open_log':
         supervisor.revealLogInFinder();
@@ -212,22 +215,36 @@ class TrayController with WindowListener, TrayListener {
     }
   }
 
+  /// Show + focus the main window with dock-policy in the correct
+  /// order. .accessory NSWindows can orderFront but never become key,
+  /// so we flip back to .regular BEFORE asking window_manager to
+  /// focus. See bridge_prefs.dart for the channel + AppDelegate.swift
+  /// for the launch-time policy.
+  Future<void> _showAndFocus() async {
+    await BridgePrefs.setDockVisible(true);
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
   // ---- WindowListener -----------------------------------------------------
-  //
-  // Hide the window instead of letting it actually close. The tray icon
-  // keeps the bridge subprocess alive; quitting only happens through the
-  // tray's "Quit" item or Cmd-Q from a focused window (which Flutter
-  // forwards through onWindowClose with prevent-close OFF — handled by
-  // setPreventClose(true) below).
 
   @override
   void onWindowClose() async {
-    // tray_manager + window_manager dance: only intercept the close
-    // when setPreventClose(true) is set; otherwise the framework will
-    // call exit() itself.
     final preventClose = await windowManager.isPreventClose();
     if (preventClose) {
       await windowManager.hide();
+    }
+  }
+
+  @override
+  void onWindowEvent(String eventName) {
+    switch (eventName) {
+      case 'show':
+        BridgePrefs.setDockVisible(true);
+        break;
+      case 'hide':
+        BridgePrefs.setDockVisible(false);
+        break;
     }
   }
 }

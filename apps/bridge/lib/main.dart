@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,10 +11,39 @@ import 'bridge_supervisor.dart';
 import 'footer.dart';
 import 'tray_controller.dart';
 
+/// Best-effort check whether the user has ever paired a phone.
+///
+/// Returns true if `auth.json` exists and contains at least one token.
+/// Used as the onboarding override: when start-hidden is true but the
+/// user has never paired, force the window visible on launch so they
+/// can see the PIN + QR code. Pattern lifted from Handy's
+/// AccessibilityOnboarding (auto-show window when something the user
+/// needs to see is gated behind a permission/credential).
+Future<bool> _hasPairedTokens() async {
+  try {
+    final home = Platform.environment['HOME'];
+    if (home == null) return false;
+    final f = File(
+        '$home/Library/Application Support/Open OBSBOT Bridge/auth.json');
+    if (!await f.exists()) return false;
+    final j = json.decode(await f.readAsString()) as Map<String, dynamic>;
+    final tokens = j['tokens'] as List<dynamic>?;
+    return tokens != null && tokens.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
   final prefs = await BridgePrefs.load();
+  final paired = await _hasPairedTokens();
+  // Handy-style onboarding override: ignore start-hidden when no
+  // pairing has happened yet — the user needs the PIN/QR card in
+  // front of them. Once they've paired at least one phone the
+  // start-hidden preference takes effect normally.
+  final hideAtLaunch = prefs.startHidden && paired;
 
   await windowManager.waitUntilReadyToShow(
     const WindowOptions(
@@ -28,21 +58,31 @@ Future<void> main() async {
       // intercepts onWindowClose and keeps the bridge subprocess alive.
       // Quit happens only via the tray menu or Cmd-Q from the app menu.
       await windowManager.setPreventClose(true);
-      if (prefs.menubarOnly) {
-        // Menubar-only mode: don't show the window at launch. The user
-        // can restore it via the tray's "Show main window" item. The
-        // AppDelegate already flipped activation policy to .accessory
-        // so the dock icon stays hidden too.
+      if (hideAtLaunch) {
         await windowManager.hide();
+        // No setDockVisible(false) call needed — AppDelegate already
+        // flipped policy to .accessory before super.didFinishLaunching
+        // based on the same pref.
       } else {
         await windowManager.show();
         await windowManager.focus();
+        // If start-hidden was on but onboarding override forced us
+        // visible, make sure the dock icon is visible too. AppDelegate
+        // started us as .accessory; flip back now that we have a window.
+        if (prefs.startHidden && !paired) {
+          await BridgePrefs.setDockVisible(true);
+        }
       }
     },
   );
 
   runApp(ObsbotBridgeApp(prefs: prefs));
 }
+
+/// Hardcoded for now; mirrors `version:` in `apps/bridge/pubspec.yaml`.
+/// `package_info_plus` would let us read it at runtime but it adds a
+/// dependency for a single string. Update both places at release time.
+const String _kAppVersion = '1.2.1';
 
 class ObsbotBridgeApp extends StatefulWidget {
   final BridgePrefs prefs;
@@ -68,6 +108,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
       _tray = TrayController(
         supervisor: supervisor,
         onRevealPin: () => _revealRequest.value++,
+        version: _kAppVersion,
       );
       _tray!.init();
     });
@@ -728,8 +769,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showSettings() async {
-    bool menubarOnly = widget.prefs.menubarOnly;
-    final initial = menubarOnly;
+    bool startHidden = widget.prefs.startHidden;
+    final initial = startHidden;
     await showDialog<void>(
       context: context,
       builder: (BuildContext c) {
@@ -743,18 +784,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Hide dock icon (menubar-only)'),
+                    title: const Text('Start hidden in menubar'),
                     subtitle: const Text(
-                      'Run as a pure menubar app. Restore the window from '
-                      'the tray menu. Restart required.',
+                      'Launch directly into the menubar with no window or '
+                      'dock icon. Show the window any time from the tray. '
+                      'Until at least one phone is paired, the window will '
+                      'still appear on launch so you can see the PIN.',
                     ),
-                    value: menubarOnly,
+                    value: startHidden,
                     onChanged: (bool v) async {
-                      setSt(() => menubarOnly = v);
-                      await widget.prefs.setMenubarOnly(v);
+                      setSt(() => startHidden = v);
+                      await widget.prefs.setStartHidden(v);
                     },
                   ),
-                  if (menubarOnly != initial)
+                  if (startHidden != initial)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Row(
@@ -767,7 +810,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Restart OBSBOT Bridge to apply.',
+                              'Applies on next launch. The dock icon '
+                              'already follows the window automatically.',
                               style: TextStyle(
                                 color: Theme.of(c).colorScheme.tertiary,
                                 fontSize: 12,
@@ -777,6 +821,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'OBSBOT Bridge v$_kAppVersion',
+                    style: TextStyle(
+                      color: Theme.of(c).colorScheme.outline,
+                      fontSize: 11,
+                      fontFamily: 'Menlo',
+                    ),
+                  ),
                 ],
               ),
               actions: <Widget>[

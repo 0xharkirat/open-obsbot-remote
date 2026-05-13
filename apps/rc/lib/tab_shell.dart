@@ -251,8 +251,15 @@ class _InlinePresetCard extends StatelessWidget {
     required this.entry,
   });
 
-  bool get _saved => entry != null && entry!.name.isNotEmpty;
-  String get _label => 'P${id + 1}';
+  // A slot is "saved" the moment the bridge has stored a pose for it,
+  // regardless of whether the user gave it a name. Previously this
+  // required a non-empty name, which meant unnamed presets fell back
+  // to the empty-slot branch and tap-to-recall silently became
+  // tap-to-save. Live report: "if I tap or hold, it saves the preset
+  // — tap should be to change to that preset."
+  bool get _saved => entry != null;
+  String get _label =>
+      (entry != null && entry!.name.isNotEmpty) ? entry!.name : 'P${id + 1}';
 
   void _save(BuildContext ctx) {
     HapticFeedback.heavyImpact();

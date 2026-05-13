@@ -62,10 +62,43 @@ cp -R "$WEB_DIR/." "$APP/Contents/Resources/web/"
 # 4) ad-hoc sign the whole bundle. Without this, the unsigned subprocess
 #    has its own TCC identity and won't inherit camera-access grants
 #    from the parent .app — preview silently fails.
-echo "==> Ad-hoc signing the bundle..."
+#
+# Two-step sign so the subprocess gets a STABLE bundle identifier
+# (com.harksingh.obsbotbridge.helper) instead of the default
+# obsbot-bridge-<contenthash>. Without this, every rebuild produces a
+# different ad-hoc identifier for the subprocess, and macOS TCC
+# treats it as a new app — the camera permission that the user just
+# granted gets thrown away the next time the dev rebuilds. With the
+# stable identifier the TCC entry survives rebuilds (only invalidates
+# if entitlements or the bundle ID itself change).
+echo "==> Ad-hoc signing the bundle (deep, parent first)..."
 codesign --force --deep --sign - \
     --entitlements "$ROOT/apps/bridge/macos/Runner/Release.entitlements" \
     "$APP" 2>&1 | tail -5 || true
+
+# Re-sign the subprocess + dylib AFTER the deep parent sign, so the
+# bundle's --deep pass doesn't overwrite our stable identifiers.
+# Two-step matters: the subprocess defaults to
+# obsbot-bridge-<contenthash>, which changes every rebuild and makes
+# macOS TCC throw away the camera grant. With -i set to a stable
+# identifier, the TCC entry persists across rebuilds (only flushes
+# when entitlements or this identifier itself change).
+echo "==> Re-signing subprocess + dylib with stable identifiers..."
+codesign --force --sign - \
+    -i com.harksingh.obsbotbridge.helper \
+    --entitlements "$ROOT/apps/bridge/macos/Runner/Release.entitlements" \
+    "$APP/Contents/MacOS/obsbot-bridge" 2>&1 | tail -3 || true
+codesign --force --sign - \
+    -i com.harksingh.obsbotbridge.libdev \
+    "$APP/Contents/MacOS/libdev.dylib" 2>&1 | tail -3 || true
+
+# Re-seal the parent bundle so its sealed-resources rules include the
+# new subprocess signatures. Without this, a `codesign --verify --deep`
+# would complain that the bundle's internal hashes don't match.
+echo "==> Re-sealing parent bundle..."
+codesign --force --sign - \
+    --entitlements "$ROOT/apps/bridge/macos/Runner/Release.entitlements" \
+    "$APP" 2>&1 | tail -3 || true
 codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | tail -3 || true
 
 # 5) sanity: file sizes
