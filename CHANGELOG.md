@@ -4,6 +4,16 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-13
+
+Maintenance + polish release on top of v1.2.0. Highlights: replaced
+the fragile `tray_manager` macOS plugin with a first-party
+NSStatusItem implementation; brought the bridge UX in line with
+Handy (cjpais/Handy) — dock icon follows the main window
+automatically, tray carries the pairing PIN inline; smoothed out
+preset-recall motion + zoom; made the camera permission grant
+survive rebuilds.
+
 ### Added
 
 - **First-party macOS NSStatusItem tray (`NativeTray.swift`).** Replaces
