@@ -432,6 +432,14 @@ White balance:
 
 `kelvin` clamps to `2800..6500`. Setting a manual temperature also turns auto off, mirroring OBSBOT Center's behavior.
 
+Re-read live exposure / anti-flicker / WB state from the camera and re-stamp the bridge's snapshot (`v1.2.1`):
+
+```json
+{ "action": "image.refresh", "id": "4b" }
+```
+
+Reads back `exposure_mode`, `ev_bias`, `anti_flicker`, `wb_type` + `wb_kelvin` via the SDK getters and updates `snap_`. A state event flows to all subscribers with the fresh values. Use when another control app (OBSBOT Center, a different phone) may have changed values while we were disconnected. UI surfaces this as a "Refresh from camera" button on the Image tab.
+
 ### System
 
 Sleep or wake:

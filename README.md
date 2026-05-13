@@ -61,10 +61,12 @@ OBSBOT camera
 
 ### Bridge app
 
-- macOS menubar tray icon with live status (Running / Connected / Stopped / Error). Closing the window hides it instead of quitting, so the bridge keeps running quietly during a livestream.
-- Tray menu: Reveal pairing PIN (60-second show), Show main window, Open log file, Restart bridge subprocess, Quit.
+- macOS menubar tray icon (first-party `NSStatusItem`, v1.2.1+) with live status shown in the tooltip. Closing the window hides it instead of quitting, so the bridge keeps running quietly during a livestream.
+- **Hybrid dock visibility**: the dock icon follows the main window — closing the window hides the dock icon too, showing the window brings it back. No persistent "menubar-only" setting needed (toggle "Start hidden in menubar" if you want the bridge to boot directly into the menubar; the window still force-shows the first time so you can see the pairing PIN).
+- Tray menu shows the pairing PIN inline + a "Copy PIN to clipboard" item. Also: Show PIN + QR in main window, Show main window, Open log file, Restart bridge subprocess, Quit. Version line at the top.
 - PIN pairing with long-lived bearer tokens. Tokens gate WebSocket commands and MJPEG preview URLs.
 - Bridge auto-restart and single-instance enforcement.
+- Stable subprocess code signature (`com.harksingh.obsbotbridge.helper`) so the camera permission grant survives rebuilds.
 - Logs at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
 
 ### Remote UI

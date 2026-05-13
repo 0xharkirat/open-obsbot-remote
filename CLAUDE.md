@@ -124,26 +124,25 @@ See README.md "Features" and "Known Limits" sections. Tiny 2 Lite is the tested 
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
 - When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.
 
-## Current dev state (v1.2 ready for merge)
+## Current dev state (v1.2.1 shipped, 2026-05-13)
 
-**Last release:** v1.1.0 (commit `87bbe0a`). After v1.1 the workflow is PR-styled. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`. Squash-merge to `main` is the default.
+**Last release:** v1.2.1 (tag `v1.2.1`, commit `7d020bf` on `main`). PR-styled workflow, squash-merge default. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`.
 
-**v1.2 work lives on a single PR** (`PR #16` / branch `fix/ui-revamp-from-review`) that supersedes the original A through K plan. The branch carries every commit from the v1.2 stack, plus the post-review fix-ups. Once that PR merges, `[Unreleased]` in `CHANGELOG.md` becomes `[1.2.0]`.
+v1.2.0 shipped the UI redesign + smooth zoom + exposure controls + first
+tray. v1.2.1 was the polish-after-real-use release that landed in a
+single consolidated PR (#23) on top of #17–#22:
 
-### Final v1.2 shape
-
-| Area | Result |
+| Area | v1.2.1 result |
 |---|---|
-| Advanced UI | 3 tabs: Joystick / Buttons / Image. Same template on Joystick and Buttons: top quick-actions row, gimbal control + vertical zoom slider, inline P1 to P6 preset row, duration chip strip at the bottom. |
-| Sequence editor | Inline timeline; opened via an AppBar action (`Icons.timeline`). The Sequence tab was dropped. |
-| Presets | Inlined on Joystick and Buttons (long-press for Save / Recall instantly / Rename). The Presets tab was dropped. |
-| Status chip bar | Removed. Pan/Tilt is in the preview overlay, zoom is next to its slider, AI/FOV live on the Image tab, run-status is the tray icon glyph. |
-| Image tab | Auto-track (Off / Person / Group), View (Wide / Normal / Narrow), Tone toggles (HDR / Face exposure / Face focus / Flip), Exposure (Auto / Manual + EV bias slider), Anti-flicker, White balance (Auto + Temperature), Color sliders. Per-section Reset buttons + per-slider inline reset. |
-| Grid overlay | 4 layers (crosshair / attitude indicator / rule of thirds / Pan-Tilt readout). Toggled from an AppBar grid menu; persisted via SharedPreferences. |
-| Color scheme | OBSBOT red `#FF3B30` accent on deep neutral `#0F1115`. |
-| Bridge tray | macOS menubar via `tray_manager`. Closing the window hides it; the bridge keeps running. |
-| forui migration | Pair screen migrated (FScaffold / FHeader.nested / FButton on `FThemes.zinc.dark.touch`). TabShell wrapped in FTheme; tab content stays on Material via a transparent Material shim where inputs need a Material ancestor. |
-| Plain language sweep | "Yaw / Pitch" -> "Pan / Tilt", "Auto-expose for face" -> "Face exposure", "AI HUMAN/GROUP" -> "Person/Group", "FOV 86" -> "Wide". |
+| Bridge tray | **First-party NSStatusItem** (`apps/bridge/macos/Runner/NativeTray.swift` + `apps/bridge/lib/native_tray.dart`). Replaced `tray_manager` 0.5.2 — its `popUpContextMenu` toggling broke NSMenu click dispatch on macOS Sonoma+. Channel `obsbot.bridge/tray`. Icon bytes pass as `FlutterStandardTypedData` (Flutter assets live in `App.framework`, not main bundle, so `Bundle.main.url` returns nil). |
+| Dock lifecycle | **Handy-style**: dock icon follows main-window visibility. Hide window → `.accessory` (no dock); show window → `.regular`. Channel `obsbot.bridge/dock` in `MainFlutterWindow.swift`. The `bridge_start_hidden` pref (renamed from v1.2.1 PR O's `bridge_menubar_only`; migrated in `BridgePrefs.load`) only affects launch state. Onboarding override: when no phones are paired yet, force-show the window so the user sees the PIN/QR. |
+| Tray menu | Version line at top; `Status: Running (camera OK)` / paired count; **inline `Pairing PIN: ######` + Copy PIN to clipboard** (Tailscale/Dropbox idiom); Show PIN+QR in main window; Show main window; Open log file; Restart bridge subprocess; Quit. |
+| Code signing | `obsbot-bridge` subprocess re-signed AFTER the parent `--deep` pass with stable id `com.harksingh.obsbotbridge.helper`. Without this, default ad-hoc id is `obsbot-bridge-<contenthash>` which changes per build → macOS TCC throws away the camera grant on every rebuild. |
+| Motion planner | Gimbal: rate-scaled SDK speed (was flat 90 per tick) so motor flows through eased curve instead of pulse-racing. Headroom 2.0×, floor 15%. Zoom: hybrid — short plans (≤1s) one-shot the target; longer plans tick at ≥600ms cadence so the lens converges per waypoint without re-arming. Both branches honour `duration_ms`. |
+| Preset card | `_InlinePresetCard._saved` is now `entry != null` (was `entry != null && name.isNotEmpty`). Unnamed saves used to silently become tap-to-save; now tap = recall, hold = save, regardless of name. |
+| Protocol | New action `image.refresh` reads back `exposure_mode` / `ev_bias` / `anti_flicker` / `wb_type+kelvin` from the camera via SDK getters, stamps `snap_`, flows out to clients via state event. UI has a "Refresh from camera" button on the Image tab (top-right). |
+| Exposure | `cameraSetExposureModeR` + `cameraSetAAEEvBiasR` empirically verified r=0 on Tiny 2 Lite firmware 6.2.8.1 (PR P). SDK header's "tail air" tag is misleading. v1.2.0's `unsupported` guard removed; UI no longer greys out. |
+| Cleanup | `velocityScale` field gone (#17). Pure-Dart `packages/obsbot_protocol/` extracts shared types (#18). Custom 22/44 px template PNG replaces the v1.2.0 Unicode glyph (#19). `_QuickActions` Recenter/Sleep/Wake + `_toggleBtn` HDR/Face/Flip/AutoWB migrated to `FButton.raw` (#22). |
 
 ### Test harness
 
@@ -153,9 +152,9 @@ Run before merging. All run against a connected Tiny 2 Lite.
 NODE=/Users/hark/.nvm/versions/node/v22.21.1/bin/node
 $NODE tests/bridge_smoke.mjs       # 27 tests: connect / preset / sequence / image / sign convention
 $NODE tests/sequencer_save.mjs     # 6 tests:  duration_ms persistence + legacy speed migration
-$NODE tests/slow_motion.mjs        # 7 tests:  duration_ms timings (200ms / 1s / 5s / 15s / 60s)
-$NODE tests/zoom_speed.mjs         # 9 tests:  zoom planner duration timings
-$NODE tests/exposure.mjs           # 8 tests:  exposure mode + EV bias + anti-flicker + WB
+$NODE tests/slow_motion.mjs        # 7 tests:  duration_ms timings (500ms / 1s / 5s / 15s / 60s)
+$NODE tests/zoom_speed.mjs         # 9 tests:  zoom planner duration timings + hybrid handoff
+$NODE tests/exposure.mjs           # 11 tests: exposure mode + EV bias + anti-flicker + WB + refresh
 $NODE tests/zoom_smoothness.mjs    # samples zoom over 5s and 30s plans; flags lens stalls
 ```
 
@@ -163,11 +162,11 @@ Plus offline widget tests:
 
 ```bash
 cd apps/rc && flutter test
-# tab_shell_test.dart   - 20 tests for the 3-tab structure + Image tab sections
+# tab_shell_test.dart   - 20 tests for the 3-tab structure + 320px overflow regression
 # pin_entry_test.dart   - 1  test  for the forui pair screen
 ```
 
-Total: **78 / 78** with no log warnings on live camera.
+Total: **81 / 81** (60 backend + 21 widget) with no log warnings on live camera.
 
 ### MotionPlanner architecture (`apps/bridge_cpp/src/device_session.{h,cpp}`)
 
@@ -176,18 +175,15 @@ Total: **78 / 78** with no log warnings on live camera.
 - `motion_start(target)` enqueues + signals cv; `motion_cancel()` preempts (cancel-replace).
 - Easing: `ease_in_out_sine` for cinematographic deceleration.
 - Adaptive tick on gimbal axes: stretches tick to keep per-step delta at least 0.1 deg per tick (avoids motor jitter at sub-SDK floors).
-- Gimbal: `gimbalSetSpeedPositionR(..., speed=90)` per waypoint. Speed is the SDK ceiling; we control the rate by how often we update the target.
-- Zoom: `cameraSetZoomAbsoluteR(value, -1)` per waypoint, where `value` is a float. The uint-API `cameraSetZoomWithSpeedAbsoluteR` is broken on Tiny 2 Lite (gets stuck around 1.33x); the float-API produces smooth continuous motion.
+- **Gimbal speed (v1.2.1 change):** rate-scaled per-axis. `pct = (deg_per_sec / 1.5) * 2.0`, clamped `[15, 100]`. Old v1.2.0 flat-90 raced/waited per tick → visible 100 ms-cadence shake on any duration_ms > 0.
+- **Zoom (v1.2.1 hybrid):** short plans (`duration_ms <= 1000`) call `cameraSetZoomAbsoluteR(target, -1)` ONCE; let the lens drive itself. Longer plans tick at `>= 600 ms` cadence — lens converges per waypoint before next arrives. Old v1.2.0 ticked every 100 ms which re-armed the lens's internal plan → `in/out/in/out` oscillation. The uint-API `cameraSetZoomWithSpeedAbsoluteR` is broken on Tiny 2 Lite (stuck at 1.33x); float-API is the only path.
 - Any direct gimbal/zoom command (instant jog, velocity, terminal zoom snap) calls `motion_cancel()` first to preempt the in-flight planner.
 
-### Protocol (v1.2 deltas vs v1.1)
+### Protocol (v1.2.1 deltas vs v1.2.0)
 
-- `ptz.angle`, `zoom.set`, `preset.recall` take `"duration_ms": <int>` (ms). `0` is instant; positive integers run the planner with ease-in-out-sine.
-- `zoom.set` also takes an optional `"final": true` flag (terminal release value; bypasses the mid-drag coalesce).
-- `sequence.set` / `sequence.save_as` step shape is `{ "preset_id", "seconds", "transition_ms" }`. The old `"speed": "instant" | "slow" | "medium" | "fast" | "cinema"` enum is gone; legacy saves still load via `legacy_speed_to_ms()`.
-- `ptz.velocity` no longer carries `speed`. Rate is implicit from `yaw_speed` and `pitch_speed`; the planner is not invoked.
-- New image actions: `image.set_exposure_mode` (auto / manual), `image.set_ev_bias` (float -3.0 to +3.0), `image.set_anti_flicker` (off / 50 / 60 / auto), `image.set_wb_auto` (boolean), `image.set_wb_temp` (kelvin 2800 to 6500).
-- State event `image` block gains `exposure_mode`, `ev_bias`, `anti_flicker`, `wb_auto`, `wb_kelvin`. `sequence` block gains `steps` so the editor can hydrate after reconnecting.
+- `image.refresh` — re-read live exposure / anti-flicker / WB state from the camera via SDK getters; stamps `snap_` so all subscribers get a state event with current values. Useful when OBSBOT Center or another phone changed values out-of-band.
+- Exposure mode + EV bias `unsupported` guard removed; both return `ok=true` on Tiny 2 Lite firmware 6.2.8.1+.
+- Carryovers from v1.2.0 still valid: `duration_ms` on `ptz.angle` / `zoom.set` / `preset.recall`; `final: true` on `zoom.set`; sequence step shape `{ preset_id, seconds, transition_ms }`; new image actions (`image.set_exposure_mode` / `image.set_ev_bias` / `image.set_anti_flicker` / `image.set_wb_auto` / `image.set_wb_temp`); state-event fields `exposure_mode` / `ev_bias` / `anti_flicker` / `wb_auto` / `wb_kelvin`.
 
 ### Skills checklist per PR (see `.agents/skills/`)
 
@@ -221,5 +217,13 @@ Design + a11y work uses:
 26. **`cameraSetZoomWithSpeedAbsoluteR` is broken on Tiny 2 Lite.** The uint-API gets stuck around 1.33x regardless of the speed param. The SDK's zoom_speed field is tagged "tail2 / tail2s only" in `dev.hpp`, so on Tiny 2 Lite it is effectively ignored. The float-API `cameraSetZoomAbsoluteR(value, -1)` works (smooth 3-second 1.0x -> 2.0x sweep at default speed) and accepts sub-percent waypoints. Verified by `tests/zoom_probe.mjs` (kept locally; the helper bridge action was removed before merge).
 27. **`HoldDirBtn` lost pointer events on web.** Wrapping `Listener` inside a `FilledButton.tonal` with a no-op `onPressed: () {}` let the button's internal `TapGestureRecognizer` win the gesture arena on quick taps, so `Listener.onPointerUp` never fired and the velocity ticker stayed running. The rewrite uses a raw `Listener` on a `Material` surface so press / release / cancel are first-class.
 28. **ZoomSlider mid-drag fought the planner.** During a drag the slider sent the user's chosen `duration_ms` on every tick; the planner cancelled and restarted every 100 ms. Mid-drag is now always `duration: Duration.zero` (instant); the chosen duration is applied only on release (`final: true`).
-29. **forui `FButton` overflow at 3-per-row narrow widths.** At 360 px the Joystick quick-actions row gives each button ~110 px; `FButton`'s intrinsic padding overflows even with `mainAxisSize.min` + `size.sm`. Kept those buttons on Material `OutlinedButton`. Image tab toggles (2 per row, ~184 px each) could use FButton but were left on Material in this PR for simplicity. Worth filing an upstream issue or shimming.
+29. **forui `FButton` overflow at 3-per-row narrow widths.** At 360 px the Joystick quick-actions row gives each button ~110 px; `FButton`'s intrinsic padding overflowed at first. Solved in v1.2.1 by using `FButton.raw` with a `Flexible + Text(maxLines: 1, overflow: TextOverflow.ellipsis)` child — structural cap on width. Regression test at 320 px in `tab_shell_test.dart`.
 30. **`SharedPreferences` plugin hangs in flutter_test.** `WsClient`'s constructor calls `SharedPreferences.getInstance()` which under the test harness has no platform implementation. Tests must call `SharedPreferences.setMockInitialValues({})` in `setUp` to unblock. Added to `apps/rc/test/tab_shell_test.dart` + `pin_entry_test.dart`.
+31. **`tray_manager` 0.5.2 drops menu click dispatch on macOS Sonoma+.** Its `popUpContextMenu` assigns `statusItem.menu = trayMenu` then nulls it in `menuDidClose`. That dance breaks NSMenu's target/action chain — menus render fine but clicks never reach the Dart-side `TrayListener`. Symptom: Quit / Show window / Reveal PIN are no-ops. Replaced entirely by first-party `NativeTray.swift` that keeps the NSMenu permanently attached.
+32. **`.accessory` windows can `orderFront` but never become key.** When the bridge is in `.accessory` (dock hidden) and the user clicks tray > Show main window, calling `windowManager.show()` then `focus()` is not enough — the window appears but can't accept clicks. Fix in `MainFlutterWindow.swift`'s `obsbot.bridge/dock` channel: flip `setActivationPolicy(.regular)` FIRST, then `makeKeyAndOrderFront(nil)` + `NSApp.activate(ignoringOtherApps:)`. TrayController's `_showAndFocus` awaits the policy flip before calling `windowManager.focus()` so the chain converges in order.
+33. **Flutter assets aren't in `Bundle.main` on macOS.** `flutter_assets/` ships inside `Contents/Frameworks/App.framework/Resources/`, not the main bundle. `Bundle.main.url(forResource:withExtension:)` returns nil. Pass raw PNG bytes through the channel via `FlutterStandardTypedData` instead (matches what `tray_manager` did with base64, but binary). See `NativeTray.swift::setIcon` + `native_tray.dart::setIcon`.
+34. **Ad-hoc subprocess id changes per build → camera TCC grant evaporates.** Without explicit `-i`, codesign stamps `obsbot-bridge-<contenthash>`. Every rebuild a new identity, macOS TCC creates a new entry, user must re-grant. Fix: re-sign subprocess AFTER the parent `--deep` pass with stable `-i com.harksingh.obsbotbridge.helper`, then re-seal the parent bundle. See `scripts/build-bridge-mac.sh`.
+35. **`applicationShouldTerminateAfterLastWindowClosed` must return false.** True (default) auto-quits the app when the window hides. With the tray owning lifecycle (red-dot just hides; explicit quit via tray menu), false is correct. Also required for the start-hidden launch path — the hidden window was misread as "last window closed" and the app died instantly on launch.
+36. **`gimbalSetSpeedPositionR(.., 90, 90, 90)` per tick = motor races + waits.** v1.2.0 set the SDK speed to 90 (ceiling) on every 100 ms waypoint. With small deltas per tick, motor finished each waypoint in <10 ms then idled, producing visible 100 ms-cadence stutter. v1.2.1 scales speed per-axis to roughly match per-tick deg/s with 2.0× headroom + 15% floor; motor flows.
+37. **`cameraSetZoomAbsoluteR(value, -1)` ticked at 100 ms = lens oscillation.** Lens motor has its own internal motion plan; each call re-arms it. Tick every 100 ms and the lens never converges — visible in/out/in/out on any preset recall combining motion + zoom. v1.2.1 hybrid: one-shot for `duration_ms <= 1000`; else tick at ≥600 ms so the lens has time to settle between waypoints.
+38. **`_InlinePresetCard._saved` required non-empty `name`.** Unnamed saves are valid (the bridge stores the pose) but the UI's `_saved` check fell through to the empty-slot branch — tap-to-recall silently became tap-to-save. Now `_saved = entry != null`.

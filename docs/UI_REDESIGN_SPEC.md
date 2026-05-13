@@ -271,10 +271,13 @@ Tray pattern (macOS menubar, Windows system tray, Linux indicator):
 - Closing the main window hides the window instead of quitting - the
   tray icon keeps the bridge subprocess alive
 
-Implementation: `tray_manager` Flutter package (cross-platform). On
-macOS we also gain `LSUIElement = true` consideration so the dock icon
-disappears in tray-only mode (offer as a setting; default keeps dock
-icon for discoverability).
+Implementation history: shipped on `tray_manager` in v1.2.0; replaced by
+a first-party `NSStatusItem` wrapper in v1.2.1 (`apps/bridge/macos/Runner/NativeTray.swift`)
+because the package's `popUpContextMenu` plumbing broke NSMenu click
+dispatch on macOS Sonoma+. v1.2.1 also switched to a Handy-style
+dynamic dock policy (the icon follows window visibility automatically)
+instead of a static `LSUIElement` setting — see CLAUDE.md "Current dev
+state" for the full reasoning.
 
 ## Out of scope (v1.3+)
 
