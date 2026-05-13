@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'bridge_prefs.dart';
@@ -821,15 +822,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'OBSBOT Bridge v$_kAppVersion',
-                    style: TextStyle(
-                      color: Theme.of(c).colorScheme.outline,
-                      fontSize: 11,
-                      fontFamily: 'Menlo',
-                    ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(height: 1),
                   ),
+                  _aboutSection(c),
                 ],
               ),
               actions: <Widget>[
@@ -843,6 +840,160 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  /// "About" block at the bottom of the Settings dialog. Mirrors the
+  /// Handy / Tauri convention: version, log + app-data directories
+  /// (clickable to open in Finder), source / changelog / issues links,
+  /// and a short credit line.
+  Widget _aboutSection(BuildContext ctx) {
+    final theme = Theme.of(ctx);
+    final mutedStyle = TextStyle(
+      color: theme.colorScheme.outline,
+      fontSize: 11,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          'About',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.primary,
+            letterSpacing: 1.0,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(children: <Widget>[
+          Text('Version', style: mutedStyle),
+          const SizedBox(width: 8),
+          SelectableText(
+            'v$_kAppVersion',
+            style: const TextStyle(
+              fontFamily: 'Menlo',
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ]),
+        const SizedBox(height: 8),
+        if (supervisor.logFilePath != null)
+          _aboutRow(
+            ctx,
+            label: 'Log directory',
+            value: supervisor.logFilePath!.replaceAll(
+              Platform.environment['HOME'] ?? '',
+              '~',
+            ),
+            onTap: supervisor.revealLogInFinder,
+          ),
+        _aboutRow(
+          ctx,
+          label: 'App data',
+          value: '~/Library/Application Support/Open OBSBOT Bridge/',
+          onTap: () => _openInFinder(
+            '${Platform.environment['HOME']}/Library/Application Support/Open OBSBOT Bridge',
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          children: <Widget>[
+            _aboutLink(
+              ctx,
+              icon: Icons.code,
+              label: 'Source code',
+              url: 'https://github.com/0xharkirat/open-obsbot-remote',
+            ),
+            _aboutLink(
+              ctx,
+              icon: Icons.history,
+              label: 'Changelog',
+              url:
+                  'https://github.com/0xharkirat/open-obsbot-remote/blob/main/CHANGELOG.md',
+            ),
+            _aboutLink(
+              ctx,
+              icon: Icons.bug_report_outlined,
+              label: 'Report an issue',
+              url:
+                  'https://github.com/0xharkirat/open-obsbot-remote/issues/new',
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Open OBSBOT Bridge — by Hark Singh.\n'
+          'Not affiliated with OBSBOT.',
+          style: mutedStyle,
+        ),
+      ],
+    );
+  }
+
+  Widget _aboutRow(
+    BuildContext ctx, {
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style:
+                  TextStyle(color: theme.colorScheme.outline, fontSize: 11),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style:
+                  const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Reveal in Finder',
+            icon: const Icon(Icons.folder_open, size: 14),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            onPressed: onTap,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _aboutLink(
+    BuildContext ctx, {
+    required IconData icon,
+    required String label,
+    required String url,
+  }) {
+    return TextButton.icon(
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      ),
+      icon: Icon(icon, size: 14),
+      label: Text(label),
+      onPressed: () async {
+        final uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri);
+        }
+      },
+    );
+  }
+
+  void _openInFinder(String path) {
+    Process.run('open', <String>[path]);
   }
 
   Widget _ipPill(BuildContext ctx, String hostPort) {
