@@ -747,43 +747,30 @@ class _ImageTab extends StatelessWidget {
   }
 
   Widget _aiSegmented(BuildContext ctx, CameraState s) {
-    return SegmentedButton<String>(
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'none', label: Text('Off')),
-        ButtonSegment<String>(
-            value: 'human', label: Text('Person'), icon: Icon(Icons.person)),
-        ButtonSegment<String>(
-            value: 'group', label: Text('Group'), icon: Icon(Icons.groups)),
-      ],
-      selected: <String>{s.aiMode},
-      onSelectionChanged: (Set<String> sel) {
-        final next = sel.first;
-        client.aiSetMode(next, 'normal');
-      },
+    return ForSegmented<String>(
+      values: const <String>['none', 'human', 'group'],
+      labels: const <String>['Off', 'Person', 'Group'],
+      icons: const <IconData?>[null, Icons.person, Icons.groups],
+      selected: s.aiMode,
+      onChanged: (String v) => client.aiSetMode(v, 'normal'),
     );
   }
 
   Widget _fovSegmented(BuildContext ctx, CameraState s) {
-    return SegmentedButton<int>(
-      segments: const <ButtonSegment<int>>[
-        ButtonSegment<int>(value: 86, label: Text('Wide')),
-        ButtonSegment<int>(value: 78, label: Text('Normal')),
-        ButtonSegment<int>(value: 65, label: Text('Narrow')),
-      ],
-      selected: <int>{s.fov},
-      onSelectionChanged: (Set<int> sel) => client.fov(sel.first),
+    return ForSegmented<int>(
+      values: const <int>[86, 78, 65],
+      labels: const <String>['Wide', 'Normal', 'Narrow'],
+      selected: s.fov,
+      onChanged: client.fov,
     );
   }
 
   Widget _exposureSegmented(BuildContext ctx, CameraState s) {
-    return SegmentedButton<String>(
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'auto', label: Text('Auto')),
-        ButtonSegment<String>(value: 'manual', label: Text('Manual')),
-      ],
-      selected: <String>{s.exposureMode},
-      onSelectionChanged: (Set<String> sel) =>
-          client.setExposureMode(sel.first),
+    return ForSegmented<String>(
+      values: const <String>['auto', 'manual'],
+      labels: const <String>['Auto', 'Manual'],
+      selected: s.exposureMode,
+      onChanged: client.setExposureMode,
     );
   }
 
@@ -821,15 +808,11 @@ class _ImageTab extends StatelessWidget {
   }
 
   Widget _flickerSegmented(BuildContext ctx, CameraState s) {
-    return SegmentedButton<String>(
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'off', label: Text('Off')),
-        ButtonSegment<String>(value: '50', label: Text('50 Hz')),
-        ButtonSegment<String>(value: '60', label: Text('60 Hz')),
-      ],
-      selected: <String>{s.antiFlicker},
-      onSelectionChanged: (Set<String> sel) =>
-          client.setAntiFlicker(sel.first),
+    return ForSegmented<String>(
+      values: const <String>['off', '50', '60'],
+      labels: const <String>['Off', '50 Hz', '60 Hz'],
+      selected: s.antiFlicker,
+      onChanged: client.setAntiFlicker,
     );
   }
 
@@ -937,5 +920,107 @@ class _ImageTab extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// forui-styled segmented control: a row of `FButton.raw` where the
+/// selected value uses `variant: FButtonVariant.primary` (brand red)
+/// and the others use `FButtonVariant.outline`.
+///
+/// PR v1.3 migration target: the Image tab's four
+/// Material `SegmentedButton`s — Auto-track, View (FOV), Exposure
+/// mode, Anti-flicker. Replacing in a single helper rather than
+/// per-call-site so the visual treatment, overflow guards
+/// (Flexible + ellipsis), and Semantics labelling stay in sync.
+///
+/// Why FButton row instead of FTabs or FSelectGroup:
+///   - FTabs swaps body content per tab; we just want a one-of-N
+///     picker.
+///   - FSelectGroup is checkbox/radio-shaped; doesn't render as a
+///     pill-style segmented control.
+///   - FButton row reads as a segmented control to sighted users and
+///     wraps each option in a Semantics radio role so screen readers
+///     announce position + selection state correctly.
+class ForSegmented<T> extends StatelessWidget {
+  final List<T> values;
+  final List<String> labels;
+  /// Optional leading icons; pass `null` to omit an icon for a given
+  /// option (icons drop out below ~110 px per button anyway, see
+  /// note in `_QuickActions` about the v1.2.1 320 px overflow fix).
+  final List<IconData?>? icons;
+  final T selected;
+  final ValueChanged<T> onChanged;
+  /// Optional semantic group label (e.g. "Auto-track mode"). Falls
+  /// back to no group label if not provided.
+  final String? semanticsLabel;
+
+  const ForSegmented({
+    super.key,
+    required this.values,
+    required this.labels,
+    required this.selected,
+    required this.onChanged,
+    this.icons,
+    this.semanticsLabel,
+  })  : assert(values.length == labels.length,
+            'values and labels must be the same length'),
+        assert(icons == null || icons.length == values.length,
+            'icons must be null or the same length as values');
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+    for (int i = 0; i < values.length; i++) {
+      if (i > 0) children.add(const SizedBox(width: 6));
+      final v = values[i];
+      final label = labels[i];
+      final icon = icons?[i];
+      final isSelected = v == selected;
+      children.add(Expanded(
+        child: Semantics(
+          inMutuallyExclusiveGroup: true,
+          selected: isSelected,
+          button: true,
+          label: label,
+          child: FButton.raw(
+            onPress: () => onChanged(v),
+            variant: isSelected
+                ? FButtonVariant.primary
+                : FButtonVariant.outline,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 8, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  if (icon != null) ...<Widget>[
+                    Icon(icon, size: 14),
+                    const SizedBox(width: 6),
+                  ],
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ));
+    }
+    final row = Row(children: children);
+    if (semanticsLabel != null) {
+      return Semantics(
+        label: semanticsLabel,
+        container: true,
+        child: row,
+      );
+    }
+    return row;
   }
 }
