@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 
 import 'control_screen.dart';
+import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'ws_client.dart';
 
@@ -148,57 +149,52 @@ class _TabShellState extends State<TabShell>
 /// Recenter / Sleep / Wake placed in the same position so the user's
 /// muscle memory carries between tabs.
 ///
-/// Uses plain `OutlinedButton` (no `.icon`) and a tight padding style.
-/// `OutlinedButton.icon` was wrapping the "Recenter" label to two lines
-/// on 360–390 px phones because the icon + label intrinsic width
-/// exceeded the slot. Tooltips carry the icon's semantic.
+/// PR Q (`feat/forui-tab-content`) migrated the three buttons from
+/// Material `OutlinedButton` to forui `FButton.raw` with
+/// `variant: FButtonVariant.outline`. The classic 3-per-row overflow
+/// bug (`OutlinedButton.icon`'s intrinsic icon+label width pushing past
+/// the slot on 360 px phones) is structurally avoided here: each
+/// button's child is a Flexible+Text with `maxLines: 1` +
+/// `TextOverflow.ellipsis`, so even at extreme narrow widths the row
+/// stays on a single line. Tooltips carry the icon semantics that the
+/// icon-less buttons lose.
 class _QuickActions extends StatelessWidget {
   final WsClient client;
   const _QuickActions({required this.client});
 
+  Widget _btn(String label, String tooltip, VoidCallback onPress) {
+    return Expanded(
+      child: Tooltip(
+        message: tooltip,
+        child: FButton.raw(
+          onPress: onPress,
+          variant: FButtonVariant.outline,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final style = OutlinedButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      visualDensity: VisualDensity.compact,
-    );
     return Row(
       children: <Widget>[
-        Expanded(
-          child: Tooltip(
-            message: 'Recenter the gimbal to home position',
-            child: OutlinedButton(
-              style: style,
-              onPressed: () => client.ptzRecenter(),
-              child: const Text('Recenter', maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-          ),
-        ),
+        _btn('Recenter', 'Recenter the gimbal to home position',
+            () => client.ptzRecenter()),
         const SizedBox(width: 8),
-        Expanded(
-          child: Tooltip(
-            message: 'Put the camera to sleep',
-            child: OutlinedButton(
-              style: style,
-              onPressed: () => client.runStatus('sleep'),
-              child: const Text('Sleep', maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-          ),
-        ),
+        _btn('Sleep', 'Put the camera to sleep',
+            () => client.runStatus('sleep')),
         const SizedBox(width: 8),
-        Expanded(
-          child: Tooltip(
-            message: 'Wake the camera up',
-            child: OutlinedButton(
-              style: style,
-              onPressed: () => client.runStatus('run'),
-              child: const Text('Wake', maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-          ),
-        ),
+        _btn('Wake', 'Wake the camera up',
+            () => client.runStatus('run')),
       ],
     );
   }
@@ -255,8 +251,15 @@ class _InlinePresetCard extends StatelessWidget {
     required this.entry,
   });
 
-  bool get _saved => entry != null && entry!.name.isNotEmpty;
-  String get _label => 'P${id + 1}';
+  // A slot is "saved" the moment the bridge has stored a pose for it,
+  // regardless of whether the user gave it a name. Previously this
+  // required a non-empty name, which meant unnamed presets fell back
+  // to the empty-slot branch and tap-to-recall silently became
+  // tap-to-save. Live report: "if I tap or hold, it saves the preset
+  // — tap should be to change to that preset."
+  bool get _saved => entry != null;
+  String get _label =>
+      (entry != null && entry!.name.isNotEmpty) ? entry!.name : 'P${id + 1}';
 
   void _save(BuildContext ctx) {
     HapticFeedback.heavyImpact();
@@ -371,7 +374,7 @@ class _DurationChips extends StatelessWidget {
             ChoiceChip(
               label: Text(kMoveDurationPresets[i].label),
               avatar: Icon(
-                kMoveDurationPresets[i].icon,
+                iconForMoveDuration(kMoveDurationPresets[i].duration),
                 size: 16,
                 color: kMoveDurationPresets[i].duration == cur
                     ? cs.onPrimary
@@ -443,12 +446,12 @@ class _ButtonsTab extends StatelessWidget {
   final WsClient client;
   const _ButtonsTab({required this.client});
 
-  // Base velocities at scale=1.0. The shared `client.velocityScale`
-  // multiplier (driven by the bottom Speed slider) applies live, on
-  // every 80 ms tick of the HoldDirBtn — so adjusting the slider during
-  // a hold takes effect immediately.
-  static const double _baseYaw = 80;
-  static const double _basePitch = 40;
+  // Hold-button velocities in deg/s. The v1.2 user-facing speed slider
+  // was dropped per live-test feedback; users now control pace via the
+  // duration chips (preset recall + ptz.angle) and analog joystick
+  // deflection. Hold-buttons run at full velocity.
+  static const double _yaw = 80;
+  static const double _pit = 40;
 
   @override
   Widget build(BuildContext context) {
@@ -456,9 +459,8 @@ class _ButtonsTab extends StatelessWidget {
       animation: client,
       builder: (BuildContext ctx, _) {
         final s = client.state;
-        final scale = client.velocityScale;
-        final yaw = _baseYaw * scale;
-        final pit = _basePitch * scale;
+        const yaw = _yaw;
+        const pit = _pit;
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -570,6 +572,31 @@ class _ImageTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // Refresh-from-camera row. If another app (OBSBOT Center,
+              // a different phone connected first) changed exposure /
+              // anti-flicker / WB out-of-band, our snapshot is stale.
+              // Tapping refresh re-reads live state from the camera.
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                  ),
+                  icon: const Icon(Icons.refresh, size: 14),
+                  label: const Text('Refresh from camera'),
+                  onPressed: () {
+                    client.imageRefresh();
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Re-read live state from camera'),
+                        duration: Duration(milliseconds: 900),
+                      ),
+                    );
+                  },
+                ),
+              ),
               _section(theme, 'Auto-track'),
               _aiSegmented(ctx, s),
               const SizedBox(height: 16),
@@ -666,17 +693,6 @@ class _ImageTab extends StatelessWidget {
                   (v) => client.colorSet(sharpness: v),
                   resetTo: _defaultColor,
                   onReset: () => client.colorSet(sharpness: _defaultColor)),
-              const SizedBox(height: 16),
-              Text(
-                'Exposure mode + EV bias are tagged "tail air" in the '
-                'SDK. On Tiny 2 Lite the bridge attempts them and replies '
-                'ack ok=false with err="unsupported" if the firmware '
-                'rejects.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
             ],
           ),
         );
@@ -894,21 +910,31 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
+  /// 2-per-row image-toggle button (HDR / Face / Flip / Auto WB).
+  ///
+  /// PR Q migrated this from `FilledButton` (Material) to `FButton.raw`
+  /// (forui) so the on/off state uses forui's variant system instead of
+  /// hand-rolled `colorScheme` overrides. `selected` switches the
+  /// variant to `.primary` (brand red), unselected stays `.outline`.
+  ///
+  /// The child is a Flexible+Text with `maxLines: 2` + ellipsis so the
+  /// button does not push the Row past its slot — protects against the
+  /// 3-per-row narrow-width overflow seen pre-fix at 360 px.
   Widget _toggleBtn(BuildContext c, String label, bool on, VoidCallback t) {
-    final cs = Theme.of(c).colorScheme;
     return SizedBox(
       height: 48,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          backgroundColor:
-              on ? cs.primary : cs.surfaceContainerHighest,
-          foregroundColor: on ? cs.onPrimary : cs.onSurface,
-        ),
-        onPressed: t,
-        child: Text(label,
+      child: FButton.raw(
+        onPress: t,
+        variant: on ? FButtonVariant.primary : FButtonVariant.outline,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            label,
             textAlign: TextAlign.center,
             overflow: TextOverflow.ellipsis,
-            maxLines: 2),
+            maxLines: 2,
+          ),
+        ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'cache_menu.dart';
 import 'footer.dart';
+import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
 import 'ws_client.dart';
@@ -267,13 +268,9 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
 
   Widget _speedMenu(BuildContext ctx) {
     final cur = client.moveDuration;
-    IconData currentIcon = Icons.timer;
-    for (final p in kMoveDurationPresets) {
-      if (p.duration == cur) { currentIcon = p.icon; break; }
-    }
     return PopupMenuButton<Duration>(
       tooltip: 'Move duration',
-      icon: Icon(currentIcon),
+      icon: Icon(iconForMoveDuration(cur)),
       onSelected: (d) => client.setMoveDuration(d),
       itemBuilder: (BuildContext c) => <PopupMenuEntry<Duration>>[
         for (final p in kMoveDurationPresets)
@@ -281,7 +278,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             value: p.duration,
             checked: p.duration == cur,
             child: Row(children: <Widget>[
-              Icon(p.icon, size: 16),
+              Icon(iconForMoveDuration(p.duration), size: 16),
               const SizedBox(width: 8),
               Text(p.label),
             ]),

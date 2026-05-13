@@ -158,13 +158,19 @@ public:
     void cmd_image_set_flip_h(bool e, ReplyFn reply);
 
     // v1.2 PR G — exposure / anti-flicker / white balance.
-    // exposure_mode + ev_bias are tagged "tail air" in the SDK and may
-    // return non-zero on Tiny 2 Lite; the cmd reports ok=false then.
+    // Empirical probe on Tiny 2 Lite firmware 6.2.8.1 confirmed both
+    // exposure_mode + ev_bias return r=0; the SDK's "tail air" tag is
+    // misleading.
     void cmd_image_set_exposure_mode(const std::string& mode, ReplyFn reply);
     void cmd_image_set_ev_bias(float bias, ReplyFn reply);
     void cmd_image_set_anti_flicker(const std::string& mode, ReplyFn reply);
     void cmd_image_set_wb_auto(bool enabled, ReplyFn reply);
     void cmd_image_set_wb_temp(int kelvin, ReplyFn reply);
+    // v1.2.1 PR P — read live exposure / anti-flicker / WB state back
+    // from the camera and stamp snap_. Defensive against firmware
+    // drift or another control app (e.g. OBSBOT Center) changing
+    // values while we were disconnected.
+    void cmd_image_refresh(ReplyFn reply);
 
     void cmd_system_run_status(const std::string& s, ReplyFn reply);
     void cmd_preset_recall(int id, int duration_ms, ReplyFn reply);

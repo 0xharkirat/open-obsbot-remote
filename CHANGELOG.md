@@ -4,6 +4,143 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-13
+
+Maintenance + polish release on top of v1.2.0. Highlights: replaced
+the fragile `tray_manager` macOS plugin with a first-party
+NSStatusItem implementation; brought the bridge UX in line with
+Handy (cjpais/Handy) — dock icon follows the main window
+automatically, tray carries the pairing PIN inline; smoothed out
+preset-recall motion + zoom; made the camera permission grant
+survive rebuilds.
+
+### Added
+
+- **First-party macOS NSStatusItem tray (`NativeTray.swift`).** Replaces
+  `tray_manager` 0.5.2 — its `popUpContextMenu` plumbing dropped
+  NSMenu's target/action dispatch on macOS Sonoma+, so menu clicks
+  rendered fine but never fired the Dart handler. Net effect: Quit /
+  Show main window / Reveal PIN / Copy PIN were no-ops. New impl
+  attaches the NSMenu permanently to the status item and routes
+  clicks through `@objc menuItemClicked:` straight to the
+  `obsbot.bridge/tray` channel — rock-solid.
+- **Hybrid dock-visibility (Handy-style).** The dock icon now tracks
+  the main window: closing the window flips activation policy to
+  `.accessory` (no dock icon), showing it flips back to `.regular`.
+  No persistent "hide dock" setting needed — the dock just goes
+  where the user is looking. Pattern lifted from cjpais/Handy.
+  Per-user toggle "Start hidden in menubar" persists across launches
+  (replaces the old `bridge_menubar_only` key; migrated on first run).
+  Onboarding override: even with start-hidden on, the bridge force-
+  shows the window until at least one phone is paired, so the user
+  can see the PIN.
+- **Tray pairing PIN inline.** Tray now shows
+  `Pairing PIN:  ######` directly, plus a `Copy PIN to clipboard`
+  item — the most-used info is one click away (Tailscale / Dropbox
+  pattern). Version line at the top of the tray menu too.
+- **Stable subprocess code signature.** `build-bridge-mac.sh` now
+  re-signs `obsbot-bridge` with the stable identifier
+  `com.harksingh.obsbotbridge.helper` after the `--deep` parent sign
+  (which otherwise stamps it as `obsbot-bridge-<contenthash>` —
+  changes every rebuild, invalidates the camera TCC grant). One-time
+  Allow click now persists across rebuilds.
+- **Menubar-only mode (macOS).** Optional setting in the bridge's Settings
+  dialog: "Start hidden in menubar". When enabled, the bridge
+  launches without a dock icon and the main window stays hidden until
+  the user picks "Show main window" from the tray. AppDelegate reads
+  the persisted preference via NSUserDefaults before the Flutter
+  engine boots so the dock icon never flickers on launch. Restart
+  required to apply.
+- **`image.refresh` action.** Bridge re-reads live exposure_mode,
+  ev_bias, anti_flicker, wb_type+kelvin from the camera via the SDK
+  getters and stamps its snapshot, which flows out to every connected
+  phone as a normal state event. Useful when OBSBOT Center or another
+  phone changed those values out-of-band — without it our cached state
+  was stale and the user had no way to resync without reconnecting.
+- **"Refresh from camera" button** on the Image tab (top-right). One
+  tap, brief toast confirms the resync.
+- **Narrow-width overflow regression test.** `tab_shell_test.dart`
+  pumps the TabShell at 320 px (narrowest realistic phone) and asserts
+  no `RenderFlex` overflow errors fire while the three quick-action
+  buttons are visible. Locks in the fix; future regressions surface
+  in CI.
+
+### Changed
+
+- **Exposure mode + EV bias no longer reported as "unsupported".**
+  Empirical probe (`tests/exposure_probe.mjs`) on Tiny 2 Lite firmware
+  6.2.8.1 showed every variant of `cameraSetExposureModeR` and
+  `cameraSetAAEEvBiasR` returns r=0. The SDK header's "tail air" tag
+  was misleading; the bridge no longer guards these calls behind the
+  unsupported branch. UI disclaimer line on the Image tab is gone.
+- **forui migration extended into tab content.** PR Q migrates two
+  high-traffic surfaces from Material to forui:
+  - `_QuickActions` (the Recenter / Sleep / Wake row at the top of
+    the Joystick + Buttons tabs) — 3-per-row `OutlinedButton` →
+    `FButton.raw` with `variant: FButtonVariant.outline`. Each
+    button's child is a Flexible+Text with `maxLines: 1` +
+    `TextOverflow.ellipsis` to structurally prevent the 360 px
+    overflow we shipped before the v1.2 fix.
+  - `_toggleBtn` (HDR / Face exposure / Face focus / Flip / Auto WB
+    pair-row toggles on the Image tab) — `FilledButton` with
+    hand-rolled `colorScheme` overrides → `FButton.raw` with
+    `variant: on ? FButtonVariant.primary : FButtonVariant.outline`.
+    On-state now uses the brand red consistently from the forui
+    theme instead of duplicating the color logic per call site.
+- **Segmented controls + sliders** intentionally stay on Material for
+  this PR; the migration is mechanical but high-volume and benefits
+  from a separate PR with its own test pass.
+
+### Fixed
+
+- **Motion planner: jittery preset recall on any duration > 0.**
+  v1.2 sent `gimbalSetSpeedPositionR(.., speed=90)` every 100 ms tick
+  — motor raced to each tick target inside the window, waited, raced
+  again. Visible 100 ms-cadence stutter on every 1 s+ move. Live
+  report: "anything starting from 1 second time difference to change
+  preset is so shaky." Fix: rate-scale the SDK speed parameter to
+  match the per-tick deg/s, headroom 2.0×, floor 15%. Motor now
+  flows continuously through the eased curve.
+- **Motion planner: zoom oscillation on preset recalls with zoom
+  delta.** v1.2 ticked `cameraSetZoomAbsoluteR` every 100 ms, which
+  re-armed the lens motor's internal plan on every call → visible
+  in/out/in/out on any preset combining motion + zoom delta. Live
+  report: "preset p4 has movement and zoom to 2x and if I switch
+  from p3 to p4, the zoom gets in, out, in, out". Hybrid fix: short
+  zooms (≤1 s) one-shot the target; longer zooms tick at ≥600 ms
+  cadence so the lens converges per waypoint without re-arming.
+  Duration_ms is now honoured for both branches.
+- **Inline preset card: tap saved instead of recalled.** `_saved`
+  required a non-empty preset name; unnamed saves fell through to
+  the empty-slot branch and tap-to-recall silently became
+  tap-to-save. Now `_saved` is true on any entry regardless of
+  name. Live report: "if I tap or hold, it saves the preset — tap
+  should be to change to that preset."
+- **applicationShouldTerminateAfterLastWindowClosed now returns false.**
+  Before, closing the window in any mode could trigger an
+  auto-terminate. With the tray owning the bridge lifecycle (Quit
+  via tray, red-dot just hides), false is the correct answer. Also
+  required for menubar-only mode — the hidden launch window was being
+  misread as "last window closed" and the app died instantly.
+- **Camera permission lost on every rebuild.** Subprocess code
+  signature was `obsbot-bridge-<contenthash>` — every build a new
+  identifier, every build macOS TCC treated it as a new app and
+  threw away the camera grant. Pinned to stable
+  `com.harksingh.obsbotbridge.helper` in `build-bridge-mac.sh`.
+- **`tests/exposure.mjs` had `allowUnsupported: true` masking real
+  failures.** Now expects `ok=true` for exposure_mode + ev_bias and
+  asserts the state-event reflects the requested value (with 1/3-stop
+  snap tolerance). 4 new tests + 1 refresh test, 11/11 pass.
+
+### Removed
+
+- `velocityScale` field on `WsClient` (plus its `velocity_scale`
+  SharedPreferences key and the v1.2 `PtzPad` multiplier). The
+  user-facing speed slider was dropped during the v1.2 review pass.
+  The field hung around defaulting to 1.0; removing it simplifies
+  the PTZ math back to "joystick deflection magnitude = analog
+  speed".
+
 ## [1.2.0] - 2026-05-12
 
 Real-world livestream feedback drove this round. The big themes: redesign

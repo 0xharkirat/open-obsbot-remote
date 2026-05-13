@@ -2,345 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show IconData, Icons;
+import 'package:obsbot_protocol/obsbot_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// One saved preset on the camera (mirrored from the bridge state).
-class PresetEntry {
-  final int id;
-  final String name;
-  final double yaw, pitch, roll, zoom;
-  const PresetEntry({
-    required this.id,
-    required this.name,
-    required this.yaw,
-    required this.pitch,
-    required this.roll,
-    required this.zoom,
-  });
-  factory PresetEntry.fromJson(Map<String, dynamic> j) => PresetEntry(
-    id: (j['id'] as num?)?.toInt() ?? 0,
-    name: j['name'] as String? ?? '',
-    yaw: (j['yaw'] as num?)?.toDouble() ?? 0,
-    pitch: (j['pitch'] as num?)?.toDouble() ?? 0,
-    roll: (j['roll'] as num?)?.toDouble() ?? 0,
-    zoom: (j['zoom'] as num?)?.toDouble() ?? 1,
-  );
-}
-
-/// Sequencer state pushed by the bridge.
-class SequenceState {
-  final bool running;
-  final int stepIndex;
-  final int elapsedS;
-  final int totalS;
-  final List<String> available;
-  final String loaded;
-  final String mode;                 // forward | once | ping_pong
-  final List<SequenceStep> steps;    // active scratch — editor hydrates from this
-  const SequenceState({
-    required this.running,
-    required this.stepIndex,
-    required this.elapsedS,
-    required this.totalS,
-    required this.available,
-    required this.loaded,
-    required this.mode,
-    required this.steps,
-  });
-  static const empty = SequenceState(
-    running: false,
-    stepIndex: -1,
-    elapsedS: 0,
-    totalS: 0,
-    available: <String>[],
-    loaded: '',
-    mode: 'forward',
-    steps: <SequenceStep>[],
-  );
-  factory SequenceState.fromJson(Map<String, dynamic> j) {
-    final stepsRaw = (j['steps'] as List<dynamic>?) ?? const <dynamic>[];
-    final steps = stepsRaw
-        .whereType<Map<String, dynamic>>()
-        .map((Map<String, dynamic> e) => SequenceStep(
-              presetId: (e['preset_id'] as num?)?.toInt() ?? 0,
-              seconds: (e['seconds'] as num?)?.toInt() ?? 60,
-              transition: Duration(
-                  milliseconds: (e['transition_ms'] as num?)?.toInt() ?? 0),
-            ))
-        .toList();
-    return SequenceState(
-      running: j['running'] as bool? ?? false,
-      stepIndex: (j['step_index'] as num?)?.toInt() ?? -1,
-      elapsedS: (j['elapsed_s'] as num?)?.toInt() ?? 0,
-      totalS: (j['total_s'] as num?)?.toInt() ?? 0,
-      available: ((j['available'] as List<dynamic>?) ?? const <dynamic>[])
-          .map((e) => e.toString())
-          .toList(),
-      loaded: j['loaded'] as String? ?? '',
-      mode: j['mode'] as String? ?? 'forward',
-      steps: steps,
-    );
-  }
-}
-
-/// Duration-based move presets for the speed selector.
-///
-/// User picks how long the camera should take to reach the target —
-/// from snap (Duration.zero / instant) up to several minutes for
-/// cinematographic slow pans. Bridge `MotionPlanner` honors any
-/// duration; these are just the well-known chip values.
-class MoveDurationPreset {
-  final String label;
-  final Duration duration;
-  final IconData icon;
-  const MoveDurationPreset(this.label, this.duration, this.icon);
-}
-
-const List<MoveDurationPreset> kMoveDurationPresets = <MoveDurationPreset>[
-  MoveDurationPreset('Instant', Duration.zero,                     Icons.flash_on),
-  MoveDurationPreset('1 sec',   Duration(milliseconds: 1000),       Icons.bolt),
-  MoveDurationPreset('5 sec',   Duration(milliseconds: 5000),       Icons.directions_run),
-  MoveDurationPreset('15 sec',  Duration(milliseconds: 15000),      Icons.directions_walk),
-  MoveDurationPreset('30 sec',  Duration(milliseconds: 30000),      Icons.movie_creation_outlined),
-  MoveDurationPreset('1 min',   Duration(milliseconds: 60000),      Icons.hourglass_bottom),
-  MoveDurationPreset('3 min',   Duration(milliseconds: 180000),     Icons.hourglass_top),
-  MoveDurationPreset('5 min',   Duration(milliseconds: 300000),     Icons.hourglass_empty),
-];
-
-String formatMoveDuration(Duration d) {
-  if (d == Duration.zero) return 'Instant';
-  if (d.inMinutes >= 1) {
-    final m = d.inMinutes;
-    final s = d.inSeconds - m * 60;
-    return s == 0 ? '${m} min' : '${m}m ${s}s';
-  }
-  return '${(d.inMilliseconds / 1000).toStringAsFixed(d.inMilliseconds % 1000 == 0 ? 0 : 1)} sec';
-}
-
-/// How a sequence loops once it finishes its last step.
-enum LoopMode {
-  /// Play once and stop.
-  once,
-
-  /// Restart at step 1 (P1→P2→P3→P1→P2→P3…).
-  forward,
-
-  /// Reverse direction at each end (P1→P2→P3→P2→P1→P2→P3…).
-  /// Useful when P3→P1 is a long, ugly move you want to skip.
-  pingPong,
-}
-
-String loopModeToWire(LoopMode m) => switch (m) {
-  LoopMode.once => 'once',
-  LoopMode.forward => 'forward',
-  LoopMode.pingPong => 'ping_pong',
-};
-
-LoopMode loopModeFromWire(String s) => switch (s) {
-  'once' => LoopMode.once,
-  'ping_pong' => LoopMode.pingPong,
-  _ => LoopMode.forward,
-};
-
-String loopModeLabel(LoopMode m) => switch (m) {
-  LoopMode.once => 'Once (stop at end)',
-  LoopMode.forward => 'Loop forward (P1→P2→P3→P1…)',
-  LoopMode.pingPong => 'Ping-pong (P1→P2→P3→P2→P1…)',
-};
-
-/// One step in a sequence sent to the bridge.
-class SequenceStep {
-  final int presetId;
-  final int seconds;
-  /// How long the camera takes to *reach* this step's preset.
-  /// Duration.zero = instant. Defaults to 2 seconds (medium).
-  final Duration transition;
-  const SequenceStep({
-    required this.presetId,
-    required this.seconds,
-    this.transition = const Duration(milliseconds: 2000),
-  });
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'preset_id': presetId,
-    'seconds': seconds,
-    'transition_ms': transition.inMilliseconds,
-  };
-}
-
-/// Decoded device snapshot pushed by the bridge.
-class CameraState {
-  final String sn;
-  final String modelDisplay;
-  final String firmware;
-  final bool connected;
-  final String runStatus;
-
-  final double yaw;
-  final double pitch;
-  final double roll;
-
-  final double zoom;
-  final double zoomMin;
-  final double zoomMax;
-
-  final String aiMode;
-  final String aiSubMode;
-  final bool aiEnabled;
-
-  final bool hdr;
-  final int fov;
-  final int brightness;
-  final int contrast;
-  final int saturation;
-  final int sharpness;
-  final bool faceAe;
-  final bool faceFocus;
-  final bool autoFocus;
-  final int manualFocus;
-  final bool flipH;
-
-  /// v1.2 PR G — exposure / anti-flicker / WB. Defaults match an
-  /// un-connected camera; real values arrive in the state event.
-  final String exposureMode; // "auto" | "manual"
-  final double evBias;       // -3.0..+3.0 (1/3 stops)
-  final String antiFlicker;  // "off" | "50" | "60" | "auto"
-  final bool wbAuto;
-  final int wbKelvin;        // 2800..6500
-
-  final List<PresetEntry> presets;
-  final int activePresetId;
-  final SequenceState sequence;
-
-  const CameraState({
-    required this.sn,
-    required this.modelDisplay,
-    required this.firmware,
-    required this.connected,
-    required this.runStatus,
-    required this.yaw,
-    required this.pitch,
-    required this.roll,
-    required this.zoom,
-    required this.zoomMin,
-    required this.zoomMax,
-    required this.aiMode,
-    required this.aiSubMode,
-    required this.aiEnabled,
-    required this.hdr,
-    required this.fov,
-    required this.brightness,
-    required this.contrast,
-    required this.saturation,
-    required this.sharpness,
-    required this.faceAe,
-    required this.faceFocus,
-    required this.autoFocus,
-    required this.manualFocus,
-    required this.flipH,
-    required this.exposureMode,
-    required this.evBias,
-    required this.antiFlicker,
-    required this.wbAuto,
-    required this.wbKelvin,
-    required this.presets,
-    required this.activePresetId,
-    required this.sequence,
-  });
-
-  static const empty = CameraState(
-    sn: '',
-    modelDisplay: '',
-    firmware: '',
-    connected: false,
-    runStatus: 'unknown',
-    yaw: 0,
-    pitch: 0,
-    roll: 0,
-    zoom: 1,
-    zoomMin: 1,
-    zoomMax: 2,
-    aiMode: 'none',
-    aiSubMode: 'normal',
-    aiEnabled: false,
-    hdr: false,
-    fov: 86,
-    brightness: 50,
-    contrast: 50,
-    saturation: 50,
-    sharpness: 50,
-    faceAe: false,
-    faceFocus: false,
-    autoFocus: true,
-    manualFocus: 50,
-    flipH: false,
-    exposureMode: 'auto',
-    evBias: 0.0,
-    antiFlicker: 'off',
-    wbAuto: true,
-    wbKelvin: 4700,
-    presets: <PresetEntry>[],
-    activePresetId: -1,
-    sequence: SequenceState.empty,
-  );
-
-  factory CameraState.fromEvent(Map<String, dynamic> j) {
-    final dev =
-        (j['device'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final ptz = (j['ptz'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final zoom =
-        (j['zoom'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final ai = (j['ai'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final img =
-        (j['image'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    double d(dynamic v, [double def = 0]) => v is num ? v.toDouble() : def;
-    int i(dynamic v, [int def = 0]) => v is num ? v.toInt() : def;
-    final List<dynamic> pl =
-        (j['presets'] as List<dynamic>?) ?? const <dynamic>[];
-    final List<PresetEntry> presets = pl
-        .whereType<Map<String, dynamic>>()
-        .map((Map<String, dynamic> e) => PresetEntry.fromJson(e))
-        .toList();
-    final seqJson =
-        (j['sequence'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    return CameraState(
-      sn: dev['sn'] as String? ?? '',
-      modelDisplay: dev['model_display'] as String? ?? '',
-      firmware: dev['firmware'] as String? ?? '',
-      connected: dev['connected'] as bool? ?? false,
-      runStatus: dev['run_status'] as String? ?? 'unknown',
-      yaw: d(ptz['yaw']),
-      pitch: d(ptz['pitch']),
-      roll: d(ptz['roll']),
-      zoom: d(zoom['value'], 1),
-      zoomMin: d(zoom['min'], 1),
-      zoomMax: d(zoom['max'], 2),
-      aiMode: ai['mode'] as String? ?? 'none',
-      aiSubMode: ai['sub_mode'] as String? ?? 'normal',
-      aiEnabled: ai['enabled'] as bool? ?? false,
-      hdr: img['hdr'] as bool? ?? false,
-      fov: i(img['fov'], 86),
-      brightness: i(img['brightness'], 50),
-      contrast: i(img['contrast'], 50),
-      saturation: i(img['saturation'], 50),
-      sharpness: i(img['sharpness'], 50),
-      faceAe: img['face_ae'] as bool? ?? false,
-      faceFocus: img['face_focus'] as bool? ?? false,
-      autoFocus: img['auto_focus'] as bool? ?? true,
-      manualFocus: i(img['manual_focus'], 50),
-      flipH: img['flip_h'] as bool? ?? false,
-      exposureMode: img['exposure_mode'] as String? ?? 'auto',
-      evBias: d(img['ev_bias'], 0.0),
-      antiFlicker: img['anti_flicker'] as String? ?? 'off',
-      wbAuto: img['wb_auto'] as bool? ?? true,
-      wbKelvin: i(img['wb_kelvin'], 4700),
-      presets: presets,
-      activePresetId: i(j['active_preset_id'], -1),
-      sequence: SequenceState.fromJson(seqJson),
-    );
-  }
-}
+// Re-export the protocol types so existing consumers of this file
+// (e.g. `import 'ws_client.dart';`) keep seeing PresetEntry,
+// SequenceStep, SequenceState, CameraState, LoopMode,
+// MoveDurationPreset, kMoveDurationPresets, formatMoveDuration,
+// loopModeToWire / loopModeFromWire / loopModeLabel without an
+// import-path change. They now live in
+// `packages/obsbot_protocol/`.
+export 'package:obsbot_protocol/obsbot_protocol.dart';
 
 class WsClient extends ChangeNotifier {
   WebSocketChannel? _ch;
@@ -368,12 +41,6 @@ class WsClient extends ChangeNotifier {
   bool _gridThirds = false;
   bool _gridReadout = true;
 
-  /// Live-velocity multiplier (0.1 .. 1.0) applied to both the joystick
-  /// pad's analog deflection AND the 8-way hold buttons. Persisted as
-  /// `velocity_scale`. Defaults to 1.0 (full speed) so existing users
-  /// don't get a surprise slowdown on first launch.
-  double _velocityScale = 1.0;
-
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
@@ -382,18 +49,8 @@ class WsClient extends ChangeNotifier {
       _gridCenterLines = p.getBool('grid_center_lines') ?? _gridCenterLines;
       _gridThirds = p.getBool('grid_thirds') ?? _gridThirds;
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
-      final vs = p.getDouble('velocity_scale');
-      if (vs != null) _velocityScale = vs.clamp(0.1, 1.0);
       notifyListeners();
     });
-  }
-
-  double get velocityScale => _velocityScale;
-  Future<void> setVelocityScale(double v) async {
-    _velocityScale = v.clamp(0.1, 1.0);
-    notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setDouble('velocity_scale', _velocityScale);
   }
 
   bool get gridCrosshair => _gridCrosshair;
@@ -725,9 +382,9 @@ class WsClient extends ChangeNotifier {
   }
 
   // v1.2 PR G — exposure / anti-flicker / white balance.
-  // The bridge tags exposure mode + EV bias as best-effort: on Tiny 2
-  // Lite they may return ack ok=false with err="unsupported". UI can
-  // still send the commands; failures are reflected in the ack stream.
+  // Empirical probe on Tiny 2 Lite firmware 6.2.8.1 (PR P, 2026-05-12)
+  // confirmed every exposure_mode + ev_bias variant returns r=0 — the
+  // "tail air" tag in the SDK headers is misleading. All controls work.
 
   void setExposureMode(String mode) => _send({
         'action': 'image.set_exposure_mode',
@@ -751,6 +408,15 @@ class WsClient extends ChangeNotifier {
         'action': 'image.set_wb_auto',
         'id': _id(),
         'enabled': enabled,
+      });
+
+  /// Ask the bridge to re-read live exposure / anti-flicker / WB state
+  /// from the camera and stamp its snapshot. Useful when OBSBOT Center
+  /// or other tools have changed values out-of-band; without it the UI
+  /// shows our last-known state which can drift indefinitely.
+  void imageRefresh() => _send({
+        'action': 'image.refresh',
+        'id': _id(),
       });
 
   void setWbTemp(int kelvin) => _send({

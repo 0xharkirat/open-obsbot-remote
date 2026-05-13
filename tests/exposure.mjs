@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// tests/exposure.mjs — v1.2 PR G smoke regression.
+// tests/exposure.mjs — v1.2 PR G smoke regression (updated PR P).
 //
-// Verifies the new bridge actions land and the state event surfaces the
-// corresponding fields. SDK rejects exposure_mode / ev_bias on Tiny 2
-// Lite, so the bridge replies ack ok=false with err="unsupported";
-// the test treats that as "expected on this camera" (still better than
-// a crash). Anti-flicker / WB are supported.
+// Verifies the new bridge actions land and the state event surfaces
+// the corresponding fields. PR P empirically confirmed every
+// exposure_mode + ev_bias variant returns r=0 on Tiny 2 Lite firmware
+// 6.2.8.1; the old "tail air" warning is gone and these now expect ok.
+// Anti-flicker / WB always supported. Adds an image.refresh test.
 
 import WebSocket from 'ws';
 import fs from 'node:fs';
@@ -100,17 +100,26 @@ await waitState((s) => s.device.connected, 3000, 'connected');
 console.log(`[device] ${lastState.device.model_display}`);
 console.log(`[image start] anti_flicker=${lastState.image.anti_flicker} wb_auto=${lastState.image.wb_auto} wb_kelvin=${lastState.image.wb_kelvin}`);
 
-console.log('\n=== EXPOSURE (best-effort on Tiny 2 Lite) ===');
-await test('image.set_exposure_mode auto (unsupported is OK)', async () => {
-  const r = await send({ action: 'image.set_exposure_mode', mode: 'auto' },
-                       { allowUnsupported: true });
-  if (!r.ok && !r.tolerated) throw new Error('unexpected error');
+console.log('\n=== EXPOSURE ===');
+await test('image.set_exposure_mode auto reflects', async () => {
+  await send({ action: 'image.set_exposure_mode', mode: 'auto' });
+  await waitState((s) => s.image.exposure_mode === 'auto', 1500);
 });
 
-await test('image.set_ev_bias -0.7 (unsupported is OK)', async () => {
-  const r = await send({ action: 'image.set_ev_bias', bias: -0.7 },
-                       { allowUnsupported: true });
-  if (!r.ok && !r.tolerated) throw new Error('unexpected error');
+await test('image.set_exposure_mode manual reflects', async () => {
+  await send({ action: 'image.set_exposure_mode', mode: 'manual' });
+  await waitState((s) => s.image.exposure_mode === 'manual', 1500);
+});
+
+await test('image.set_ev_bias -0.667 reflects (1/3-stop snap)', async () => {
+  await send({ action: 'image.set_exposure_mode', mode: 'auto' });
+  await send({ action: 'image.set_ev_bias', bias: -0.7 });
+  await waitState((s) => Math.abs(s.image.ev_bias - (-0.667)) < 0.05, 1500);
+});
+
+await test('image.set_ev_bias 2.0 reflects', async () => {
+  await send({ action: 'image.set_ev_bias', bias: 2.0 });
+  await waitState((s) => Math.abs(s.image.ev_bias - 2.0) < 0.05, 1500);
 });
 
 console.log('\n=== ANTI-FLICKER ===');
@@ -145,8 +154,22 @@ await test('image.set_wb_temp 9999 clamps to 6500', async () => {
   await waitState((s) => s.image.wb_kelvin === 6500, 1500);
 });
 
+console.log('\n=== REFRESH ===');
+await test('image.refresh re-reads live state without error', async () => {
+  // Force a known-good state first so the refresh has a stable target.
+  await send({ action: 'image.set_wb_auto', enabled: true });
+  await send({ action: 'image.set_exposure_mode', mode: 'auto' });
+  await new Promise((r) => setTimeout(r, 200));
+  const r = await send({ action: 'image.refresh' });
+  if (!r.ok) throw new Error('refresh ack ok=false');
+  // After refresh, expect a state event within 1.5s reflecting wb_auto=true.
+  await waitState((s) => s.image.wb_auto === true, 1500);
+});
+
 // Restore safe defaults.
 await send({ action: 'image.set_wb_auto', enabled: true });
+await send({ action: 'image.set_exposure_mode', mode: 'auto' });
+await send({ action: 'image.set_ev_bias', bias: 0.0 });
 
 const passed = results.filter(r => r.ok).length;
 console.log(`\n=== RESULTS ===\n${passed}/${results.length} passed`);
