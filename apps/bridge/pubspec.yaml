@@ -76,6 +76,10 @@ flutter:
   assets:
     - assets/tray/cameraTemplate.png
     - assets/tray/cameraTemplate@2x.png
+    - assets/tray/cameraTemplateWarn.png
+    - assets/tray/cameraTemplateWarn@2x.png
+    - assets/tray/cameraTemplateError.png
+    - assets/tray/cameraTemplateError@2x.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
