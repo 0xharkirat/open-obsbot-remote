@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:macos_ui/macos_ui.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -131,23 +132,45 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    // v1.3 macos_ui shell. Two layers:
+    //
+    //   1. `MacosApp` at the very top provides MacosTheme (SF Pro
+    //      typography, system colours, native window background tint
+    //      via macos_window_utils) and a CupertinoApp underneath for
+    //      its routing + localizations.
+    //   2. `MaterialApp` nested as `home` — but with router OFF
+    //      (`home:` set, no `routes`) — gives every descendant the
+    //      MaterialLocalizations + Material context that Scaffold,
+    //      AlertDialog, SnackBar, SwitchListTile, SegmentedButton
+    //      (gone) and the v1.2.1 forui widgets rely on.
+    //
+    // Net effect: window chrome reads as a Mac app (system fonts,
+    // dark-tinted titlebar), body widgets keep their Material
+    // semantics. No widget-by-widget rewrite needed; that's a future
+    // PR if/when we decide to embrace MacosScaffold + MacosToolBar.
+    return MacosApp(
       title: 'Open OBSBOT Bridge',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1976D2),
-          brightness: Brightness.dark,
+      themeMode: ThemeMode.dark,
+      theme: MacosThemeData.light(),
+      darkTheme: MacosThemeData.dark(),
+      home: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF1976D2),
+            brightness: Brightness.dark,
+          ),
         ),
-      ),
-      home: AnimatedBuilder(
-        animation: supervisor,
-        builder: (BuildContext context, _) => HomeScreen(
-          supervisor: supervisor,
-          lanIps: _lanIps,
-          revealRequest: _revealRequest,
-          prefs: widget.prefs,
+        home: AnimatedBuilder(
+          animation: supervisor,
+          builder: (BuildContext context, _) => HomeScreen(
+            supervisor: supervisor,
+            lanIps: _lanIps,
+            revealRequest: _revealRequest,
+            prefs: widget.prefs,
+          ),
         ),
       ),
     );

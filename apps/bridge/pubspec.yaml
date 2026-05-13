@@ -43,6 +43,11 @@ dependencies:
   # by first-party NativeTray in macos/Runner/NativeTray.swift +
   # lib/native_tray.dart.
   shared_preferences: ^2.5.5
+  # macos_ui (v1.3) — native AppKit-shaped chrome for the bridge top
+  # bar + window background. We keep child widgets on Material so
+  # SnackBar / AlertDialog / SwitchListTile still work via the
+  # Material wrapping in main.dart.
+  macos_ui: ^2.1.6
 
 dev_dependencies:
   flutter_test:
