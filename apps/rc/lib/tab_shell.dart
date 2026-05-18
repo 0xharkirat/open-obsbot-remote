@@ -67,14 +67,27 @@ class _TabShellState extends State<TabShell>
     // sub-mode pills) render as a near-white slab instead of OBSBOT
     // brand red. Override only `primary` + `primaryForeground` so every
     // FButtonVariant.primary call site picks up the brand.
-    final zincDark = FThemes.zinc.dark.touch;
+    //
+    // CRITICAL: must rebuild via the `FThemeData(colors:, touch:)`
+    // factory, not `copyWith(colors: ...)`. The latter swaps `colors`
+    // but keeps the cached `buttonStyles` field (already baked from the
+    // ORIGINAL primary = #E4E4E7) - so FButton.primary stayed white.
+    // The factory re-inherits `buttonStyles` from the new colors.
+    //
+    // Both `primary` and `primaryForeground` are pulled from the
+    // Material `ColorScheme` so a selected FButton (HDR / Face exposure
+    // / Auto WB) ends up with the SAME fg/bg pair as a selected M3
+    // SegmentedButton (Wide / Person / Auto). Without this the FButton
+    // hard-coded `Colors.white` foreground stood out against the
+    // segmented's `cs.onPrimary` (a deep dark-red tone for our brand-red
+    // primary) - selected pills looked like two different products.
+    final cs = Theme.of(context).colorScheme;
+    final brandColors = FThemes.zinc.dark.touch.colors.copyWith(
+      primary: cs.primary,
+      primaryForeground: cs.onPrimary,
+    );
     return FTheme(
-      data: zincDark.copyWith(
-        colors: zincDark.colors.copyWith(
-          primary: const Color(0xFFFF3B30),
-          primaryForeground: const Color(0xFFFFFFFF),
-        ),
-      ),
+      data: FThemeData(colors: brandColors, touch: true),
       child: LayoutBuilder(
         builder: (BuildContext ctx, BoxConstraints c) {
           final wide = c.maxWidth >= 600;
@@ -762,8 +775,27 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
+  // Theme-override-resistant style for every SegmentedButton on this tab.
+  // M3's internal `_SegmentedButtonDefaultsM3` resolver wins over
+  // `SegmentedButtonThemeData.style.backgroundColor` on selected segments
+  // in some Flutter versions, so explicit `selectedBackgroundColor` /
+  // `selectedForegroundColor` here pin the brand red across the board
+  // (the theme override in main.dart stays as belt + braces for any
+  // segmented call site we miss).
+  ButtonStyle _segStyle(BuildContext ctx) {
+    final cs = Theme.of(ctx).colorScheme;
+    return SegmentedButton.styleFrom(
+      backgroundColor: cs.surfaceContainer,
+      foregroundColor: cs.onSurface,
+      selectedBackgroundColor: cs.primary,
+      selectedForegroundColor: cs.onPrimary,
+      side: BorderSide(color: cs.outlineVariant),
+    );
+  }
+
   Widget _aiSegmented(BuildContext ctx, CameraState s) {
     return SegmentedButton<String>(
+      style: _segStyle(ctx),
       segments: const <ButtonSegment<String>>[
         ButtonSegment<String>(value: 'none', label: Text('Off')),
         ButtonSegment<String>(
@@ -781,6 +813,7 @@ class _ImageTab extends StatelessWidget {
 
   Widget _fovSegmented(BuildContext ctx, CameraState s) {
     return SegmentedButton<int>(
+      style: _segStyle(ctx),
       segments: const <ButtonSegment<int>>[
         ButtonSegment<int>(value: 86, label: Text('Wide')),
         ButtonSegment<int>(value: 78, label: Text('Normal')),
@@ -793,6 +826,7 @@ class _ImageTab extends StatelessWidget {
 
   Widget _exposureSegmented(BuildContext ctx, CameraState s) {
     return SegmentedButton<String>(
+      style: _segStyle(ctx),
       segments: const <ButtonSegment<String>>[
         ButtonSegment<String>(value: 'auto', label: Text('Auto')),
         ButtonSegment<String>(value: 'manual', label: Text('Manual')),
@@ -810,7 +844,7 @@ class _ImageTab extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 80,
+            width: 72,
             child: Text('EV bias', style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -824,11 +858,13 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 52,
+            width: 56,
             child: Text(
-              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)}',
+              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)} EV',
               textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
@@ -838,6 +874,7 @@ class _ImageTab extends StatelessWidget {
 
   Widget _flickerSegmented(BuildContext ctx, CameraState s) {
     return SegmentedButton<String>(
+      style: _segStyle(ctx),
       segments: const <ButtonSegment<String>>[
         ButtonSegment<String>(value: 'off', label: Text('Off')),
         ButtonSegment<String>(value: '50', label: Text('50 Hz')),
@@ -856,7 +893,7 @@ class _ImageTab extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 80,
+            width: 72,
             child: Text('Temperature', style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -870,11 +907,13 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 52,
+            width: 56,
             child: Text(
               '${s.wbKelvin}K',
               textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
@@ -892,7 +931,7 @@ class _ImageTab extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 80,
+            width: 72,
             child: Text(label, style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -905,11 +944,13 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 30,
+            width: 32,
             child: Text(
               '$value',
               textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
           IconButton(
@@ -942,13 +983,22 @@ class _ImageTab extends StatelessWidget {
       child: FButton.raw(
         onPress: t,
         variant: on ? FButtonVariant.primary : FButtonVariant.outline,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
+        // FButton.raw shrink-wraps its child slot, so a bare Padding+Text
+        // sits at intrinsic width and looks left-stuck inside the wider
+        // button frame. SizedBox.expand + Align(center) gives the label
+        // the full button rect to center within.
+        child: SizedBox.expand(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Align(
+              alignment: Alignment.center,
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+              ),
+            ),
           ),
         ),
       ),
