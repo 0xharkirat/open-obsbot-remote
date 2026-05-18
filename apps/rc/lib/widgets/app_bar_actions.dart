@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../clear_cache_stub.dart'
-    if (dart.library.js_interop) '../clear_cache_web.dart';
 import '../ws_client.dart';
 
 /// Grid-overlay popup menu (mesh icon). Shared between simple + advanced
@@ -54,8 +52,9 @@ class GridOverlayMenu extends StatelessWidget {
 }
 
 /// 3-dot overflow menu used by both simple + advanced AppBars.
-/// Carries destructive / housekeeping actions that don't deserve
-/// dedicated top-bar icons: Disconnect, Clear cache.
+/// Currently just one entry (Disconnect); kept as an overflow so the
+/// top bar stays icon-only and adding future destructive / housekeeping
+/// actions doesn't require an AppBar re-shuffle.
 class AppBarOverflowMenu extends StatelessWidget {
   final WsClient client;
   const AppBarOverflowMenu({super.key, required this.client});
@@ -74,23 +73,9 @@ class AppBarOverflowMenu extends StatelessWidget {
             Text('Disconnect'),
           ]),
         ),
-        const PopupMenuItem<String>(
-          value: 'clear_cache',
-          child: Row(children: <Widget>[
-            Icon(Icons.delete_sweep_outlined, size: 18),
-            SizedBox(width: 12),
-            Text('Clear cache + reload'),
-          ]),
-        ),
       ],
-      onSelected: (v) async {
-        switch (v) {
-          case 'disconnect':
-            client.close();
-          case 'clear_cache':
-            await clearAppCache();
-            client.close();
-        }
+      onSelected: (v) {
+        if (v == 'disconnect') client.close();
       },
     );
   }
