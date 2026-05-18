@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 import 'control_screen.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
+import 'widgets/preset_options_sheet.dart';
 import 'ws_client.dart';
 
 /// v1.2 redesign — 3-tab shell below a pinned live preview.
@@ -261,9 +262,12 @@ class _InlinePresetCard extends StatelessWidget {
   String get _label =>
       (entry != null && entry!.name.isNotEmpty) ? entry!.name : 'P${id + 1}';
 
+  /// One-step save used for EMPTY slots only. Long-press on a saved
+  /// slot now goes through `showPresetOptions` (v1.4 W4) instead of
+  /// silently overwriting.
   void _save(BuildContext ctx) {
     HapticFeedback.heavyImpact();
-    client.presetSave(id, _saved ? entry!.name : _label);
+    client.presetSave(id, _label);
     ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
         content: Text('Saved $_label at current position'),
@@ -272,11 +276,26 @@ class _InlinePresetCard extends StatelessWidget {
     );
   }
 
+  Future<void> _openOptions(BuildContext ctx) async {
+    HapticFeedback.heavyImpact();
+    await showPresetOptions(
+      ctx,
+      client,
+      id,
+      entry!,
+      onRename: () => showPresetRenameDialog(
+        ctx,
+        initial: entry!.name.isNotEmpty ? entry!.name : 'P${id + 1}',
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return GestureDetector(
-      onLongPress: () => _save(context),
+      onLongPress: () =>
+          _saved ? _openOptions(context) : _save(context),
       child: SizedBox(
         height: 60,
         child: Material(
@@ -301,6 +320,8 @@ class _InlinePresetCard extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     _label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.0,
@@ -310,7 +331,9 @@ class _InlinePresetCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _saved ? 'tap • hold' : 'hold to save',
+                    _saved ? 'tap • hold for menu' : 'hold to save',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 9,
                       height: 1.0,

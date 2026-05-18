@@ -105,6 +105,16 @@ class WsClient extends ChangeNotifier {
   String? get lastAuthError => _lastAuthError;
   int get lastLatencyMs => _lastLatencyMs;
 
+  /// Test-only seam to swap in a synthetic [CameraState] without a live
+  /// WebSocket. Used by `tab_shell_test.dart` to render the inline
+  /// preset row in its "saved" state (v1.4 W4 bottom-sheet tests).
+  /// Do NOT call from production code.
+  @visibleForTesting
+  void debugSetState(CameraState s) {
+    _state = s;
+    notifyListeners();
+  }
+
   String _tokenKey(String hostPort) => 'token::$hostPort';
 
   Future<String?> loadLastServer() async {
