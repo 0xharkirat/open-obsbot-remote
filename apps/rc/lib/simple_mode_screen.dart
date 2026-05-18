@@ -7,6 +7,7 @@ import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
 import 'widgets/preset_options_sheet.dart';
+import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
 /// Performer-mode UI: live preview at the top + a grid of named preset
@@ -84,7 +85,11 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           padding: const EdgeInsets.all(8),
           child: PreviewWidget(client: client),
         ),
-        if (s.sequence.running) _seqBar(ctx, s),
+        if (s.sequence.running)
+          SequenceProgressBar(
+            client: client,
+            onStop: client.sequenceStop,
+          ),
         Expanded(child: _presetGrid(ctx, s, columns: 2)),
         const AppFooter(),
       ],
@@ -107,7 +112,11 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             padding: const EdgeInsets.all(8),
             child: Column(children: <Widget>[
               Expanded(child: PreviewWidget(client: client)),
-              if (s.sequence.running) _seqBar(ctx, s),
+              if (s.sequence.running)
+                SequenceProgressBar(
+                  client: client,
+                  onStop: client.sequenceStop,
+                ),
             ]),
           ),
         ),
@@ -116,55 +125,6 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           child: _presetGrid(ctx, s, columns: 2),
         ),
       ],
-    );
-  }
-
-  Widget _seqBar(BuildContext ctx, CameraState s) {
-    final theme = Theme.of(ctx);
-    final pct = s.sequence.totalS == 0
-        ? 0.0
-        : (s.sequence.elapsedS / s.sequence.totalS).clamp(0.0, 1.0);
-    final remaining = (s.sequence.totalS - s.sequence.elapsedS).clamp(0, 9999);
-    final mm = (remaining ~/ 60).toString().padLeft(2, '0');
-    final ss = (remaining % 60).toString().padLeft(2, '0');
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(children: <Widget>[
-        const Icon(Icons.timer, size: 18),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                'Sequence  -  step ${s.sequence.stepIndex + 1}',
-                style: theme.textTheme.labelSmall,
-              ),
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(value: pct, minHeight: 6),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text('$mm:$ss',
-            style: const TextStyle(
-                fontFamily: 'Menlo', fontWeight: FontWeight.w700)),
-        const SizedBox(width: 12),
-        IconButton(
-          tooltip: 'Stop',
-          icon: const Icon(Icons.stop_circle),
-          onPressed: client.sequenceStop,
-        ),
-      ]),
     );
   }
 

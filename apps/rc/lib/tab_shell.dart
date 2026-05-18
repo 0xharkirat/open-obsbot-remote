@@ -10,6 +10,7 @@ import 'preview_widget.dart';
 import 'sequencer_screen.dart';
 import 'widgets/collapsible_section.dart';
 import 'widgets/preset_options_sheet.dart';
+import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
 /// v1.4 W6 redesign - OBSBOT Center-inspired 3-tab shell:
@@ -95,6 +96,7 @@ class _TabShellState extends State<TabShell>
           ),
         ),
         _tabBar(),
+        _seqStrip(),
         Expanded(child: _tabViews()),
       ],
     );
@@ -128,6 +130,26 @@ class _TabShellState extends State<TabShell>
           ),
         ),
       ],
+    );
+  }
+
+  /// Compact "sequence running" strip rendered between the tab bar and
+  /// the active tab body. Lives on Drive / Image / More so the operator
+  /// always sees the phase + remaining-time of the running sequence
+  /// regardless of which tab they're on. Hides itself when no sequence
+  /// is running.
+  Widget _seqStrip() {
+    return AnimatedBuilder(
+      animation: widget.client,
+      builder: (BuildContext ctx, _) {
+        final running = widget.client.state.sequence.running;
+        if (!running) return const SizedBox.shrink();
+        return SequenceProgressBar(
+          client: widget.client,
+          onStop: widget.client.sequenceStop,
+          margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        );
+      },
     );
   }
 

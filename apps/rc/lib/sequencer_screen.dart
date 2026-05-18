@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
 /// Route wrapper around [SequencerEditor]. Used by Simple Mode and by the
@@ -191,7 +192,10 @@ class _SequencerEditorState extends State<SequencerEditor> {
         return Column(
           children: <Widget>[
             if (widget.showTopBar) _libraryBar(context, s),
-            if (running) _runningBar(context, s),
+            if (running)
+              SequenceProgressBar(
+                client: widget.client,
+              ),
             Expanded(
               child: _steps.isEmpty
                   ? const Center(
@@ -422,32 +426,6 @@ class _SequencerEditorState extends State<SequencerEditor> {
               contentPadding: EdgeInsets.zero,
               onTap: () => setState(() => _mode = m),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _runningBar(BuildContext ctx, CameraState s) {
-    final theme = Theme.of(ctx);
-    final pct = s.sequence.totalS == 0
-        ? 0.0
-        : (s.sequence.elapsedS / s.sequence.totalS).clamp(0.0, 1.0);
-    final remaining = (s.sequence.totalS - s.sequence.elapsedS).clamp(0, 9999);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      color: theme.colorScheme.primaryContainer,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Step ${s.sequence.stepIndex + 1} of ${_steps.length}  -  ${remaining}s left',
-            style: theme.textTheme.labelLarge,
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(value: pct, minHeight: 6),
-          ),
         ],
       ),
     );
