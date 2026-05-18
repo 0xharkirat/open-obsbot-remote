@@ -268,6 +268,10 @@ void main() {
 
     testWidgets('shows 4 color sliders + EV bias', (tester) async {
       await goToImage(tester);
+      // v1.4 W6: Color section now starts collapsed (defaultOpen:false),
+      // so we need to expand it to see the sliders.
+      await tester.tap(find.text('COLOR'));
+      await tester.pumpAndSettle();
       expect(find.text('Brightness'), findsOneWidget);
       expect(find.text('Contrast'), findsOneWidget);
       expect(find.text('Saturation'), findsOneWidget);
@@ -275,10 +279,15 @@ void main() {
       expect(find.text('EV bias'), findsOneWidget);
     });
 
-    testWidgets('every section header has a Reset button', (tester) async {
+    testWidgets('every section with a default has a Reset button',
+        (tester) async {
       await goToImage(tester);
-      // Sections with Reset: View, Exposure, Anti-flicker, White balance, Color.
-      expect(find.text('Reset'), findsAtLeast(5));
+      // v1.4 W6: Reset moved into each CollapsibleSection's body
+      // (subtle bottom-right text button) so it doesn't clutter the
+      // header chrome. Sections that ship a Reset when open:
+      // View, Exposure, Anti-flicker, White balance. Color also has a
+      // "Reset all" but starts collapsed.
+      expect(find.text('Reset'), findsAtLeast(4));
     });
 
     // v1.3 migration: SegmentedButton → ForSegmented (FButton rows).

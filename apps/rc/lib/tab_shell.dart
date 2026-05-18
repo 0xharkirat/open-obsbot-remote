@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 import 'control_screen.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
+import 'widgets/collapsible_section.dart';
 import 'widgets/preset_options_sheet.dart';
 import 'ws_client.dart';
 
@@ -589,7 +590,6 @@ class _ImageTab extends StatelessWidget {
       animation: client,
       builder: (BuildContext ctx, _) {
         final s = client.state;
-        final theme = Theme.of(ctx);
         return SingleChildScrollView(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -620,102 +620,174 @@ class _ImageTab extends StatelessWidget {
                   },
                 ),
               ),
-              _section(theme, 'Auto-track'),
-              _aiSegmented(ctx, s),
-              const SizedBox(height: 16),
-              _sectionWithReset(theme, 'View',
-                  onReset: () => client.fov(_defaultFov)),
-              _fovSegmented(ctx, s),
-              const SizedBox(height: 16),
-              _section(theme, 'Tone'),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: _toggleBtn(ctx, 'HDR', s.hdr,
-                        () => client.hdr(!s.hdr)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _toggleBtn(ctx, 'Face exposure', s.faceAe,
-                        () => client.faceAe(!s.faceAe)),
-                  ),
-                ],
+              // v1.4 W6 OBSBOT-Center pass: each section is wrapped in
+              // CollapsibleSection so the operator can hide groups they
+              // don't currently use (most users tweak Tone + WB once,
+              // then never reopen Color / Anti-flicker). Open state is
+              // persisted per section id.
+              CollapsibleSection(
+                id: 'image_auto_track',
+                label: 'Auto-track',
+                child: _aiSegmented(ctx, s),
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: _toggleBtn(ctx, 'Face focus', s.faceFocus,
-                        () => client.faceFocus(!s.faceFocus)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _toggleBtn(ctx, 'Flip', s.flipH,
-                        () => client.flipH(!s.flipH)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _sectionWithReset(
-                theme,
-                'Exposure',
-                onReset: () {
-                  client.setExposureMode(_defaultExposureMode);
-                  client.setEvBias(_defaultEvBias);
-                },
-              ),
-              _exposureSegmented(ctx, s),
-              if (s.exposureMode == 'auto') _evBiasSlider(ctx, s),
-              const SizedBox(height: 12),
-              _sectionWithReset(theme, 'Anti-flicker',
-                  onReset: () =>
-                      client.setAntiFlicker(_defaultAntiFlicker)),
-              _flickerSegmented(ctx, s),
-              const SizedBox(height: 16),
-              _sectionWithReset(
-                theme,
-                'White balance',
-                onReset: () {
-                  client.setWbAuto(true);
-                  client.setWbTemp(_defaultWbKelvin);
-                },
-              ),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: _toggleBtn(ctx, 'Auto WB', s.wbAuto,
-                        () => client.setWbAuto(!s.wbAuto)),
-                  ),
-                ],
-              ),
-              if (!s.wbAuto) _wbTempSlider(ctx, s),
-              const SizedBox(height: 16),
-              _sectionWithReset(
-                theme,
-                'Color',
-                onReset: () => client.colorSet(
-                  brightness: _defaultColor,
-                  contrast: _defaultColor,
-                  saturation: _defaultColor,
-                  sharpness: _defaultColor,
+              CollapsibleSection(
+                id: 'image_view',
+                label: 'View',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _fovSegmented(ctx, s),
+                    _inlineReset(
+                      ctx,
+                      onPressed: () => client.fov(_defaultFov),
+                    ),
+                  ],
                 ),
               ),
-              _colorSlider(ctx, 'Brightness', s.brightness,
-                  (v) => client.colorSet(brightness: v),
-                  resetTo: _defaultColor,
-                  onReset: () => client.colorSet(brightness: _defaultColor)),
-              _colorSlider(ctx, 'Contrast', s.contrast,
-                  (v) => client.colorSet(contrast: v),
-                  resetTo: _defaultColor,
-                  onReset: () => client.colorSet(contrast: _defaultColor)),
-              _colorSlider(ctx, 'Saturation', s.saturation,
-                  (v) => client.colorSet(saturation: v),
-                  resetTo: _defaultColor,
-                  onReset: () => client.colorSet(saturation: _defaultColor)),
-              _colorSlider(ctx, 'Sharpness', s.sharpness,
-                  (v) => client.colorSet(sharpness: v),
-                  resetTo: _defaultColor,
-                  onReset: () => client.colorSet(sharpness: _defaultColor)),
+              CollapsibleSection(
+                id: 'image_tone',
+                label: 'Tone',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _toggleBtn(ctx, 'HDR', s.hdr,
+                              () => client.hdr(!s.hdr)),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _toggleBtn(ctx, 'Face exposure', s.faceAe,
+                              () => client.faceAe(!s.faceAe)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _toggleBtn(ctx, 'Face focus', s.faceFocus,
+                              () => client.faceFocus(!s.faceFocus)),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _toggleBtn(ctx, 'Flip', s.flipH,
+                              () => client.flipH(!s.flipH)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              CollapsibleSection(
+                id: 'image_exposure',
+                label: 'Exposure',
+                tooltip:
+                    'Auto adapts exposure to scene brightness. EV bias '
+                    'nudges brighter (+) or darker (-).',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _exposureSegmented(ctx, s),
+                    if (s.exposureMode == 'auto') _evBiasSlider(ctx, s),
+                    _inlineReset(
+                      ctx,
+                      onPressed: () {
+                        client.setExposureMode(_defaultExposureMode);
+                        client.setEvBias(_defaultEvBias);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              CollapsibleSection(
+                id: 'image_anti_flicker',
+                label: 'Anti-flicker',
+                tooltip:
+                    'Suppress fluorescent-light flicker. 50 Hz in IN/EU, '
+                    '60 Hz in NA/JP.',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _flickerSegmented(ctx, s),
+                    _inlineReset(
+                      ctx,
+                      onPressed: () =>
+                          client.setAntiFlicker(_defaultAntiFlicker),
+                    ),
+                  ],
+                ),
+              ),
+              CollapsibleSection(
+                id: 'image_wb',
+                label: 'White balance',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: _toggleBtn(ctx, 'Auto WB', s.wbAuto,
+                              () => client.setWbAuto(!s.wbAuto)),
+                        ),
+                      ],
+                    ),
+                    if (!s.wbAuto) _wbTempSlider(ctx, s),
+                    _inlineReset(
+                      ctx,
+                      onPressed: () {
+                        client.setWbAuto(true);
+                        client.setWbTemp(_defaultWbKelvin);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              CollapsibleSection(
+                id: 'image_color',
+                label: 'Color',
+                // Color sliders are the least-touched group on this page
+                // (most rooms have one decent lighting setup the user
+                // tunes once). Start collapsed so the page is shorter
+                // by default.
+                defaultOpen: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _colorSlider(ctx, 'Brightness', s.brightness,
+                        (v) => client.colorSet(brightness: v),
+                        resetTo: _defaultColor,
+                        onReset: () =>
+                            client.colorSet(brightness: _defaultColor)),
+                    _colorSlider(ctx, 'Contrast', s.contrast,
+                        (v) => client.colorSet(contrast: v),
+                        resetTo: _defaultColor,
+                        onReset: () =>
+                            client.colorSet(contrast: _defaultColor)),
+                    _colorSlider(ctx, 'Saturation', s.saturation,
+                        (v) => client.colorSet(saturation: v),
+                        resetTo: _defaultColor,
+                        onReset: () =>
+                            client.colorSet(saturation: _defaultColor)),
+                    _colorSlider(ctx, 'Sharpness', s.sharpness,
+                        (v) => client.colorSet(sharpness: v),
+                        resetTo: _defaultColor,
+                        onReset: () =>
+                            client.colorSet(sharpness: _defaultColor)),
+                    _inlineReset(
+                      ctx,
+                      label: 'Reset all',
+                      onPressed: () => client.colorSet(
+                        brightness: _defaultColor,
+                        contrast: _defaultColor,
+                        saturation: _defaultColor,
+                        sharpness: _defaultColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         );
@@ -723,48 +795,31 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _section(ThemeData theme, String label) {
+  /// Subtle full-width reset action rendered at the bottom of a
+  /// CollapsibleSection body. Replaces the old per-header "Reset" pill
+  /// so the header chrome stays clean - the reset is still one tap
+  /// away when the section is open, and out of the way when collapsed.
+  Widget _inlineReset(
+    BuildContext ctx, {
+    String label = 'Reset',
+    required VoidCallback onPressed,
+  }) {
+    final theme = Theme.of(ctx);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
-      child: Text(
-        label.toUpperCase(),
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.primary,
-          letterSpacing: 1.0,
-          fontWeight: FontWeight.w700,
+      padding: const EdgeInsets.only(top: 4),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          style: TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+            foregroundColor: theme.colorScheme.outline,
+          ),
+          icon: const Icon(Icons.restart_alt, size: 14),
+          label: Text(label, style: const TextStyle(fontSize: 11)),
+          onPressed: onPressed,
         ),
-      ),
-    );
-  }
-
-  Widget _sectionWithReset(ThemeData theme, String label,
-      {required VoidCallback onReset}) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              label.toUpperCase(),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                letterSpacing: 1.0,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          TextButton.icon(
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              foregroundColor: theme.colorScheme.outline,
-            ),
-            icon: const Icon(Icons.restart_alt, size: 14),
-            label: const Text('Reset', style: TextStyle(fontSize: 11)),
-            onPressed: onReset,
-          ),
-        ],
       ),
     );
   }
