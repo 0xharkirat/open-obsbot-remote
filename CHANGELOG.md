@@ -4,6 +4,148 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-18
+
+Big release. Skips v1.3 (the in-flight v1.3-polish PR was rolled
+into v1.4). Driven by live-stream feedback from the prior weekend:
+the preview was dropping mid-stream, the pairing screen was leaking
+server protocol text into a red warning, the sequencer was eating
+its own stay-time during long moves, and the phone app's advanced
+mode was overdue for the OBSBOT Center-shaped redesign so it can
+read as "production ready" rather than a developer console.
+
+Shipped via 6 parallel worktree branches (W1–W6) merged into
+`feat/v1.4-major`. Each branch was bisectable in isolation so any
+regression can be reverted without unwinding the whole release.
+
+### Added
+
+- **Drive / Image / More tab structure (W6).** Phone app's advanced
+  mode is now three top-level pages inspired by OBSBOT Center:
+  - **Drive** — sticky `_QuickActions` row + collapsible sections:
+    Presets (6 cards), View & Gimbal (joystick + zoom slider + FOV
+    pills + Reset), Move pacing (duration chips), AI tracking
+    (mode pills + sub-mode pills).
+  - **Image** — every group (Tone / Exposure / Anti-flicker / WB /
+    Color) wrapped in a `CollapsibleSection`, persisted open state
+    via SharedPreferences key `section_<id>_open`.
+  - **More** — Device info, Sequence library, Grid overlay toggles,
+    Connection (URL + Disconnect + Reset cache), About panel.
+  - Folds the previous Joystick + Buttons tabs into Drive with a
+    "Control style" toggle (joystick vs 8-way pad).
+- **AI sub-mode picker.** 5 pills (Normal / Upper-body / Close-up /
+  Headless / Lower-body) on Drive's AI section, wired to the
+  existing `client.aiSetMode(mode, subMode)` — bridge already
+  accepted the sub-mode arg but the phone UI hardcoded `'normal'`.
+- **`image.refresh`-style affordance per section.** `CollapsibleSection`
+  has an optional `onRefresh` slot; ready for per-section refresh
+  icons on Exposure / WB (visual parity with OBSBOT Center).
+- **Preset long-press bottom sheet (W4).** Saved presets now open a
+  4-item sheet on long-press: Update with current pose, Recall
+  instantly (`Duration.zero` regardless of default), Rename, Delete.
+  Empty slots keep the one-step save flow.
+- **Sequencer step UI splits move and stay (W5).** Each step row now
+  renders two labelled fields ("Move to P_X over [chip]" + "Stay
+  for [N] seconds") plus a trailing "≈N s total" caption.
+- **`sequence.phase` state-event field (W3).** Bridge reports
+  `phase: "moving"` while the MotionPlanner is in flight and
+  `"holding"` while the stay-timer counts. Defaults to `"holding"`
+  for instant transitions + idle. Client surfaces ready for a
+  per-phase progress affordance.
+- **`MotionPlanner.motion_wait_idle(timeout_ms)` (W3).** Public
+  blocking wait on the planner-completion condition variable.
+  Required by the sequencer fix; useful elsewhere (tests, future
+  chained commands).
+- **Dev-only bundle identifier `com.harksingh.obsbotbridge.dev`.**
+  Debug builds claim a distinct macOS TCC + Launch Services slot
+  from prod, so the two coexist without clobbering each other's
+  camera permission. `scripts/dev-resign.sh` re-signs the
+  subprocess to match.
+- **Tests.** New widget tests for `CollapsibleSection` (8),
+  sequencer step UI (4), preset long-press sheet (5). New backend
+  test `tests/sequence_timing.mjs` (4 cases) covers the W3 race +
+  phase transitions + stop-mid-move. Totals: **125 across the
+  three test surfaces** (64 backend + 45 widget + 16 protocol).
+
+### Fixed
+
+- **MJPEG preview "stops mid-stream" silent disconnect (W2).** Bridge
+  accepted client sockets with no `SO_KEEPALIVE`, no `SO_SNDTIMEO`,
+  no per-socket `SO_NOSIGPIPE`. When Wi-Fi roamed / phone
+  backgrounded / NAT dropped state, the kernel send-queue filled,
+  `send()` blocked indefinitely (macOS default TCP retransmit
+  ~15 min), and the serving thread + its fd were stuck.
+  Client saw a freeze with no browser error and no bridge crash.
+  Log evidence: 145 `client connected` vs 104 `client disconnected`
+  before the fix — 41 missing disconnects. After the fix
+  (`setsockopt SO_KEEPALIVE + SO_SNDTIMEO 5s + SO_NOSIGPIPE`),
+  any wedged write fails fast → the existing loop-exit path logs
+  the disconnect → thread + fd self-recycle. Suspects #3 and #4
+  from the audit are still open but no longer mask #1.
+- **Sequencer overlapped move-timer with stay-timer (W3).** v1.2's
+  loop reset `step_started` immediately after dispatching the
+  `motion_start` and only used `seconds` as the budget. User-
+  observed: `seconds=40, transition_ms=30000` → only ~10 s of
+  actual hold. Fix chains `trigger_step → motion_wait_idle(transition_ms + 500)
+  → reset step_started`. Stay timer now starts AFTER the move
+  completes. `cmd_sequence_stop` also calls `motion_cancel()`
+  before joining so stopping mid-move releases the planner
+  promptly.
+- **Pairing screen leaked server protocol hint (W1 A2).** On
+  `auth_required` the Dart side stored the server's developer-
+  facing `j['msg']` ("send {action:'pair', pin:<6-digit>} or
+  {action:'hello', token:...}") into `_lastAuthError`, which the
+  pair screen rendered as a destructive-coloured label under the
+  PIN field. Now sets `_lastAuthError = null` — entering the pair
+  screen is a state transition, not an error.
+- **Wrong PIN UX polish (W1 A3).** Field re-focuses after a clear
+  (FocusNode added) so the mobile keyboard re-arms. Dropped the
+  duplicate SnackBar (the inline red label already says it).
+  Friendlier copy: "That PIN didn't match. Check the bridge
+  window and try again."
+- **Bridge permission-denied label wrapped + distorted UI (W1 D1).**
+  Camera permission row, firewall row, and log path display all
+  carry long strings. Added `maxLines: 1` + `TextOverflow.ellipsis`
+  to each. Log path also wrapped in `Flexible` so ellipsis
+  triggers before the Reveal button gets pushed off-row.
+- **Preset bookmark overwrite-in-place undiscoverable (W4 B1).**
+  Bridge always upserted by id; UI only said "Saved P1 at current
+  position", same copy for first-save and overwrite. Long-press
+  now opens an explicit "Update P1 with current pose" sheet item.
+  Snackbar copy switches to "Updated P1 with current pose" when
+  overwriting an existing entry. Simple Mode preset tiles share
+  the same sheet (extracted to `widgets/preset_options_sheet.dart`).
+
+### Changed
+
+- **Phone app advanced-mode top tabs renamed.** Joystick / Buttons
+  / Image → Drive / Image / More. Tests updated accordingly.
+- **Auto-track section moves from Image to Drive.** It's a framing
+  control, not an image control. AI mode + sub-mode pills live
+  together.
+- **FOV (Wide / Normal / Narrow) moves from Image to Drive's View
+  & Gimbal section.** Same reasoning — framing not image.
+- **CollapsibleSection persists per-section open state** via
+  SharedPreferences key `section_<id>_open`. Defaults to open.
+- **`_InlinePresetCard` label updated** from "tap recall — hold to
+  save" to "tap recall — hold for options" to advertise the new
+  bottom sheet.
+- **Sequencer step row layout** now stacked: header → preset
+  dropdown → Move-to row → Stay row → ≈ total caption. Wire
+  format unchanged (`{preset_id, seconds, transition_ms}`).
+
+### Removed
+
+- **AI tracking section duplicated on Image tab.** It lived in both
+  places during the redesign; consolidated to Drive only.
+
+### Notes
+
+- `IconToggleRow` and `LabeledSlider` widgets are built and tested
+  but not yet wired into the Image tab body. v1.5 follow-up.
+- Hue slider + Snapshot button — `WsClient.imageSnapshot()` stub
+  exists; needs bridge action + UI button. v1.5 follow-up.
+
 ## [1.2.1] - 2026-05-13
 
 Maintenance + polish release on top of v1.2.0. Highlights: replaced
