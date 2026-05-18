@@ -322,7 +322,9 @@ class _HomeScreenState extends State<HomeScreen> {
               context,
               'Camera',
               supervisor.cameraConnected
-                  ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
+                  ? (supervisor.detectedSn.isNotEmpty
+                      ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
+                      : supervisor.detectedModel)
                   : '— none plugged in —',
             ),
             _row(
