@@ -196,6 +196,19 @@ void DeviceSession::motion_cancel() {
 
 bool DeviceSession::motion_busy() const { return motion_busy_.load(); }
 
+bool DeviceSession::motion_wait_idle(int timeout_ms) {
+    // Idempotent: if planner has nothing in flight AND nothing queued,
+    // we're already idle. Snapshot motion_have_pending_ under the mutex
+    // since the worker thread mutates it.
+    using namespace std::chrono;
+    std::unique_lock<std::mutex> g(motion_mu_);
+    auto deadline = steady_clock::now() + milliseconds(timeout_ms);
+    bool ok = motion_done_cv_.wait_until(g, deadline, [this]{
+        return !motion_active_.load() && !motion_have_pending_;
+    });
+    return ok;
+}
+
 void DeviceSession::motion_loop() {
     using namespace std::chrono;
     while (!motion_quit_.load()) {
@@ -210,9 +223,23 @@ void DeviceSession::motion_loop() {
             t = std::move(motion_pending_);
             motion_have_pending_ = false;
             motion_cancel_ = false;     // fresh run
+            // Mark this run as active under the lock so motion_wait_idle
+            // racing on motion_done_cv_ sees a consistent active/pending
+            // pair (have_pending=false, active=true).
+            motion_active_.store(true);
         }
-        if (t.duration_ms <= 0) continue;
-        if (!dev_) continue;
+        if (t.duration_ms <= 0) {
+            // Nothing to interpolate. Mark idle and notify waiters so
+            // motion_wait_idle returns immediately on no-op runs.
+            motion_active_.store(false);
+            motion_done_cv_.notify_all();
+            continue;
+        }
+        if (!dev_) {
+            motion_active_.store(false);
+            motion_done_cv_.notify_all();
+            continue;
+        }
 
         motion_busy_.store(true);
 
@@ -397,6 +424,12 @@ void DeviceSession::motion_loop() {
         }
 
         motion_busy_.store(false);
+        // Drop motion_active_ + wake any motion_wait_idle waiter so the
+        // sequencer (or any other caller chaining off the planner) can
+        // resume. Order matters: the wait predicate reads motion_active_
+        // after acquiring motion_mu_, so notify under no lock is fine.
+        motion_active_.store(false);
+        motion_done_cv_.notify_all();
     }
 }
 
