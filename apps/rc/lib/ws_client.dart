@@ -43,8 +43,11 @@ class WsClient extends ChangeNotifier {
 
   /// Drive page control style: `"joystick"` (analog deflection pad) or
   /// `"buttons"` (8-way press-and-hold pad). Persisted across launches
-  /// via SharedPreferences key `drive_control_style`. Default: joystick.
-  String _driveControlStyle = 'joystick';
+  /// via SharedPreferences key `drive_control_style`. Default (v1.5):
+  /// buttons. The 8-way pad is discrete + unambiguous, the joystick is
+  /// for users who want analog control. Onboarding lands on the
+  /// clearer surface first.
+  String _driveControlStyle = 'buttons';
 
   WsClient() {
     SharedPreferences.getInstance().then((p) {
