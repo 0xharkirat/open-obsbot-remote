@@ -260,7 +260,11 @@ class WsClient extends ChangeNotifier {
           _send({'action': 'subscribe', 'id': _id()});
           _pendingPair!.complete(true);
         } else {
-          _lastAuthError = j['msg'] as String? ?? 'wrong PIN';
+          // Friendly copy. We deliberately discard `j['msg']` here too -
+          // the server hint is internal protocol detail; the user just
+          // needs to know the PIN was wrong and where to look for it.
+          _lastAuthError =
+              "That PIN didn't match. Check the bridge window and try again.";
           _pendingPair!.complete(false);
         }
         _pendingPair = null;

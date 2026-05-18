@@ -25,6 +25,10 @@ class PinEntryScreen extends StatefulWidget {
 
 class _PinEntryScreenState extends State<PinEntryScreen> {
   final _ctrl = TextEditingController();
+  // Stable FocusNode so we can re-arm the soft keyboard after a wrong
+  // PIN. Without it the field loses focus on `_ctrl.clear()` on mobile
+  // and the user has to tap the field again.
+  final _focus = FocusNode();
   bool _busy = false;
 
   Future<void> _submit() async {
@@ -36,16 +40,19 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (!ok) {
+      // Clear + re-focus so the keyboard pops again ready for retry.
+      // No SnackBar: the inline destructive label below the field
+      // (driven by `widget.client.lastAuthError`) already communicates
+      // the failure - a SnackBar on top would be double signalling.
       _ctrl.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.client.lastAuthError ?? 'Wrong PIN')),
-      );
+      _focus.requestFocus();
     }
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -112,6 +119,7 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
                   // the input surfaces.
                   TextField(
                     controller: _ctrl,
+                    focusNode: _focus,
                     autofocus: true,
                     keyboardType: TextInputType.number,
                     maxLength: 6,
