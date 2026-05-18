@@ -73,9 +73,19 @@ Thumbs.db
 obsbot-*.png
 prod-*.png
 touch-*.png
+prod-*.png
+touch-*.png
+touch-*.png
 .claude/settings.local.json
 tests/img_probe.mjs
 
 # Ad-hoc UI iteration screenshots from v1.2 review pass — not committed
 grid-*.png
 ui-*.png
+
+# Screenshots dumped at repo root (UI iteration / live-test captures)
+Screenshot*.png
+obsbot-*.png
+prod-*.png
+touch-*.png
+.claude/

@@ -71,6 +71,12 @@ struct DeviceSnapshot {
     int  sequence_elapsed_s = 0;
     int  sequence_total_s = 0;
     std::string sequence_mode = "forward";  // once | forward | ping_pong
+    // Sub-phase of the active step. "moving" while the MotionPlanner is
+    // physically driving toward the step's pose; "holding" while the
+    // stay-timer (step.seconds) is counting down. Default "holding" so
+    // instant-transition steps (transition_ms == 0) and idle state are
+    // both correctly reported.
+    std::string sequence_phase = "holding";
 
     // Library of saved sequences. Keys are user-chosen names (e.g.
     // "Morning service", "Vocalist rehearsal"). The currently-loaded
@@ -252,14 +258,27 @@ private:
     void motion_start(MotionTarget t);
     void motion_cancel();
     bool motion_busy() const;
+    // Block calling thread until the MotionPlanner is idle (no in-flight
+    // target and no pending one), or until timeout_ms elapses. Returns
+    // true if idle, false on timeout. Idempotent: returns true immediately
+    // if already idle. Used by the sequencer to chain
+    // `trigger_step -> wait-for-move -> stay-timer` so the per-step
+    // `seconds` budget covers the hold phase only (B2 fix).
+    bool motion_wait_idle(int timeout_ms);
 
     void motion_loop();
     std::thread       motion_thr_;
     std::mutex        motion_mu_;
     std::condition_variable motion_cv_;
+    std::condition_variable motion_done_cv_;
     std::atomic<bool> motion_quit_{false};
     std::atomic<bool> motion_cancel_{false};
     std::atomic<bool> motion_busy_{false};
+    // motion_active_ is true between dequeuing a MotionTarget and the
+    // end of the final-landing block (including instant-cancelled runs).
+    // Distinct from motion_busy_ in that it covers the full lifecycle of
+    // one planner pass and is the predicate motion_done_cv_ fires on.
+    std::atomic<bool> motion_active_{false};
     MotionTarget      motion_pending_{};
     bool              motion_have_pending_ = false;
 

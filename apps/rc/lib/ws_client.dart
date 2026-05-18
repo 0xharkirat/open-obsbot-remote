@@ -41,6 +41,11 @@ class WsClient extends ChangeNotifier {
   bool _gridThirds = false;
   bool _gridReadout = true;
 
+  /// Drive page control style: `"joystick"` (analog deflection pad) or
+  /// `"buttons"` (8-way press-and-hold pad). Persisted across launches
+  /// via SharedPreferences key `drive_control_style`. Default: joystick.
+  String _driveControlStyle = 'joystick';
+
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
@@ -49,6 +54,8 @@ class WsClient extends ChangeNotifier {
       _gridCenterLines = p.getBool('grid_center_lines') ?? _gridCenterLines;
       _gridThirds = p.getBool('grid_thirds') ?? _gridThirds;
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
+      _driveControlStyle =
+          p.getString('drive_control_style') ?? _driveControlStyle;
       notifyListeners();
     });
   }
@@ -57,6 +64,15 @@ class WsClient extends ChangeNotifier {
   bool get gridCenterLines => _gridCenterLines;
   bool get gridThirds => _gridThirds;
   bool get gridReadout => _gridReadout;
+  String get driveControlStyle => _driveControlStyle;
+
+  Future<void> setDriveControlStyle(String style) async {
+    if (style != 'joystick' && style != 'buttons') return;
+    _driveControlStyle = style;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('drive_control_style', style);
+  }
 
   Future<void> setGridCrosshair(bool v) async {
     _gridCrosshair = v;
@@ -104,6 +120,16 @@ class WsClient extends ChangeNotifier {
   String? get lastError => _lastError;
   String? get lastAuthError => _lastAuthError;
   int get lastLatencyMs => _lastLatencyMs;
+
+  /// Test-only seam to swap in a synthetic [CameraState] without a live
+  /// WebSocket. Used by `tab_shell_test.dart` to render the inline
+  /// preset row in its "saved" state (v1.4 W4 bottom-sheet tests).
+  /// Do NOT call from production code.
+  @visibleForTesting
+  void debugSetState(CameraState s) {
+    _state = s;
+    notifyListeners();
+  }
 
   String _tokenKey(String hostPort) => 'token::$hostPort';
 
@@ -260,7 +286,11 @@ class WsClient extends ChangeNotifier {
           _send({'action': 'subscribe', 'id': _id()});
           _pendingPair!.complete(true);
         } else {
-          _lastAuthError = j['msg'] as String? ?? 'wrong PIN';
+          // Friendly copy. We deliberately discard `j['msg']` here too -
+          // the server hint is internal protocol detail; the user just
+          // needs to know the PIN was wrong and where to look for it.
+          _lastAuthError =
+              "That PIN didn't match. Check the bridge window and try again.";
           _pendingPair!.complete(false);
         }
         _pendingPair = null;
@@ -282,7 +312,14 @@ class WsClient extends ChangeNotifier {
         }
       } else if (j['type'] == 'ack' && j['err'] == 'auth_required') {
         _needsPairing = true;
-        _lastAuthError = j['msg'] as String?;
+        // Discard the server hint (`msg`) here. The bridge sends a
+        // developer-facing protocol prompt like
+        // `send {action:'pair', pin:<6-digit>}` which is correct for an
+        // SDK consumer but reads as a JSON-ish red error to a phone user
+        // arriving at the pair screen. Entering the pair screen is a
+        // state transition, not a failure - keep the error slot empty
+        // until the user actually submits a wrong PIN.
+        _lastAuthError = null;
         notifyListeners();
       } else if (j['type'] == 'ack' && j['ok'] == false) {
         final msg = j['msg'];
@@ -416,6 +453,16 @@ class WsClient extends ChangeNotifier {
   /// shows our last-known state which can drift indefinitely.
   void imageRefresh() => _send({
         'action': 'image.refresh',
+        'id': _id(),
+      });
+
+  /// v1.4 W6 stub: capture a still frame from the camera. The bridge
+  /// currently ignores this action (no backend implementation yet);
+  /// the UI button is wired in advance so we can ship the capture
+  /// path in v1.5 without a phone-side update. Fires the request and
+  /// silently no-ops if the bridge replies `err: unknown_action`.
+  void imageSnapshot() => _send({
+        'action': 'image.snapshot',
         'id': _id(),
       });
 

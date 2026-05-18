@@ -453,6 +453,14 @@ class _SequencerEditorState extends State<SequencerEditor> {
     );
   }
 
+  /// One step row in the sequencer editor.
+  ///
+  /// v1.4 fix B3: timing is split into two labelled fields so the
+  /// operator can read move-time and stay-time independently. Pre-v1.4
+  /// they shared one collapsed line and users misread "stay 40 s +
+  /// move 30 s" as 40 s of wall-clock instead of 70 s. The trailing
+  /// `≈ N s total` label gives the operator the wall-clock sum for
+  /// the step (move + stay).
   Widget _stepCard(
     BuildContext ctx,
     int idx,
@@ -462,6 +470,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
     final step = _steps[idx];
     final theme = Theme.of(ctx);
     final cs = theme.colorScheme;
+    final presetLabel = _presetLabel(step.presetId, presets);
     return Padding(
       key: key,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -473,126 +482,181 @@ class _SequencerEditorState extends State<SequencerEditor> {
           side: BorderSide(color: cs.outlineVariant),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(4, 8, 8, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              ReorderableDragStartListener(
-                index: idx,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(Icons.drag_handle, color: cs.outline),
+              // Header: drag handle, "Step N: <preset label>", delete.
+              Row(
+                children: <Widget>[
+                  ReorderableDragStartListener(
+                    index: idx,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(Icons.drag_handle, color: cs.outline),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Step ${idx + 1}: $presetLabel',
+                      style: theme.textTheme.labelLarge,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete step',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () {
+                      setState(() {
+                        _steps[idx].secondsCtrl.dispose();
+                        _steps.removeAt(idx);
+                      });
+                    },
+                  ),
+                ],
+              ),
+              // Preset picker: lets the operator change which preset this
+              // step targets. Kept separate from the header text so the
+              // header always reflects the resolved label.
+              Padding(
+                padding: const EdgeInsets.only(left: 8, right: 8),
+                child: DropdownButton<int>(
+                  isExpanded: true,
+                  value: step.presetId,
+                  underline: const SizedBox.shrink(),
+                  items: <DropdownMenuItem<int>>[
+                    for (int i = 0; i < 6; i++)
+                      DropdownMenuItem<int>(
+                        value: i,
+                        child: Text(_presetLabel(i, presets)),
+                      ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setState(() => step.presetId = v);
+                  },
                 ),
               ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 6),
+              // Move row: "Move to P_X over [ duration ]"
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
                   children: <Widget>[
+                    Icon(Icons.timeline, size: 14, color: cs.outline),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Move to $presetLabel over',
+                        style: theme.textTheme.bodySmall,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     DropdownButton<int>(
-                      isExpanded: true,
-                      value: step.presetId,
+                      value:
+                          _snapTransitionMs(step.transition.inMilliseconds),
                       underline: const SizedBox.shrink(),
+                      isDense: true,
                       items: <DropdownMenuItem<int>>[
-                        for (int i = 0; i < 6; i++)
+                        for (final p in kMoveDurationPresets)
                           DropdownMenuItem<int>(
-                            value: i,
-                            child: Text(_presetLabel(i, presets)),
+                            value: p.duration.inMilliseconds,
+                            child: Text(p.label.toLowerCase()),
                           ),
                       ],
                       onChanged: (v) {
-                        if (v != null) setState(() => step.presetId = v);
+                        if (v != null) {
+                          setState(() => step.transition =
+                              Duration(milliseconds: v));
+                        }
                       },
-                    ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 12,
-                      runSpacing: 4,
-                      children: <Widget>[
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Icon(Icons.timer_outlined,
-                                size: 14, color: cs.outline),
-                            const SizedBox(width: 4),
-                            Text('Hold', style: theme.textTheme.labelSmall),
-                            const SizedBox(width: 4),
-                            SizedBox(
-                              width: 64,
-                              child: TextField(
-                                // KEY: stable controller per step, so cursor
-                                // doesn't get wiped on every parent rebuild.
-                                controller: step.secondsCtrl,
-                                keyboardType: TextInputType.number,
-                                inputFormatters: <TextInputFormatter>[
-                                  FilteringTextInputFormatter.digitsOnly,
-                                ],
-                                decoration: const InputDecoration(
-                                  isDense: true,
-                                  suffixText: 's',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 6,
-                                  ),
-                                ),
-                                onChanged: (v) {
-                                  final n = int.tryParse(v);
-                                  if (n != null && n >= 3 && n <= 36000) {
-                                    step.seconds = n;
-                                  }
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Icon(Icons.timeline,
-                                size: 14, color: cs.outline),
-                            const SizedBox(width: 4),
-                            Text('Move', style: theme.textTheme.labelSmall),
-                            const SizedBox(width: 4),
-                            DropdownButton<int>(
-                              value: _snapTransitionMs(
-                                  step.transition.inMilliseconds),
-                              underline: const SizedBox.shrink(),
-                              isDense: true,
-                              items: <DropdownMenuItem<int>>[
-                                for (final p in kMoveDurationPresets)
-                                  DropdownMenuItem<int>(
-                                    value: p.duration.inMilliseconds,
-                                    child: Text(p.label.toLowerCase()),
-                                  ),
-                              ],
-                              onChanged: (v) {
-                                if (v != null) {
-                                  setState(() => step.transition =
-                                      Duration(milliseconds: v));
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () {
-                  setState(() {
-                    _steps[idx].secondsCtrl.dispose();
-                    _steps.removeAt(idx);
-                  });
-                },
+              const SizedBox(height: 6),
+              // Stay row: "Stay for [ N ] seconds"
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.timer_outlined, size: 14, color: cs.outline),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Stay for',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    SizedBox(
+                      width: 72,
+                      child: TextField(
+                        // KEY: stable controller per step, so cursor
+                        // doesn't get wiped on every parent rebuild
+                        // (CLAUDE.md note #15).
+                        controller: step.secondsCtrl,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: <TextInputFormatter>[
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 8,
+                          ),
+                        ),
+                        onChanged: (v) {
+                          final n = int.tryParse(v);
+                          // Min 3 s (matches bridge contract); accept any
+                          // larger value. If the user clears the field or
+                          // types something < 3, the in-memory `seconds`
+                          // stays at its last valid value, so the trailing
+                          // total still reflects what'll be sent.
+                          if (n != null && n >= 3 && n <= 36000) {
+                            setState(() => step.seconds = n);
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('seconds', style: theme.textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Trailing total: "≈ N s total" (move + stay, wall-clock).
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    _formatStepTotal(step),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.outline,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// Format the wall-clock total for a step as an approximate label,
+  /// e.g. `≈ 70 s total` or `≈ 250 s total`. Always rendered in
+  /// seconds so the operator can mentally cross-check against the two
+  /// input fields (Move duration in seconds + Stay seconds). Move
+  /// duration is rounded to the nearest second.
+  String _formatStepTotal(_EditStep step) {
+    final moveS = (step.transition.inMilliseconds / 1000).round();
+    final totalS = moveS + step.seconds;
+    return '≈ $totalS s total';
   }
 
   String _presetLabel(int id, List<PresetEntry> presets) {

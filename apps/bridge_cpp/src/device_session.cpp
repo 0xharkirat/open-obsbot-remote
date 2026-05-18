@@ -196,6 +196,19 @@ void DeviceSession::motion_cancel() {
 
 bool DeviceSession::motion_busy() const { return motion_busy_.load(); }
 
+bool DeviceSession::motion_wait_idle(int timeout_ms) {
+    // Idempotent: if planner has nothing in flight AND nothing queued,
+    // we're already idle. Snapshot motion_have_pending_ under the mutex
+    // since the worker thread mutates it.
+    using namespace std::chrono;
+    std::unique_lock<std::mutex> g(motion_mu_);
+    auto deadline = steady_clock::now() + milliseconds(timeout_ms);
+    bool ok = motion_done_cv_.wait_until(g, deadline, [this]{
+        return !motion_active_.load() && !motion_have_pending_;
+    });
+    return ok;
+}
+
 void DeviceSession::motion_loop() {
     using namespace std::chrono;
     while (!motion_quit_.load()) {
@@ -210,9 +223,23 @@ void DeviceSession::motion_loop() {
             t = std::move(motion_pending_);
             motion_have_pending_ = false;
             motion_cancel_ = false;     // fresh run
+            // Mark this run as active under the lock so motion_wait_idle
+            // racing on motion_done_cv_ sees a consistent active/pending
+            // pair (have_pending=false, active=true).
+            motion_active_.store(true);
         }
-        if (t.duration_ms <= 0) continue;
-        if (!dev_) continue;
+        if (t.duration_ms <= 0) {
+            // Nothing to interpolate. Mark idle and notify waiters so
+            // motion_wait_idle returns immediately on no-op runs.
+            motion_active_.store(false);
+            motion_done_cv_.notify_all();
+            continue;
+        }
+        if (!dev_) {
+            motion_active_.store(false);
+            motion_done_cv_.notify_all();
+            continue;
+        }
 
         motion_busy_.store(true);
 
@@ -397,6 +424,12 @@ void DeviceSession::motion_loop() {
         }
 
         motion_busy_.store(false);
+        // Drop motion_active_ + wake any motion_wait_idle waiter so the
+        // sequencer (or any other caller chaining off the planner) can
+        // resume. Order matters: the wait predicate reads motion_active_
+        // after acquiring motion_mu_, so notify under no lock is fine.
+        motion_active_.store(false);
+        motion_done_cv_.notify_all();
     }
 }
 
@@ -1547,12 +1580,21 @@ void DeviceSession::cmd_sequence_stop(ReplyFn reply) {
         seq_running_ = false;
         seq_quit_ = true;
         seq_cv_.notify_all();
+        // B2 fix: if the sequencer is currently blocked inside
+        // motion_wait_idle (waiting for a long transition to land),
+        // the planner thread is the only one that can wake it. Cancel
+        // the in-flight move so motion_wait_idle returns and the
+        // sequencer loop exits its CV wait promptly. Without this, a
+        // stop pressed mid-30-second-move would block the worker
+        // thread on seq_thr_.join() for the rest of the move duration.
+        motion_cancel();
         if (seq_thr_.joinable()) seq_thr_.join();
         std::lock_guard<std::mutex> sg(snap_mu_);
         snap_.sequence_running = false;
         snap_.sequence_step_index = -1;
         snap_.sequence_elapsed_s = 0;
         snap_.sequence_total_s = 0;
+        snap_.sequence_phase = "holding";   // reset to default
         return ok();
     }, std::move(reply));
 }
@@ -1634,8 +1676,35 @@ void DeviceSession::sequence_loop() {
         LOGI("sequence: step %d → preset %d for %ds", idx, pid, total);
     };
 
-    trigger_step(seq_step_index_);
-    step_started = std::chrono::steady_clock::now();
+    {
+        // B2 fix: previously the stay-timer (`step.seconds`) was started
+        // immediately after trigger_step() enqueued the motion plan,
+        // which meant the move duration and the hold duration ran
+        // concurrently against the same `total = seconds` budget. With
+        // seconds=40 + transition_ms=30000 the user only saw ~10 s of
+        // observable hold time before the next step fired. Fix: wait
+        // for the planner to physically complete the move before
+        // starting the stay clock.
+        const int transition_ms = seq_steps_[seq_step_index_].transition_ms;
+        if (transition_ms > 0) {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.sequence_phase = "moving";
+        }
+        trigger_step(seq_step_index_);
+        if (transition_ms > 0) {
+            if (on_state_) on_state_(snapshot());
+            // Generous deadline (transition_ms + 500 ms) so an ease-out
+            // tail or one extra adaptive tick doesn't trip the timeout
+            // and prematurely start the hold.
+            motion_wait_idle(transition_ms + 500);
+            {
+                std::lock_guard<std::mutex> sg(snap_mu_);
+                snap_.sequence_phase = "holding";
+            }
+            if (on_state_) on_state_(snapshot());
+        }
+        step_started = std::chrono::steady_clock::now();  // stay clock starts NOW
+    }
 
     while (seq_running_ && !seq_quit_) {
         std::unique_lock<std::mutex> lk(seq_mu_);
@@ -1684,7 +1753,32 @@ void DeviceSession::sequence_loop() {
             if (!seq_running_) break;
             seq_step_index_ = next;
             lk.unlock();
+            // Same B2 chain as the bootstrap path above: trigger the
+            // move, block until the planner reports idle, then start
+            // the next step's stay clock. Without the wait, fast steps
+            // with long transitions would burn most of `seconds` on the
+            // move and the hold would appear truncated.
+            int next_transition_ms = 0;
+            {
+                std::lock_guard<std::mutex> g(seq_mu_);
+                if (next >= 0 && next < (int)seq_steps_.size()) {
+                    next_transition_ms = seq_steps_[next].transition_ms;
+                }
+            }
+            if (next_transition_ms > 0) {
+                std::lock_guard<std::mutex> sg(snap_mu_);
+                snap_.sequence_phase = "moving";
+            }
             trigger_step(next);
+            if (next_transition_ms > 0) {
+                if (on_state_) on_state_(snapshot());
+                motion_wait_idle(next_transition_ms + 500);
+                {
+                    std::lock_guard<std::mutex> sg(snap_mu_);
+                    snap_.sequence_phase = "holding";
+                }
+                if (on_state_) on_state_(snapshot());
+            }
             step_started = std::chrono::steady_clock::now();
         }
     }
@@ -1696,6 +1790,7 @@ void DeviceSession::sequence_loop() {
         snap_.sequence_step_index = -1;
         snap_.sequence_elapsed_s = 0;
         snap_.sequence_total_s = 0;
+        snap_.sequence_phase = "holding";   // reset to default
     }
     if (on_state_) on_state_(snapshot());
 }

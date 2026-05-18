@@ -210,4 +210,39 @@ void main() {
       expect(s.sequence.steps, isEmpty);
     });
   });
+
+  group('SequenceState.phase', () {
+    test('defaults to holding when phase key missing', () {
+      final s = SequenceState.fromJson(const <String, dynamic>{
+        'running': false,
+        'step_index': -1,
+        'elapsed_s': 0,
+        'total_s': 0,
+        'mode': 'forward',
+        'available': <String>[],
+        'loaded': '',
+        'steps': <Map<String, dynamic>>[],
+      });
+      expect(s.phase, 'holding');
+    });
+
+    test('fromJson reads phase=moving when present', () {
+      final s = SequenceState.fromJson(const <String, dynamic>{
+        'running': true,
+        'step_index': 0,
+        'elapsed_s': 0,
+        'total_s': 30,
+        'mode': 'forward',
+        'phase': 'moving',
+        'available': <String>[],
+        'loaded': '',
+        'steps': <Map<String, dynamic>>[],
+      });
+      expect(s.phase, 'moving');
+    });
+
+    test('SequenceState.empty defaults phase to holding', () {
+      expect(SequenceState.empty.phase, 'holding');
+    });
+  });
 }

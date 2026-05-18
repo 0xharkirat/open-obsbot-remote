@@ -1,6 +1,12 @@
-// Widget tests for the v1.2 TabShell after the fix/ui-revamp-from-review
-// pass. Tabs are now Joystick / Buttons / Image; presets are inlined on
-// the Joystick + Buttons tabs; Sequence lives in the AppBar.
+// Widget tests for the v1.4 W6 TabShell - OBSBOT Center-inspired
+// 3-tab structure: Drive / Image / More.
+//
+// Drive folds the v1.2 Joystick + Buttons tabs into one page with a
+// control-style toggle (joystick or 8-way buttons). View & Gimbal
+// inside Drive holds the FOV pills (moved from Image) plus the new
+// AI sub-mode picker. More consolidates the v1.2 AppBar overflow
+// (grid menu / mode switch / disconnect / cache) plus a sequence
+// library entry point.
 //
 // Bridge-coupled behavior (gimbal, zoom, presets save, sequence, image)
 // is covered by the Node smoke harness under `tests/`.
@@ -14,6 +20,55 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _StubWsClient extends WsClient {
   _StubWsClient() : super();
+
+  // v1.4 W4 - capture preset action calls so the long-press options
+  // sheet tests can assert which action fired without a live bridge.
+  final List<({String action, int id, String? name, Duration? duration})>
+      presetCalls =
+      <({String action, int id, String? name, Duration? duration})>[];
+
+  // v1.4 W6 - capture aiSetMode calls so the sub-mode picker tests
+  // can assert which (mode, sub_mode) tuple fired.
+  final List<({String mode, String sub})> aiCalls =
+      <({String mode, String sub})>[];
+
+  @override
+  void presetSave(int id, String name) {
+    presetCalls
+        .add((action: 'save', id: id, name: name, duration: null));
+  }
+
+  @override
+  void presetRecall(int id, {Duration? duration}) {
+    presetCalls
+        .add((action: 'recall', id: id, name: null, duration: duration));
+  }
+
+  @override
+  void presetDelete(int id) {
+    presetCalls.add((action: 'delete', id: id, name: null, duration: null));
+  }
+
+  @override
+  void aiSetMode(String mode, [String sub = 'normal']) {
+    aiCalls.add((mode: mode, sub: sub));
+  }
+}
+
+/// Seed the inline preset row's `_saved` branch with a synthetic
+/// `CameraState` so the long-press handler hits the bottom-sheet path.
+void _seedPresets(_StubWsClient client, List<PresetEntry> presets) {
+  final json = <String, dynamic>{
+    'event': 'state',
+    'presets': presets.map((p) => p.toJson()).toList(),
+  };
+  client.debugSetState(CameraState.fromEvent(json));
+}
+
+/// Seed a CameraState patch on the stub client.
+void _seedState(_StubWsClient client, Map<String, dynamic> patch) {
+  final json = <String, dynamic>{'event': 'state', ...patch};
+  client.debugSetState(CameraState.fromEvent(json));
 }
 
 void _initPrefs() {
@@ -32,31 +87,33 @@ Future<void> _pumpShell(WidgetTester tester, {Size? size}) async {
     ),
   );
   await tester.pump();
+  await tester.pump(const Duration(milliseconds: 50));
 }
 
 void main() {
   setUp(_initPrefs);
 
-  group('TabShell (v1.2)', () {
+  group('TabShell (v1.4 W6)', () {
     testWidgets('renders three tab labels in order', (tester) async {
       await _pumpShell(tester, size: const Size(400, 800));
-      expect(find.text('Joystick'), findsOneWidget);
-      expect(find.text('Buttons'), findsOneWidget);
+      expect(find.text('Drive'), findsOneWidget);
       expect(find.text('Image'), findsOneWidget);
+      expect(find.text('More'), findsOneWidget);
     });
 
-    testWidgets('Joystick tab is selected by default', (tester) async {
-      await _pumpShell(tester, size: const Size(400, 800));
+    testWidgets('Drive tab is selected by default', (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1100));
+      // Drive shows PtzPad by default (joystick style).
       expect(find.byType(PtzPad), findsOneWidget);
     });
 
     testWidgets('tapping Image tab swaps the content', (tester) async {
-      await _pumpShell(tester, size: const Size(400, 1100));
+      await _pumpShell(tester, size: const Size(400, 1400));
       await tester.tap(find.text('Image'));
       await tester.pumpAndSettle();
-      expect(find.text('Wide'), findsOneWidget);
-      expect(find.text('Normal'), findsOneWidget);
-      expect(find.text('Narrow'), findsOneWidget);
+      // Image no longer carries the joystick / FOV; those moved to
+      // Drive. Image keeps Tone toggles + WB.
+      expect(find.text('HDR'), findsOneWidget);
       expect(find.byType(PtzPad), findsNothing);
     });
 
@@ -69,26 +126,24 @@ void main() {
         (tester) async {
       await _pumpShell(tester, size: const Size(900, 600));
       expect(find.byType(TabBar), findsOneWidget);
-      expect(find.text('Joystick'), findsOneWidget);
+      expect(find.text('Drive'), findsOneWidget);
       expect(find.text('Image'), findsOneWidget);
+      expect(find.text('More'), findsOneWidget);
     });
   });
 
-  group('Joystick tab', () {
+  group('Drive tab', () {
     testWidgets('shows Recenter / Sleep / Wake quick actions',
         (tester) async {
-      await _pumpShell(tester, size: const Size(400, 900));
+      await _pumpShell(tester, size: const Size(400, 1100));
       expect(find.text('Recenter'), findsOneWidget);
       expect(find.text('Sleep'), findsOneWidget);
       expect(find.text('Wake'), findsOneWidget);
     });
 
-    // Regression: PR Q migrated _QuickActions's 3-per-row buttons from
-    // Material OutlinedButton to forui FButton.raw. The old `.icon`
-    // variant overflowed at 320–360 px because the icon+label intrinsic
-    // width exceeded the per-slot Expanded width. This test renders the
-    // shell at the narrowest realistic phone width and asserts no
-    // RenderFlex overflow errors are caught by the framework.
+    // Regression: 3-per-row quick-action overflow at 320 px (CLAUDE.md
+    // note 29 / PR Q). Drive page keeps the same _QuickActions row, so
+    // the test stays as a guard.
     testWidgets('Recenter row does not overflow at 320 px', (tester) async {
       final prev = FlutterError.onError;
       final overflows = <FlutterErrorDetails>[];
@@ -96,7 +151,7 @@ void main() {
         if (d.exceptionAsString().contains('overflow')) overflows.add(d);
       };
       try {
-        await _pumpShell(tester, size: const Size(320, 800));
+        await _pumpShell(tester, size: const Size(320, 1200));
         expect(find.text('Recenter'), findsOneWidget);
         expect(find.text('Sleep'), findsOneWidget);
         expect(find.text('Wake'), findsOneWidget);
@@ -107,29 +162,140 @@ void main() {
       }
     });
 
-    testWidgets('shows all 8 move-duration chips', (tester) async {
-      await _pumpShell(tester, size: const Size(400, 900));
+    testWidgets('shows inline P1..P6 preset row inside Presets section',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1200));
+      for (int i = 1; i <= 6; i++) {
+        expect(find.text('P$i'), findsOneWidget, reason: 'P$i missing');
+      }
+    });
+
+    testWidgets('shows ZoomSlider inside View & Gimbal section',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1200));
+      expect(find.byType(ZoomSlider), findsOneWidget);
+    });
+
+    testWidgets('shows FOV pills (Wide / Normal / Narrow) - moved from Image',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1400));
+      expect(find.text('Wide'), findsOneWidget);
+      expect(find.text('Normal'), findsOneWidget);
+      expect(find.text('Narrow'), findsOneWidget);
+    });
+
+    testWidgets('shows AI mode segmented (Off / Person / Group)',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1500));
+      // AI tracking section opens by default.
+      expect(find.text('Off'), findsAtLeast(1));
+      expect(find.text('Person'), findsOneWidget);
+      expect(find.text('Group'), findsOneWidget);
+    });
+
+    testWidgets('AI sub-mode picker appears only when mode = Person',
+        (tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 1600));
+      final client = _StubWsClient();
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      // Default state: aiMode == 'none' - no sub-modes visible.
+      expect(find.text('Upper-body'), findsNothing);
+
+      // Patch state to human mode.
+      _seedState(client, <String, dynamic>{
+        'ai': <String, dynamic>{'mode': 'human', 'sub_mode': 'normal'},
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // 'Normal' appears twice: FOV pill (Wide/Normal/Narrow) and sub-mode
+      // pill. The sub-mode pill is the distinguishing one with the
+      // unique siblings below.
+      expect(find.text('Normal'), findsNWidgets(2));
+      expect(find.text('Upper-body'), findsOneWidget);
+      expect(find.text('Close-up'), findsOneWidget);
+      expect(find.text('Headless'), findsOneWidget);
+      expect(find.text('Lower-body'), findsOneWidget);
+    });
+
+    testWidgets('tapping a sub-mode calls aiSetMode(human, wireName)',
+        (tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 1600));
+      final client = _StubWsClient();
+      _seedState(client, <String, dynamic>{
+        'ai': <String, dynamic>{'mode': 'human', 'sub_mode': 'normal'},
+      });
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.tap(find.text('Upper-body'));
+      await tester.pumpAndSettle();
+      // Filter to sub-mode calls (the AI mode segmented might log its
+      // own from the rebuild path - we only care this specific click
+      // hit upper_body).
+      expect(
+          client.aiCalls
+              .where((c) => c.mode == 'human' && c.sub == 'upper_body'),
+          hasLength(greaterThanOrEqualTo(1)));
+    });
+
+    testWidgets('shows all 8 move-duration chips inside Move pacing',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1200));
       for (final p in kMoveDurationPresets) {
         expect(find.text(p.label), findsOneWidget,
             reason: 'chip for ${p.label} missing');
       }
     });
 
-    testWidgets('inline preset row shows P1..P6', (tester) async {
-      await _pumpShell(tester, size: const Size(400, 900));
-      for (int i = 1; i <= 6; i++) {
-        expect(find.text('P$i'), findsOneWidget, reason: 'P$i missing');
-      }
+    testWidgets('shows the control-style toggle (Joystick / Buttons)',
+        (tester) async {
+      await _pumpShell(tester, size: const Size(400, 1400));
+      expect(find.text('Joystick'), findsOneWidget);
+      expect(find.text('Buttons'), findsOneWidget);
     });
 
-    testWidgets('chip reflects current move duration', (tester) async {
+    testWidgets('switching control style swaps PtzPad for button pad',
+        (tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 1400));
       final client = _StubWsClient();
-      await client.setMoveDuration(const Duration(milliseconds: 5000));
-      await tester.binding.setSurfaceSize(const Size(400, 900));
       await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: TabShell(client: client))),
       );
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.byType(PtzPad), findsOneWidget);
+      // Tap the Buttons pill - text 'Buttons' is also the tab title in
+      // v1.2, but in v1.4 the tab is Drive/Image/More so the only
+      // visible Buttons text is the pill.
+      await tester.tap(find.text('Buttons').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(PtzPad), findsNothing);
+      // 8-way hold buttons surface their direction labels.
+      expect(find.text('Up'), findsOneWidget);
+      expect(find.text('Down'), findsOneWidget);
+    });
+
+    testWidgets('chip reflects current move duration', (tester) async {
+      _initPrefs();
+      final client = _StubWsClient();
+      await client.setMoveDuration(const Duration(milliseconds: 5000));
+      await tester.binding.setSurfaceSize(const Size(400, 1200));
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       final chip = tester.widget<ChoiceChip>(
         find.ancestor(
           of: find.text('5 sec'),
@@ -141,86 +307,34 @@ void main() {
 
     testWidgets('tapping a chip updates client.moveDuration',
         (tester) async {
+      _initPrefs();
       final client = _StubWsClient();
-      await tester.binding.setSurfaceSize(const Size(400, 900));
+      await tester.binding.setSurfaceSize(const Size(400, 1200));
       await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: TabShell(client: client))),
       );
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       await tester.tap(find.text('1 sec'));
       await tester.pump();
       expect(client.moveDuration, const Duration(milliseconds: 1000));
-    });
-
-  });
-
-  group('Buttons tab', () {
-    Future<void> goToButtons(WidgetTester tester) async {
-      await _pumpShell(tester, size: const Size(400, 1000));
-      await tester.tap(find.text('Buttons'));
-      await tester.pumpAndSettle();
-    }
-
-    testWidgets('shows 8 hold-direction buttons', (tester) async {
-      await goToButtons(tester);
-      for (final lbl in <String>[
-        'Up', 'Down', 'Left', 'Right',
-        'Up-Left', 'Up-Right', 'Down-Left', 'Down-Right',
-      ]) {
-        expect(find.text(lbl), findsOneWidget, reason: 'missing $lbl');
-      }
-    });
-
-    testWidgets('shows Recenter / Sleep / Wake (same as Joystick tab)',
-        (tester) async {
-      await goToButtons(tester);
-      expect(find.text('Recenter'), findsOneWidget);
-      expect(find.text('Sleep'), findsOneWidget);
-      expect(find.text('Wake'), findsOneWidget);
-    });
-
-    testWidgets('shows inline P1..P6 preset row', (tester) async {
-      await goToButtons(tester);
-      for (int i = 1; i <= 6; i++) {
-        expect(find.text('P$i'), findsOneWidget, reason: 'P$i missing');
-      }
-    });
-
-    testWidgets('shows the vertical zoom slider', (tester) async {
-      await goToButtons(tester);
-      // Joystick had ZoomSlider; Buttons tab now has one too.
-      expect(find.byType(ZoomSlider), findsOneWidget);
-    });
-
-    testWidgets('shows duration chips identical to Joystick tab',
-        (tester) async {
-      await goToButtons(tester);
-      // The chip strip moved into a shared `_BottomControls` widget so
-      // it's literally the same widget on both tabs. Sanity-check by
-      // confirming all 8 preset labels render here too.
-      for (final p in kMoveDurationPresets) {
-        expect(find.text(p.label), findsOneWidget,
-            reason: 'chip ${p.label} missing on Buttons tab');
-      }
     });
   });
 
   group('Image tab', () {
     Future<void> goToImage(WidgetTester tester) async {
-      await _pumpShell(tester, size: const Size(400, 1400));
+      await _pumpShell(tester, size: const Size(400, 1600));
       await tester.tap(find.text('Image'));
       await tester.pumpAndSettle();
     }
 
-    testWidgets('shows Auto-track + View + Anti-flicker segments',
+    testWidgets('still shows Anti-flicker segments (FOV/AI moved to Drive)',
         (tester) async {
       await goToImage(tester);
-      expect(find.text('Off'), findsAtLeast(1));
-      expect(find.text('Person'), findsOneWidget);
-      expect(find.text('Group'), findsOneWidget);
-      expect(find.text('Wide'), findsOneWidget);
       expect(find.text('50 Hz'), findsOneWidget);
       expect(find.text('60 Hz'), findsOneWidget);
+      // FOV pills are NOT on Image anymore.
+      expect(find.text('Wide'), findsNothing);
     });
 
     testWidgets('shows HDR / Face / Flip / Auto WB toggles',
@@ -235,6 +349,9 @@ void main() {
 
     testWidgets('shows 4 color sliders + EV bias', (tester) async {
       await goToImage(tester);
+      // v1.4 W6: Color section starts collapsed; expand to see sliders.
+      await tester.tap(find.text('COLOR'));
+      await tester.pumpAndSettle();
       expect(find.text('Brightness'), findsOneWidget);
       expect(find.text('Contrast'), findsOneWidget);
       expect(find.text('Saturation'), findsOneWidget);
@@ -242,10 +359,169 @@ void main() {
       expect(find.text('EV bias'), findsOneWidget);
     });
 
-    testWidgets('every section header has a Reset button', (tester) async {
-      await goToImage(tester);
-      // Sections with Reset: View, Exposure, Anti-flicker, White balance, Color.
-      expect(find.text('Reset'), findsAtLeast(5));
+    testWidgets('Image tab renders without overflow at 360 px',
+        (tester) async {
+      final prev = FlutterError.onError;
+      final overflows = <FlutterErrorDetails>[];
+      FlutterError.onError = (FlutterErrorDetails d) {
+        if (d.exceptionAsString().contains('overflow')) overflows.add(d);
+      };
+      try {
+        await _pumpShell(tester, size: const Size(360, 1600));
+        await tester.tap(find.text('Image'));
+        await tester.pumpAndSettle();
+        expect(find.text('50 Hz'), findsOneWidget);
+        expect(overflows, isEmpty,
+            reason: 'ForSegmented + toggles must not overflow at 360 px');
+      } finally {
+        FlutterError.onError = prev;
+      }
+    });
+  });
+
+  group('More tab', () {
+    Future<void> goToMore(WidgetTester tester) async {
+      await _pumpShell(tester, size: const Size(400, 1800));
+      await tester.tap(find.text('More'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows Device / Sequence library / Grid overlay sections',
+        (tester) async {
+      await goToMore(tester);
+      expect(find.text('DEVICE'), findsOneWidget);
+      expect(find.text('SEQUENCE LIBRARY'), findsOneWidget);
+      expect(find.text('GRID OVERLAY'), findsOneWidget);
+      expect(find.text('CONNECTION'), findsOneWidget);
+      expect(find.text('ABOUT'), findsOneWidget);
+    });
+
+    testWidgets('shows the 4 grid overlay toggles', (tester) async {
+      await goToMore(tester);
+      // Expand the Grid overlay section if it's collapsed - by default
+      // it's open per defaultOpen:true.
+      expect(find.text('Center crosshair'), findsOneWidget);
+      expect(find.text('Attitude indicator'), findsOneWidget);
+      expect(find.text('Rule of thirds'), findsOneWidget);
+      expect(find.text('Pan / Tilt readout'), findsOneWidget);
+    });
+
+    testWidgets('shows the "Open editor" button in Sequence library',
+        (tester) async {
+      await goToMore(tester);
+      expect(find.text('Open editor'), findsOneWidget);
+    });
+
+    testWidgets('shows Disconnect button in Connection', (tester) async {
+      await goToMore(tester);
+      expect(find.text('Disconnect'), findsOneWidget);
+    });
+
+    testWidgets('shows version in About', (tester) async {
+      await goToMore(tester);
+      expect(find.text('1.4.0-dev'), findsOneWidget);
+    });
+  });
+
+  // v1.4 W4 - preset bookmark long-press now opens a 4-action bottom
+  // sheet (Update with current pose / Recall instantly / Rename /
+  // Delete) on SAVED slots. EMPTY slots keep the original one-step
+  // tap-to-save flow. These tests cover both branches plus the two
+  // most-broken-by-mistake actions (Update + Delete).
+  group('Preset long-press options sheet (v1.4 W4)', () {
+    /// Render a TabShell pre-seeded with a saved P1 (id=0). The slot's
+    /// `Material` card sits on the Drive tab inline preset row.
+    Future<_StubWsClient> pumpWithSavedP1(WidgetTester tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 1200));
+      final client = _StubWsClient();
+      _seedPresets(client, <PresetEntry>[
+        const PresetEntry(
+          id: 0,
+          name: 'Vocalist',
+          yaw: 12,
+          pitch: -3,
+          roll: 0,
+          zoom: 1.4,
+        ),
+      ]);
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      return client;
+    }
+
+    testWidgets('saved slot long-press opens sheet with 4 items',
+        (tester) async {
+      await pumpWithSavedP1(tester);
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Update with current pose'), findsOneWidget);
+      expect(find.text('Recall instantly (no move)'), findsOneWidget);
+      expect(find.text('Rename'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('Preset Vocalist'), findsOneWidget);
+    });
+
+    testWidgets('empty slot long-press triggers one-step save (no sheet)',
+        (tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 1200));
+      final client = _StubWsClient();
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.longPress(find.text('P1').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Update with current pose'), findsNothing);
+      expect(find.text('Recall instantly (no move)'), findsNothing);
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'save');
+      expect(client.presetCalls.first.id, 0);
+    });
+
+    testWidgets('Update with current pose calls presetSave(id, name)',
+        (tester) async {
+      final client = await pumpWithSavedP1(tester);
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Update with current pose'));
+      await tester.pumpAndSettle();
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'save');
+      expect(client.presetCalls.first.id, 0);
+      expect(client.presetCalls.first.name, 'Vocalist');
+    });
+
+    testWidgets('Delete calls presetDelete(id)', (tester) async {
+      final client = await pumpWithSavedP1(tester);
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'delete');
+      expect(client.presetCalls.first.id, 0);
+    });
+
+    testWidgets('Recall instantly passes Duration.zero (bypasses default)',
+        (tester) async {
+      final client = await pumpWithSavedP1(tester);
+      await client.setMoveDuration(const Duration(seconds: 30));
+      await tester.pump();
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Recall instantly (no move)'));
+      await tester.pumpAndSettle();
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'recall');
+      expect(client.presetCalls.first.id, 0);
+      expect(client.presetCalls.first.duration, Duration.zero);
     });
   });
 }

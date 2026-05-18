@@ -54,14 +54,11 @@ class TrayController with WindowListener implements NativeTrayListener {
       // siblings.
       return;
     }
-    try {
-      await NativeTray.setIcon(
-        'assets/tray/cameraTemplate.png',
-        isTemplate: true,
-      );
-    } catch (_) {
-      // Asset load failure is non-fatal; the empty status item still
-      // works (text title will fall back).
+    // Initial icon is set inside _refreshIcon (it picks the right
+    // variant based on supervisor.status). If asset load fails the
+    // setTitle fallback below keeps the menubar entry discoverable.
+    final iconOk = await _refreshIcon();
+    if (!iconOk) {
       await NativeTray.setTitle('OBSBOT');
     }
     await NativeTray.setTooltip('OBSBOT Bridge');
@@ -90,8 +87,43 @@ class TrayController with WindowListener implements NativeTrayListener {
 
   void _onSupervisorChange() {
     if (_disposed) return;
+    _refreshIcon();
     _refreshTooltip();
     _rebuildMenu();
+  }
+
+  /// Pick the right tray icon variant for the current supervisor
+  /// status:
+  ///
+  ///   - `cameraTemplate.png`       (running + camera connected, idle)
+  ///   - `cameraTemplateWarn.png`   (running but no camera plugged in,
+  ///                                 or supervisor starting)
+  ///   - `cameraTemplateError.png`  (bridge stopped or in error state)
+  ///
+  /// Returns true on success. Failures (asset missing, channel error)
+  /// are swallowed; the caller treats false as "fall back to setTitle".
+  Future<bool> _refreshIcon() async {
+    String asset;
+    switch (supervisor.status) {
+      case BridgeStatus.running:
+        asset = supervisor.cameraConnected
+            ? 'assets/tray/cameraTemplate.png'
+            : 'assets/tray/cameraTemplateWarn.png';
+        break;
+      case BridgeStatus.starting:
+        asset = 'assets/tray/cameraTemplateWarn.png';
+        break;
+      case BridgeStatus.error:
+      case BridgeStatus.stopped:
+        asset = 'assets/tray/cameraTemplateError.png';
+        break;
+    }
+    try {
+      await NativeTray.setIcon(asset, isTemplate: true);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _refreshTooltip() async {

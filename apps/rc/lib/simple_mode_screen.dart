@@ -6,6 +6,7 @@ import 'footer.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
+import 'widgets/preset_options_sheet.dart';
 import 'ws_client.dart';
 
 /// Performer-mode UI: live preview at the top + a grid of named preset
@@ -214,9 +215,26 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           : null,
       onLongPress: () async {
         HapticFeedback.heavyImpact();
-        final name = await _promptName(ctx, initial: entry?.name ?? 'P${id + 1}');
-        if (name == null) return;
-        client.presetSave(id, name);
+        if (hasPreset) {
+          // v1.4 W4 - long-press on a saved tile opens the explicit
+          // options sheet (update / recall instant / rename / delete).
+          // Empty slots keep the original one-step name-prompt + save.
+          await showPresetOptions(
+            ctx,
+            client,
+            id,
+            entry,
+            onRename: () => showPresetRenameDialog(
+              ctx,
+              initial: entry.name.isNotEmpty ? entry.name : 'P${id + 1}',
+            ),
+          );
+        } else {
+          final name =
+              await _promptName(ctx, initial: 'P${id + 1}');
+          if (name == null) return;
+          client.presetSave(id, name);
+        }
       },
       child: Container(
         decoration: BoxDecoration(
@@ -254,7 +272,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             bottom: 4,
             left: 8,
             child: Text(
-              hasPreset ? 'P${id + 1} • hold to rename' : 'hold to save here',
+              hasPreset ? 'P${id + 1} • hold for options' : 'hold to save here',
               style: TextStyle(
                 fontSize: 10,
                 color: (active ? fg : theme.colorScheme.outline).withValues(alpha: 0.7),

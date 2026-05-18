@@ -77,6 +77,11 @@ json build_state_event(const DeviceSnapshot& s) {
             {"elapsed_s", s.sequence_elapsed_s},
             {"total_s", s.sequence_total_s},
             {"mode", s.sequence_mode},
+            // "moving" while MotionPlanner is in flight; "holding" while
+            // the stay-timer is counting. Default "holding" (idle / instant
+            // transition). Surfaced for client UI affordances (progress
+            // ring, "moving..." chip).
+            {"phase", s.sequence_phase},
             {"available", s.available_sequences},
             {"loaded", s.loaded_sequence},
             {"steps", [&]() {

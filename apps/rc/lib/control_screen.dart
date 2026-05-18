@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'cache_menu.dart';
 import 'sequencer_screen.dart';
 import 'tab_shell.dart';
 import 'ws_client.dart';
@@ -43,17 +42,18 @@ class _ControlScreenState extends State<ControlScreen> {
           appBar: AppBar(
             title: Text('${s.modelDisplay} • ${s.sn.isEmpty ? '...' : s.sn}'),
             actions: <Widget>[
+              // Latency stays as a glanceable AppBar chip - useful any
+              // tab. Sequence shortcut stays because the running-state
+              // glyph is a meaningful indicator at-a-glance even when
+              // the operator is on Drive / Image tabs. Everything else
+              // (grid menu / mode switch / disconnect / cache) moved to
+              // the More tab in v1.4 W6 to keep the AppBar uncluttered.
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Center(
                   child: Text('${widget.client.lastLatencyMs} ms'),
                 ),
               ),
-              // Move-duration is controlled by the chip strip at the
-              // bottom of every advanced-mode tab — no need to mirror
-              // it in the AppBar. Simple mode (which has no chips)
-              // still surfaces the popup in its own AppBar.
-              _gridMenu(context),
               IconButton(
                 tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
                 icon: Icon(
@@ -67,18 +67,6 @@ class _ControlScreenState extends State<ControlScreen> {
                   ),
                 ),
               ),
-              if (widget.onSwitchSimple != null)
-                IconButton(
-                  tooltip: 'Simple mode',
-                  icon: const Icon(Icons.dashboard_customize),
-                  onPressed: widget.onSwitchSimple,
-                ),
-              IconButton(
-                tooltip: 'Disconnect',
-                icon: const Icon(Icons.logout),
-                onPressed: () => widget.client.close(),
-              ),
-              CacheMenu(onCleared: () => widget.client.close()),
             ],
           ),
           body: SafeArea(
@@ -86,63 +74,20 @@ class _ControlScreenState extends State<ControlScreen> {
             // they carried has a dedicated home now:
             //   * Pan / Tilt → overlaid on the preview (grid readout).
             //   * Zoom       → next to the vertical zoom slider.
-            //   * AI mode    → Image tab → Auto-track segmented.
-            //   * FOV        → Image tab → View segmented.
+            //   * AI mode    → Drive tab → AI tracking segmented.
+            //   * FOV        → Drive tab → View & Gimbal segmented.
             //   * runStatus  → tray icon glyph in the menubar.
             // Dropping the bar frees ~40 px of vertical space and gives
             // the live preview more room to breathe on phones.
-            child: TabShell(client: widget.client),
+            child: TabShell(
+              client: widget.client,
+              onSwitchSimple: widget.onSwitchSimple,
+            ),
           ),
         );
       },
     );
   }
-
-  Widget _gridMenu(BuildContext ctx) {
-    return PopupMenuButton<String>(
-      tooltip: 'Grid overlay',
-      icon: const Icon(Icons.grid_on),
-      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
-        CheckedPopupMenuItem<String>(
-          value: 'crosshair',
-          checked: widget.client.gridCrosshair,
-          child: const Text('Center crosshair'),
-        ),
-        CheckedPopupMenuItem<String>(
-          value: 'center',
-          checked: widget.client.gridCenterLines,
-          // Renamed in the live-test feedback round: the "center lines"
-          // are no longer static — they translate with yaw / pitch and
-          // rotate with roll, like an aircraft attitude indicator. Use
-          // the airplane glyph so the menu hints at the new behavior.
-          child: const Text('Attitude indicator (steer to align)'),
-        ),
-        CheckedPopupMenuItem<String>(
-          value: 'thirds',
-          checked: widget.client.gridThirds,
-          child: const Text('Rule of thirds'),
-        ),
-        CheckedPopupMenuItem<String>(
-          value: 'readout',
-          checked: widget.client.gridReadout,
-          child: const Text('Pan / Tilt readout'),
-        ),
-      ],
-      onSelected: (v) {
-        switch (v) {
-          case 'crosshair':
-            widget.client.setGridCrosshair(!widget.client.gridCrosshair);
-          case 'center':
-            widget.client.setGridCenterLines(!widget.client.gridCenterLines);
-          case 'thirds':
-            widget.client.setGridThirds(!widget.client.gridThirds);
-          case 'readout':
-            widget.client.setGridReadout(!widget.client.gridReadout);
-        }
-      },
-    );
-  }
-
 }
 
 // ----------------------------------------------------------------------------

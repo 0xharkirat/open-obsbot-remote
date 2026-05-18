@@ -12,6 +12,7 @@ import 'sequence_step.dart';
 ///   "elapsed_s": 0,
 ///   "total_s": 0,
 ///   "mode": "forward",
+///   "phase": "holding",
 ///   "available": ["Main"],
 ///   "loaded": "Main",
 ///   "steps": [{ "preset_id": 0, "seconds": 30, "transition_ms": 5000 }]
@@ -42,6 +43,12 @@ class SequenceState {
   /// Use `loopModeFromWire` to decode.
   final String mode;
 
+  /// Active sub-phase of the current step. `"moving"` while the
+  /// MotionPlanner is physically driving toward the step's pose;
+  /// `"holding"` while the stay-timer is counting down. Idle and
+  /// instant-transition steps report `"holding"`.
+  final String phase;
+
   /// Active edit list. Mirrored from the bridge so a returning
   /// client can hydrate the editor without re-fetching.
   final List<SequenceStep> steps;
@@ -54,6 +61,7 @@ class SequenceState {
     required this.available,
     required this.loaded,
     required this.mode,
+    required this.phase,
     required this.steps,
   });
 
@@ -65,6 +73,7 @@ class SequenceState {
     available: <String>[],
     loaded: '',
     mode: 'forward',
+    phase: 'holding',
     steps: <SequenceStep>[],
   );
 
@@ -84,6 +93,7 @@ class SequenceState {
           .toList(growable: false),
       loaded: j['loaded'] as String? ?? '',
       mode: j['mode'] as String? ?? 'forward',
+      phase: j['phase'] as String? ?? 'holding',
       steps: steps,
     );
   }

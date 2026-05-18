@@ -3,7 +3,12 @@
 // Final .app filename + window title shown to the user.
 PRODUCT_NAME = Open OBSBOT Bridge
 
-// Bundle identifier — used by macOS for TCC, Launch Services, signing, etc.
-PRODUCT_BUNDLE_IDENTIFIER = com.harksingh.obsbotbridge
+// Bundle identifier — moved into the per-configuration xcconfigs
+// (Debug.xcconfig and Release.xcconfig) so the Debug build can claim
+// its own `com.harksingh.obsbotbridge.dev` slot without colliding
+// with prod for TCC + Launch Services + NSUserDefaults. Defining it
+// here too would override the target-level value because AppInfo is
+// loaded after the per-config xcconfig in the Xcode resolution order
+// for this project layout.
 
 PRODUCT_COPYRIGHT = Copyright © 2026 Harkirat Singh. All rights reserved.
