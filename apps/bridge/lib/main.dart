@@ -988,7 +988,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return _statusRow(
       ctx,
       title: 'Network firewall',
-      subtitle: 'If phones cannot connect, allow incoming connections.',
+      subtitle:
+          'If phones cannot connect: Firewall settings -> Options... '
+          '-> allow obsbot-bridge to accept incoming connections.',
       dotColor: MacosColors.systemGrayColor,
       // We can't query firewall state from a non-privileged app; the
       // row is a hint rather than a measurement. Info icon makes
