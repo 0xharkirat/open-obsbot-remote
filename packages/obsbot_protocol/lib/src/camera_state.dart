@@ -216,4 +216,83 @@ class CameraState {
       sequence: SequenceState.fromJson(seq),
     );
   }
+
+  /// Returns a copy of this state with the given fields overridden.
+  /// Used by [WsClient] for optimistic UI - we snap the chosen value
+  /// into local state the instant the user taps so the segmented /
+  /// toggle button shows its new selected state without waiting for
+  /// the bridge round-trip. The next real state event from the bridge
+  /// overwrites the optimistic value (and corrects it if the camera
+  /// clamped or rejected).
+  CameraState copyWith({
+    String? sn,
+    String? modelDisplay,
+    String? firmware,
+    bool? connected,
+    String? runStatus,
+    double? yaw,
+    double? pitch,
+    double? roll,
+    double? zoom,
+    double? zoomMin,
+    double? zoomMax,
+    String? aiMode,
+    String? aiSubMode,
+    bool? aiEnabled,
+    bool? hdr,
+    int? fov,
+    int? brightness,
+    int? contrast,
+    int? saturation,
+    int? sharpness,
+    bool? faceAe,
+    bool? faceFocus,
+    bool? autoFocus,
+    int? manualFocus,
+    bool? flipH,
+    String? exposureMode,
+    double? evBias,
+    String? antiFlicker,
+    bool? wbAuto,
+    int? wbKelvin,
+    List<PresetEntry>? presets,
+    int? activePresetId,
+    SequenceState? sequence,
+  }) {
+    return CameraState(
+      sn: sn ?? this.sn,
+      modelDisplay: modelDisplay ?? this.modelDisplay,
+      firmware: firmware ?? this.firmware,
+      connected: connected ?? this.connected,
+      runStatus: runStatus ?? this.runStatus,
+      yaw: yaw ?? this.yaw,
+      pitch: pitch ?? this.pitch,
+      roll: roll ?? this.roll,
+      zoom: zoom ?? this.zoom,
+      zoomMin: zoomMin ?? this.zoomMin,
+      zoomMax: zoomMax ?? this.zoomMax,
+      aiMode: aiMode ?? this.aiMode,
+      aiSubMode: aiSubMode ?? this.aiSubMode,
+      aiEnabled: aiEnabled ?? this.aiEnabled,
+      hdr: hdr ?? this.hdr,
+      fov: fov ?? this.fov,
+      brightness: brightness ?? this.brightness,
+      contrast: contrast ?? this.contrast,
+      saturation: saturation ?? this.saturation,
+      sharpness: sharpness ?? this.sharpness,
+      faceAe: faceAe ?? this.faceAe,
+      faceFocus: faceFocus ?? this.faceFocus,
+      autoFocus: autoFocus ?? this.autoFocus,
+      manualFocus: manualFocus ?? this.manualFocus,
+      flipH: flipH ?? this.flipH,
+      exposureMode: exposureMode ?? this.exposureMode,
+      evBias: evBias ?? this.evBias,
+      antiFlicker: antiFlicker ?? this.antiFlicker,
+      wbAuto: wbAuto ?? this.wbAuto,
+      wbKelvin: wbKelvin ?? this.wbKelvin,
+      presets: presets ?? this.presets,
+      activePresetId: activePresetId ?? this.activePresetId,
+      sequence: sequence ?? this.sequence,
+    );
+  }
 }

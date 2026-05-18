@@ -279,25 +279,32 @@ class _HomeScreenState extends State<HomeScreen> {
     final isRunning = supervisor.status == BridgeStatus.running;
     return MacosScaffold(
       toolBar: ToolBar(
-        // Logo + title. Image.asset uses the 1024px icon (downscaled by
-        // the renderer); rounded clip mimics the macOS app-icon mask.
+        // Logo + title. icon-1024.png has ~10% transparent padding baked
+        // in per Apple's macOS app-icon convention - rendering it raw
+        // wastes the toolbar's vertical real estate. Scale to 130% with
+        // BoxFit.cover inside a clipped 20x20 SizedBox so the actual
+        // glyph fills the visible area edge-to-edge.
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             ClipRRect(
-              borderRadius: const BorderRadius.all(Radius.circular(6)),
-              child: Image.asset(
-                'assets/icon-1024.png',
-                width: 22,
-                height: 22,
-                filterQuality: FilterQuality.medium,
+              borderRadius: const BorderRadius.all(Radius.circular(5)),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: Image.asset(
+                  'assets/icon-1024.png',
+                  fit: BoxFit.cover,
+                  scale: 0.77, // 1 / 1.3
+                  filterQuality: FilterQuality.medium,
+                ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             const Text('OBSBOT Bridge'),
           ],
         ),
-        titleWidth: 220,
+        titleWidth: 200,
         actions: <ToolbarItem>[
           ToolBarIconButton(
             label: isRunning ? 'Stop' : 'Start',
@@ -548,18 +555,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return _groupCard(ctx, <Widget>[
       Padding(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-        child: Row(
-          children: <Widget>[
-            Expanded(child: _pinBlock(ctx)),
-            const SizedBox(width: 12),
-            PushButton(
-              controlSize: ControlSize.regular,
-              secondary: true,
-              onPressed: _toggleReveal,
-              child: const Text('Hide'),
-            ),
-          ],
-        ),
+        // Hide button moved into _pinBlock's right column so it stacks
+        // cleanly under Reset pairing instead of floating off to the
+        // far right of the row at a different baseline.
+        child: _pinBlock(ctx, onHide: _toggleReveal),
       ),
       if (lanIps.isNotEmpty) ...<Widget>[
         _divider(ctx),
@@ -683,7 +682,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _pinBlock(BuildContext ctx) {
+  Widget _pinBlock(BuildContext ctx, {VoidCallback? onHide}) {
     final macosTheme = MacosTheme.of(ctx);
     final isDark = MacosTheme.brightnessOf(ctx).isDark;
     final mutedColor = isDark
@@ -696,6 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -722,6 +722,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const Spacer(),
+        // Right-side controls: paired count + Reset pairing + Hide
+        // all stacked in a single column so they share x-baseline and
+        // visually group as "the actions for this PIN".
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
@@ -733,35 +736,49 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 6),
-            PushButton(
-              controlSize: ControlSize.regular,
-              secondary: true,
-              onPressed: () async {
-                final ok = await showDialog<bool>(
-                  context: ctx,
-                  builder: (BuildContext c) => AlertDialog(
-                    title: const Text('Reset pairing?'),
-                    content: const Text(
-                      'This deletes the PIN and revokes every paired phone. '
-                      'A new PIN will be generated. Each phone has to re-enter it.',
-                    ),
-                    actions: <Widget>[
-                      TextButton(
-                        onPressed: () => Navigator.of(c).pop(false),
-                        child: const Text('Cancel'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                PushButton(
+                  controlSize: ControlSize.regular,
+                  secondary: true,
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: ctx,
+                      builder: (BuildContext c) => AlertDialog(
+                        title: const Text('Reset pairing?'),
+                        content: const Text(
+                          'This deletes the PIN and revokes every paired phone. '
+                          'A new PIN will be generated. Each phone has to re-enter it.',
+                        ),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () => Navigator.of(c).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(c).pop(true),
+                            child: const Text('Reset'),
+                          ),
+                        ],
                       ),
-                      FilledButton(
-                        onPressed: () => Navigator.of(c).pop(true),
-                        child: const Text('Reset'),
-                      ),
-                    ],
+                    );
+                    if (ok == true) {
+                      await supervisor.resetPairing();
+                    }
+                  },
+                  child: const Text('Reset pairing'),
+                ),
+                if (onHide != null) ...<Widget>[
+                  const SizedBox(width: 6),
+                  PushButton(
+                    controlSize: ControlSize.regular,
+                    secondary: true,
+                    onPressed: onHide,
+                    child: const Text('Hide'),
                   ),
-                );
-                if (ok == true) {
-                  await supervisor.resetPairing();
-                }
-              },
-              child: const Text('Reset pairing'),
+                ],
+              ],
             ),
           ],
         ),

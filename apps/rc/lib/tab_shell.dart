@@ -1,47 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import 'cache_menu.dart';
 import 'control_screen.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
-import 'sequencer_screen.dart';
-import 'widgets/collapsible_section.dart';
-import 'widgets/preset_options_sheet.dart';
-import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
-/// v1.4 W6 redesign - OBSBOT Center-inspired 3-tab shell:
-///   - **Drive**: presets, joystick OR 8-way button pad, zoom, FOV,
-///     move pacing, AI tracking. Top of the page has a sticky
-///     `_QuickActions` row (Recenter / Sleep / Wake) so it's always
-///     reachable while scrolling through the deeper controls below.
-///     Control style toggle (joystick vs buttons) lives at the bottom
-///     of View & Gimbal so the operator can switch on the spot.
-///   - **Image**: tone / exposure / anti-flicker / WB / color, each
-///     wrapped in a `CollapsibleSection`. Same body as v1.4 W6 phase 2,
-///     minus FOV + Auto-track which moved to Drive.
-///   - **More**: device info, sequence library, grid overlay toggles,
-///     connection (server URL + disconnect + cache), about (version +
-///     mode switch + log instructions). Replaces the v1.2 AppBar
-///     actions (grid menu, simple-mode toggle, disconnect, cache).
+/// v1.2 redesign — 3-tab shell below a pinned live preview.
+///
+/// Post-review pass (`fix/ui-revamp-from-review`):
+///   - Drops the Presets and Sequence tabs. Presets are inlined into the
+///     Joystick + Buttons tabs (P1..P6 row) so the user can recall or
+///     save while controlling. Sequence moves to an AppBar action with
+///     the timeline (graph) icon, opening the SequencerScreen route.
+///   - Every tab uses the same template: top quick-action row +
+///     primary control + zoom slider + inline preset row + utility row.
+///   - Buttons tab gets the same vertical zoom slider as Joystick.
+///   - Each control widget reads grid-overlay state from `client.state`
+///     so the preview's grid is consistent across tabs.
 ///
 /// Layout choices are driven by `LayoutBuilder.maxWidth`, not device
 /// class (see the `flutter-build-responsive-layout` skill):
 ///
 ///   • <600  px wide  → preview pinned on top (16:9), tabs below.
 ///   • ≥600  px wide  → preview pinned on the left (50%), tabs on the right.
-///
-/// Pre-v1.4-W6 the shell was Joystick / Buttons / Image - the two
-/// PTZ tabs were redundant (same surface, swap control widget).
-/// Folding into one Drive page recovers a tab slot for More and lets
-/// the operator switch joystick<->buttons without losing context.
 class TabShell extends StatefulWidget {
   final WsClient client;
-  final VoidCallback? onSwitchSimple;
-  const TabShell({super.key, required this.client, this.onSwitchSimple});
+  const TabShell({super.key, required this.client});
 
   @override
   State<TabShell> createState() => _TabShellState();
@@ -51,10 +37,14 @@ class _TabShellState extends State<TabShell>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
 
+  // Tab order: Buttons first (discrete 8-way pad - default on landing),
+  // Joystick second (analog gimbal), Image third. Reverted from the
+  // v1.4 Drive/Image/More attempt that buried the joystick under
+  // scrolling sections.
   static const _tabs = <Tab>[
-    Tab(icon: Icon(Icons.gamepad), text: 'Drive'),
+    Tab(icon: Icon(Icons.touch_app), text: 'Buttons'),
+    Tab(icon: Icon(Icons.gamepad), text: 'Joystick'),
     Tab(icon: Icon(Icons.image), text: 'Image'),
-    Tab(icon: Icon(Icons.more_horiz), text: 'More'),
   ];
 
   @override
@@ -69,36 +59,35 @@ class _TabShellState extends State<TabShell>
     super.dispose();
   }
 
-  // v1.5 W3 fix: forui's `FThemes.zinc.dark` defines `colors.primary`
-  // as near-white (#E4E4E7), which is shadcn's "inverted primary"
-  // convention - the primary surface on dark themes is light. The v1.2.1
-  // `_toggleBtn` / `ForSegmented` migration to `FButton.raw` with
-  // `variant: FButtonVariant.primary` assumed primary meant OBSBOT
-  // brand red (matching the Material `ColorScheme.primary` set in
-  // `main.dart`). It does NOT - the two theme systems are independent.
-  //
-  // Symptom: Image-tab Face exposure / Face focus toggles render as
-  // a white slab when ON, while HDR / Flip stay outlined when OFF.
-  // The white slab is correct forui rendering against the wrong
-  // primary color. Same applies to selected `ForSegmented` pills.
-  //
-  // Fix: build a customized `FThemeData` whose `colors.primary` is the
-  // OBSBOT brand red (matches Material `colorScheme.primary` from
-  // `main.dart`) and `primaryForeground` is white. All `variant:
-  // primary` call sites in this file inherit the correct brand color
-  // without touching individual buttons.
-  static final FThemeData _obsbotForTheme = FThemeData(
-    touch: true,
-    colors: FThemes.zinc.dark.touch.colors.copyWith(
-      primary: const Color(0xFFFF3B30),
-      primaryForeground: const Color(0xFFFFFFFF),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
+    // FThemes.zinc.dark.colors.primary is near-white (#E4E4E7) per
+    // shadcn's "inverted primary" convention. That made every selected
+    // FButton (Image-tab Face toggles, segmented selected pill, AI
+    // sub-mode pills) render as a near-white slab instead of OBSBOT
+    // brand red. Override only `primary` + `primaryForeground` so every
+    // FButtonVariant.primary call site picks up the brand.
+    //
+    // CRITICAL: must rebuild via the `FThemeData(colors:, touch:)`
+    // factory, not `copyWith(colors: ...)`. The latter swaps `colors`
+    // but keeps the cached `buttonStyles` field (already baked from the
+    // ORIGINAL primary = #E4E4E7) - so FButton.primary stayed white.
+    // The factory re-inherits `buttonStyles` from the new colors.
+    //
+    // Both `primary` and `primaryForeground` are pulled from the
+    // Material `ColorScheme` so a selected FButton (HDR / Face exposure
+    // / Auto WB) ends up with the SAME fg/bg pair as a selected M3
+    // SegmentedButton (Wide / Person / Auto). Without this the FButton
+    // hard-coded `Colors.white` foreground stood out against the
+    // segmented's `cs.onPrimary` (a deep dark-red tone for our brand-red
+    // primary) - selected pills looked like two different products.
+    final cs = Theme.of(context).colorScheme;
+    final brandColors = FThemes.zinc.dark.touch.colors.copyWith(
+      primary: cs.primary,
+      primaryForeground: cs.onPrimary,
+    );
     return FTheme(
-      data: _obsbotForTheme,
+      data: FThemeData(colors: brandColors, touch: true),
       child: LayoutBuilder(
         builder: (BuildContext ctx, BoxConstraints c) {
           final wide = c.maxWidth >= 600;
@@ -122,7 +111,6 @@ class _TabShellState extends State<TabShell>
           ),
         ),
         _tabBar(),
-        _seqStrip(),
         Expanded(child: _tabViews()),
       ],
     );
@@ -159,26 +147,6 @@ class _TabShellState extends State<TabShell>
     );
   }
 
-  /// Compact "sequence running" strip rendered between the tab bar and
-  /// the active tab body. Lives on Drive / Image / More so the operator
-  /// always sees the phase + remaining-time of the running sequence
-  /// regardless of which tab they're on. Hides itself when no sequence
-  /// is running.
-  Widget _seqStrip() {
-    return AnimatedBuilder(
-      animation: widget.client,
-      builder: (BuildContext ctx, _) {
-        final running = widget.client.state.sequence.running;
-        if (!running) return const SizedBox.shrink();
-        return SequenceProgressBar(
-          client: widget.client,
-          onStop: widget.client.sequenceStop,
-          margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-        );
-      },
-    );
-  }
-
   Widget _tabBar() {
     return Material(
       color: Theme.of(context).colorScheme.surface,
@@ -194,9 +162,9 @@ class _TabShellState extends State<TabShell>
     return TabBarView(
       controller: _tab,
       children: <Widget>[
-        _DriveTab(client: widget.client),
+        _ButtonsTab(client: widget.client),
+        _JoystickTab(client: widget.client),
         _ImageTab(client: widget.client),
-        _MoreTab(client: widget.client, onSwitchSimple: widget.onSwitchSimple),
       ],
     );
   }
@@ -317,17 +285,14 @@ class _InlinePresetCard extends StatelessWidget {
   // required a non-empty name, which meant unnamed presets fell back
   // to the empty-slot branch and tap-to-recall silently became
   // tap-to-save. Live report: "if I tap or hold, it saves the preset
-  //  -  tap should be to change to that preset."
+  // — tap should be to change to that preset."
   bool get _saved => entry != null;
   String get _label =>
       (entry != null && entry!.name.isNotEmpty) ? entry!.name : 'P${id + 1}';
 
-  /// One-step save used for EMPTY slots only. Long-press on a saved
-  /// slot now goes through `showPresetOptions` (v1.4 W4) instead of
-  /// silently overwriting.
   void _save(BuildContext ctx) {
     HapticFeedback.heavyImpact();
-    client.presetSave(id, _label);
+    client.presetSave(id, _saved ? entry!.name : _label);
     ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
         content: Text('Saved $_label at current position'),
@@ -336,26 +301,11 @@ class _InlinePresetCard extends StatelessWidget {
     );
   }
 
-  Future<void> _openOptions(BuildContext ctx) async {
-    HapticFeedback.heavyImpact();
-    await showPresetOptions(
-      ctx,
-      client,
-      id,
-      entry!,
-      onRename: () => showPresetRenameDialog(
-        ctx,
-        initial: entry!.name.isNotEmpty ? entry!.name : 'P${id + 1}',
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return GestureDetector(
-      onLongPress: () =>
-          _saved ? _openOptions(context) : _save(context),
+      onLongPress: () => _save(context),
       child: SizedBox(
         height: 60,
         child: Material(
@@ -380,8 +330,6 @@ class _InlinePresetCard extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     _label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.0,
@@ -391,9 +339,7 @@ class _InlinePresetCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _saved ? 'tap • hold for menu' : 'hold to save',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    _saved ? 'tap • hold' : 'hold to save',
                     style: TextStyle(
                       fontSize: 9,
                       height: 1.0,
@@ -415,7 +361,7 @@ class _InlinePresetCard extends StatelessWidget {
 /// Shared bottom-of-tab control bundle.
 ///
 /// In v1.2 this carried both a live-velocity slider AND the move-duration
-/// chips. User review pointed out the redundancy  -  slider scaled live
+/// chips. User review pointed out the redundancy — slider scaled live
 /// joystick / button velocity (0.1×–1×) while the chips controlled
 /// preset-recall timing, but the conceptual overlap was confusing and
 /// having two near-identical "speed" controls on the same row hurt more
@@ -475,39 +421,12 @@ class _DurationChips extends StatelessWidget {
 }
 
 // ===========================================================================
-// Tab 1  -  Drive
+// Tab 1 — Joystick
 // ===========================================================================
-//
-// v1.4 W6 consolidation: folds the old Joystick + Buttons tabs into one
-// scrollable Drive page. Layout:
-//
-//   - Top sticky `_QuickActions` row (Recenter / Sleep / Wake), never
-//     scrolls so the operator's most-used emergency actions stay one
-//     tap away no matter how deep they scroll.
-//   - Presets (default open) - inline P1..P6 row.
-//   - View & Gimbal (default open) - fixed-height control area: 8-way
-//     button pad (v1.5 default) OR PtzPad joystick (based on
-//     `client.driveControlStyle`) beside a vertical ZoomSlider, then
-//     FOV pills (moved from Image) + a "Switch to joystick / buttons"
-//     toggle. Buttons are the default because the discrete 8 directions
-//     are unambiguous - operators new to the app land on the clearer
-//     surface; joystick stays a one-tap toggle away.
-//   - Move pacing (default open) - the existing duration chip strip.
-//   - AI tracking (default open) - mode segmented (Off / Person /
-//     Group) PLUS the v1.4 sub-mode picker (Normal / Upper-body /
-//     Close-up / Headless / Lower-body). Sub-mode pills appear only
-//     when mode = `human`.
-//
-// The PtzPad joystick sits inside a fixed-height pinned section so it
-// has a stable size and the outer ScrollView won't claim its pointer
-// events (CLAUDE.md note #24).
 
-class _DriveTab extends StatelessWidget {
+class _JoystickTab extends StatelessWidget {
   final WsClient client;
-  const _DriveTab({required this.client});
-
-  /// Default FOV that the View & Gimbal reset button restores to.
-  static const int _defaultFov = 86;
+  const _JoystickTab({required this.client});
 
   @override
   Widget build(BuildContext context) {
@@ -518,51 +437,27 @@ class _DriveTab extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // Sticky top - never scrolls.
               _QuickActions(client: client),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      CollapsibleSection(
-                        id: 'drive_presets',
-                        label: 'Presets',
-                        child: _InlinePresetRow(client: client),
-                      ),
-                      CollapsibleSection(
-                        id: 'drive_view_gimbal',
-                        label: 'View & Gimbal',
-                        child: _ViewAndGimbalBody(
-                          client: client,
-                          state: s,
-                          defaultFov: _defaultFov,
-                        ),
-                      ),
-                      CollapsibleSection(
-                        id: 'drive_move_pacing',
-                        label: 'Move pacing',
-                        tooltip:
-                            'Sets how long the camera takes to drive to '
-                            'a preset or angle. Affects ptz.angle and '
-                            'preset recall.',
-                        child: _BottomControls(client: client),
-                      ),
-                      CollapsibleSection(
-                        id: 'drive_ai',
-                        label: 'AI tracking',
-                        tooltip:
-                            'AI owns the gimbal while on. Off lets you '
-                            'manually drive again.',
-                        child: _AiSection(client: client, state: s),
-                      ),
-                    ],
-                  ),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: 4,
+                      child: PtzPad(client: client),
+                    ),
+                    SizedBox(
+                      width: 80,
+                      child: ZoomSlider(client: client, state: s),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 8),
+              _InlinePresetRow(client: client),
+              const SizedBox(height: 8),
+              _BottomControls(client: client),
             ],
           ),
         );
@@ -571,255 +466,81 @@ class _DriveTab extends StatelessWidget {
   }
 }
 
-/// View & Gimbal body for the Drive page. Renders the active control
-/// surface (PtzPad or 8-way buttons) inside a fixed-height SizedBox so
-/// the outer SingleChildScrollView never claims the PtzPad pointer.
-/// FOV and the control-style toggle live below the pad.
-class _ViewAndGimbalBody extends StatelessWidget {
+// ===========================================================================
+// Tab 2 — Buttons (8-way hold pad + zoom + inline presets + shared
+//                  bottom-controls bundle)
+// ===========================================================================
+
+class _ButtonsTab extends StatelessWidget {
   final WsClient client;
-  final CameraState state;
-  final int defaultFov;
-  const _ViewAndGimbalBody({
-    required this.client,
-    required this.state,
-    required this.defaultFov,
-  });
+  const _ButtonsTab({required this.client});
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        // Fixed-height control area so the joystick has a stable
-        // bounding box and outer ScrollView never steals its pointer.
-        SizedBox(
-          height: 260,
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                flex: 4,
-                child: client.driveControlStyle == 'buttons'
-                    ? _DriveButtonPad(client: client)
-                    : PtzPad(client: client),
-              ),
-              SizedBox(
-                width: 80,
-                child: ZoomSlider(client: client, state: state),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 4),
-          child: Text(
-            'Field of view',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
-              letterSpacing: 0.6,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        ForSegmented<int>(
-          values: const <int>[86, 78, 65],
-          labels: const <String>['Wide', 'Normal', 'Narrow'],
-          selected: state.fov,
-          onChanged: client.fov,
-        ),
-        const SizedBox(height: 8),
-        // Control-style toggle. Use a Wrap so at 320 px the pills wrap
-        // beneath the label instead of overflowing the row.
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 8,
-          runSpacing: 6,
-          children: <Widget>[
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.tune,
-                    size: 14, color: theme.colorScheme.outline),
-                const SizedBox(width: 6),
-                Text('Control style',
-                    style: theme.textTheme.bodySmall),
-              ],
-            ),
-            // Compact 2-segment picker. ForSegmented is overkill at 2
-            // values + needs its own row; a tiny inline pair reads as
-            // a setting on the same line as its label.
-            Wrap(
-              spacing: 6,
-              children: <Widget>[
-                _StylePillBtn(
-                  label: 'Joystick',
-                  icon: Icons.gamepad,
-                  selected: client.driveControlStyle == 'joystick',
-                  onTap: () => client.setDriveControlStyle('joystick'),
-                ),
-                _StylePillBtn(
-                  label: 'Buttons',
-                  icon: Icons.touch_app,
-                  selected: client.driveControlStyle == 'buttons',
-                  onTap: () => client.setDriveControlStyle('buttons'),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              foregroundColor: theme.colorScheme.outline,
-            ),
-            icon: const Icon(Icons.restart_alt, size: 14),
-            label: const Text('Reset FOV',
-                style: TextStyle(fontSize: 11)),
-            onPressed: () => client.fov(defaultFov),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Tiny pill toggle for the control-style switch on the Drive page.
-/// Two side-by-side instances form a mini segmented control without
-/// pulling in ForSegmented (which spans full width).
-class _StylePillBtn extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  const _StylePillBtn({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? cs.primary : cs.surfaceContainerHighest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: cs.outlineVariant),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(icon,
-                  size: 14,
-                  color: selected ? cs.onPrimary : cs.onSurface),
-              const SizedBox(width: 4),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: selected ? cs.onPrimary : cs.onSurface,
-                  )),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 8-way press-and-hold direction pad for the Drive page's buttons
-/// style. Same widget tree as the old _ButtonsTab inner column, but
-/// without its surrounding tab chrome - now rendered inside View &
-/// Gimbal's fixed-height pinned area.
-class _DriveButtonPad extends StatelessWidget {
-  // Hold-button velocities in deg/s - matches v1.2 ButtonsTab.
-  final WsClient client;
+  // Hold-button velocities in deg/s. The v1.2 user-facing speed slider
+  // was dropped per live-test feedback; users now control pace via the
+  // duration chips (preset recall + ptz.angle) and analog joystick
+  // deflection. Hold-buttons run at full velocity.
   static const double _yaw = 80;
   static const double _pit = 40;
-  const _DriveButtonPad({required this.client});
 
   @override
   Widget build(BuildContext context) {
-    final c = client;
-    return Column(
-      children: <Widget>[
-        Expanded(
-          child: _padRow(<Widget>[
-            HoldDirBtn(
-                icon: Icons.north_west,
-                label: 'Up-Left',
-                client: c,
-                yawSpeed: -_yaw,
-                pitchSpeed: _pit),
-            HoldDirBtn(
-                icon: Icons.north,
-                label: 'Up',
-                client: c,
-                yawSpeed: 0,
-                pitchSpeed: _pit),
-            HoldDirBtn(
-                icon: Icons.north_east,
-                label: 'Up-Right',
-                client: c,
-                yawSpeed: _yaw,
-                pitchSpeed: _pit),
-          ]),
-        ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: _padRow(<Widget>[
-            HoldDirBtn(
-                icon: Icons.west,
-                label: 'Left',
-                client: c,
-                yawSpeed: -_yaw,
-                pitchSpeed: 0),
-            const SizedBox.shrink(),
-            HoldDirBtn(
-                icon: Icons.east,
-                label: 'Right',
-                client: c,
-                yawSpeed: _yaw,
-                pitchSpeed: 0),
-          ]),
-        ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: _padRow(<Widget>[
-            HoldDirBtn(
-                icon: Icons.south_west,
-                label: 'Down-Left',
-                client: c,
-                yawSpeed: -_yaw,
-                pitchSpeed: -_pit),
-            HoldDirBtn(
-                icon: Icons.south,
-                label: 'Down',
-                client: c,
-                yawSpeed: 0,
-                pitchSpeed: -_pit),
-            HoldDirBtn(
-                icon: Icons.south_east,
-                label: 'Down-Right',
-                client: c,
-                yawSpeed: _yaw,
-                pitchSpeed: -_pit),
-          ]),
-        ),
-      ],
+    return AnimatedBuilder(
+      animation: client,
+      builder: (BuildContext ctx, _) {
+        final s = client.state;
+        const yaw = _yaw;
+        const pit = _pit;
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: <Widget>[
+              _QuickActions(client: client),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        children: <Widget>[
+                          Expanded(
+                              child: _padRow(<Widget>[
+                            _dir(Icons.north_west, 'Up-Left', -yaw, pit),
+                            _dir(Icons.north, 'Up', 0, pit),
+                            _dir(Icons.north_east, 'Up-Right', yaw, pit),
+                          ])),
+                          const SizedBox(height: 6),
+                          Expanded(
+                              child: _padRow(<Widget>[
+                            _dir(Icons.west, 'Left', -yaw, 0),
+                            _center(),
+                            _dir(Icons.east, 'Right', yaw, 0),
+                          ])),
+                          const SizedBox(height: 6),
+                          Expanded(
+                              child: _padRow(<Widget>[
+                            _dir(Icons.south_west, 'Down-Left', -yaw, -pit),
+                            _dir(Icons.south, 'Down', 0, -pit),
+                            _dir(Icons.south_east, 'Down-Right', yaw, -pit),
+                          ])),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 80,
+                      child: ZoomSlider(client: client, state: s),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              _InlinePresetRow(client: client),
+              const SizedBox(height: 8),
+              _BottomControls(client: client),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -833,520 +554,26 @@ class _DriveButtonPad extends StatelessWidget {
       ],
     );
   }
-}
 
-/// AI tracking section body. Top row is the mode picker
-/// (Off / Person / Group). When mode = `human`, a sub-mode picker
-/// (Normal / Upper-body / Close-up / Headless / Lower-body) appears
-/// below. Sub-modes are wired via `client.aiSetMode(mode, subMode)`.
-class _AiSection extends StatelessWidget {
-  final WsClient client;
-  final CameraState state;
-  const _AiSection({required this.client, required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        ForSegmented<String>(
-          values: const <String>['none', 'human', 'group'],
-          labels: const <String>['Off', 'Person', 'Group'],
-          icons: const <IconData?>[null, Icons.person, Icons.groups],
-          selected: state.aiMode,
-          onChanged: (String v) => client.aiSetMode(v, state.aiSubMode),
-        ),
-        if (state.aiMode == 'human') ...<Widget>[
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.only(left: 2, bottom: 4),
-            child: Text(
-              'Framing',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
-                letterSpacing: 0.6,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          // 5 sub-modes won't fit cleanly in a single row at 320 px;
-          // a Wrap with small pills handles overflow gracefully and
-          // keeps the surface scan-friendly.
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: <Widget>[
-              for (final s in const <({String wire, String label})>[
-                (wire: 'normal', label: 'Normal'),
-                (wire: 'upper_body', label: 'Upper-body'),
-                (wire: 'close_up', label: 'Close-up'),
-                (wire: 'head_hide', label: 'Headless'),
-                (wire: 'lower_body', label: 'Lower-body'),
-              ])
-                _StylePillBtn(
-                  label: s.label,
-                  icon: Icons.crop_free,
-                  selected: state.aiSubMode == s.wire,
-                  onTap: () => client.aiSetMode('human', s.wire),
-                ),
-            ],
-          ),
-        ],
-      ],
+  Widget _dir(IconData icon, String label, double yawSpeed, double pitchSpeed) {
+    return HoldDirBtn(
+      icon: icon,
+      label: label,
+      client: client,
+      yawSpeed: yawSpeed,
+      pitchSpeed: pitchSpeed,
     );
+  }
+
+  Widget _center() {
+    // Empty cell — center is the Recenter button up in the quick-action
+    // row.
+    return const SizedBox.shrink();
   }
 }
 
 // ===========================================================================
-// Tab 3  -  More (device, sequence library, grid overlay, connection, about)
-// ===========================================================================
-
-/// Consolidates the v1.2 AppBar overflow + extra surfaces into a tab:
-///   - Device: model / SN / firmware / latency (read-only).
-///   - Sequence library: tap a saved sequence to load + start, or
-///     open the full editor.
-///   - Grid overlay: 4 toggles (crosshair / attitude / thirds / readout)
-///     that drive the preview overlay across all tabs.
-///   - Connection: server URL, paired count, disconnect, cache clear.
-///   - About: version, simple-mode switch, link to bridge log notes.
-class _MoreTab extends StatelessWidget {
-  final WsClient client;
-  final VoidCallback? onSwitchSimple;
-  const _MoreTab({required this.client, this.onSwitchSimple});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: client,
-      builder: (BuildContext ctx, _) {
-        final s = client.state;
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              CollapsibleSection(
-                id: 'more_device',
-                label: 'Device',
-                child: _DeviceInfoBody(client: client, state: s),
-              ),
-              CollapsibleSection(
-                id: 'more_sequence_library',
-                label: 'Sequence library',
-                child: _SequenceLibraryBody(client: client, state: s),
-              ),
-              CollapsibleSection(
-                id: 'more_grid_overlay',
-                label: 'Grid overlay',
-                tooltip:
-                    'Overlays painted on the live preview - not '
-                    'recorded by the camera.',
-                child: _GridOverlayBody(client: client),
-              ),
-              CollapsibleSection(
-                id: 'more_connection',
-                label: 'Connection',
-                child: _ConnectionBody(client: client, state: s),
-              ),
-              CollapsibleSection(
-                id: 'more_about',
-                label: 'About',
-                child: _AboutBody(onSwitchSimple: onSwitchSimple),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _DeviceInfoBody extends StatelessWidget {
-  final WsClient client;
-  final CameraState state;
-  const _DeviceInfoBody({required this.client, required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _kvRow(context, 'Model',
-            state.modelDisplay.isEmpty ? '...' : state.modelDisplay),
-        _kvRow(context, 'Serial',
-            state.sn.isEmpty ? '...' : state.sn),
-        _kvRow(context, 'Firmware',
-            state.firmware.isEmpty ? '...' : state.firmware),
-        _kvRow(context, 'Latency', '${client.lastLatencyMs} ms'),
-        _kvRow(context, 'Status', _statusLabel(state)),
-      ],
-    );
-  }
-
-  String _statusLabel(CameraState s) {
-    if (!s.connected) return 'Not connected';
-    switch (s.runStatus) {
-      case 'run':
-        return 'Running';
-      case 'sleep':
-        return 'Sleeping';
-      case 'privacy':
-        return 'Privacy mode';
-      default:
-        return s.runStatus;
-    }
-  }
-
-  Widget _kvRow(BuildContext ctx, String k, String v) {
-    final theme = Theme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 96,
-            child: Text(k,
-                style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline)),
-          ),
-          Expanded(
-            child: Text(
-              v,
-              style: theme.textTheme.bodyMedium,
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SequenceLibraryBody extends StatelessWidget {
-  final WsClient client;
-  final CameraState state;
-  const _SequenceLibraryBody({required this.client, required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final lib = state.sequence.available;
-    final running = state.sequence.running;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        if (lib.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              'No saved sequences yet. Open the editor to create one.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          )
-        else
-          for (final name in lib)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Material(
-                color: theme.colorScheme.surfaceContainerLow,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side:
-                      BorderSide(color: theme.colorScheme.outlineVariant),
-                ),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () {
-                    client.sequenceLoad(name);
-                    if (!running) client.sequenceStart();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Loaded "$name"'),
-                        duration: const Duration(milliseconds: 900),
-                      ),
-                    );
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    child: Row(
-                      children: <Widget>[
-                        Icon(
-                          state.sequence.loaded == name
-                              ? Icons.bookmark
-                              : Icons.bookmark_outline,
-                          size: 16,
-                          color: state.sequence.loaded == name
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(name,
-                              style: theme.textTheme.bodyMedium,
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        if (state.sequence.loaded == name && running)
-                          Icon(Icons.play_arrow,
-                              size: 16,
-                              color: theme.colorScheme.primary),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 40,
-          child: FButton.raw(
-            variant: FButtonVariant.outline,
-            onPress: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => SequencerScreen(client: client),
-              ),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(Icons.edit_note, size: 16),
-                  SizedBox(width: 6),
-                  Text('Open editor'),
-                ],
-              ),
-            ),
-          ),
-        ),
-        if (running) ...<Widget>[
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 40,
-            child: FButton.raw(
-              variant: FButtonVariant.outline,
-              onPress: client.sequenceStop,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(Icons.stop, size: 16),
-                    SizedBox(width: 6),
-                    Text('Stop sequence'),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _GridOverlayBody extends StatelessWidget {
-  final WsClient client;
-  const _GridOverlayBody({required this.client});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        SwitchListTile.adaptive(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Center crosshair'),
-          value: client.gridCrosshair,
-          onChanged: client.setGridCrosshair,
-        ),
-        SwitchListTile.adaptive(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Attitude indicator'),
-          subtitle: const Text('Steers with the gimbal like an airplane HUD'),
-          value: client.gridCenterLines,
-          onChanged: client.setGridCenterLines,
-        ),
-        SwitchListTile.adaptive(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Rule of thirds'),
-          value: client.gridThirds,
-          onChanged: client.setGridThirds,
-        ),
-        SwitchListTile.adaptive(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Pan / Tilt readout'),
-          value: client.gridReadout,
-          onChanged: client.setGridReadout,
-        ),
-      ],
-    );
-  }
-}
-
-class _ConnectionBody extends StatelessWidget {
-  final WsClient client;
-  final CameraState state;
-  const _ConnectionBody({required this.client, required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: 96,
-                child: Text('Server',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline)),
-              ),
-              Expanded(
-                child: Text(
-                  client.serverUri.isEmpty ? '-' : client.serverUri,
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.right,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: SizedBox(
-                height: 40,
-                child: FButton.raw(
-                  variant: FButtonVariant.outline,
-                  onPress: () => client.close(),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Icon(Icons.logout, size: 16),
-                        SizedBox(width: 6),
-                        Text('Disconnect'),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // CacheMenu uses a PopupMenuButton internally. Render it
-            // inline as a tappable surface so the visual weight matches
-            // the Disconnect button.
-            CacheMenu(onCleared: () => client.close()),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _AboutBody extends StatelessWidget {
-  final VoidCallback? onSwitchSimple;
-  const _AboutBody({this.onSwitchSimple});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: 96,
-                child: Text('Version',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline)),
-              ),
-              Expanded(
-                child: Text(
-                  '1.4.0-dev',
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.right,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Text(
-            'Bridge logs:\n~/Library/Logs/Open OBSBOT Bridge/bridge.log\n\n'
-            'Quit the Bridge from its menubar icon, not the dock.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
-              height: 1.4,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Tappable link to the project site / docs - opens in browser.
-        TextButton.icon(
-          style: TextButton.styleFrom(
-            alignment: Alignment.centerLeft,
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-          ),
-          icon: const Icon(Icons.open_in_new, size: 14),
-          label: const Text('Open project README'),
-          onPressed: () => launchUrl(
-            Uri.parse('https://github.com/0xharkirat/obsbot.workspace'),
-            mode: LaunchMode.externalApplication,
-          ),
-        ),
-        if (onSwitchSimple != null) ...<Widget>[
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 40,
-            child: FButton.raw(
-              variant: FButtonVariant.outline,
-              onPress: onSwitchSimple,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(Icons.dashboard_customize, size: 16),
-                    SizedBox(width: 6),
-                    Text('Switch to Simple mode'),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-
-// ===========================================================================
-// Tab 3  -  Image (HDR / FOV / face / flip / color + Exposure / Anti-flicker
+// Tab 3 — Image (HDR / FOV / face / flip / color + Exposure / Anti-flicker
 // / WB, each with a reset-to-default button per section)
 // ===========================================================================
 
@@ -1355,9 +582,8 @@ class _ImageTab extends StatelessWidget {
   const _ImageTab({required this.client});
 
   // Per-setting defaults that the Reset buttons restore to.
-  // _defaultFov moved to _DriveTab in v1.4 W6 phase 3 with the FOV
-  // controls.
   static const int _defaultColor = 50;
+  static const int _defaultFov = 86;
   static const String _defaultExposureMode = 'auto';
   static const double _defaultEvBias = 0.0;
   static const String _defaultAntiFlicker = 'off';
@@ -1369,6 +595,7 @@ class _ImageTab extends StatelessWidget {
       animation: client,
       builder: (BuildContext ctx, _) {
         final s = client.state;
+        final theme = Theme.of(ctx);
         return SingleChildScrollView(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -1399,159 +626,102 @@ class _ImageTab extends StatelessWidget {
                   },
                 ),
               ),
-              // v1.4 W6 OBSBOT-Center pass: each section is wrapped in
-              // CollapsibleSection so the operator can hide groups they
-              // don't currently use (most users tweak Tone + WB once,
-              // then never reopen Color / Anti-flicker). Open state is
-              // persisted per section id.
-              //
-              // Auto-track + View (FOV) moved to the Drive page in v1.4
-              // W6 phase 3 - this page now stays focused on per-frame
-              // image quality (tone / exposure / WB / color).
-              CollapsibleSection(
-                id: 'image_tone',
-                label: 'Tone',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: _toggleBtn(ctx, 'HDR', s.hdr,
-                              () => client.hdr(!s.hdr)),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _toggleBtn(ctx, 'Face exposure', s.faceAe,
-                              () => client.faceAe(!s.faceAe)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: _toggleBtn(ctx, 'Face focus', s.faceFocus,
-                              () => client.faceFocus(!s.faceFocus)),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _toggleBtn(ctx, 'Flip', s.flipH,
-                              () => client.flipH(!s.flipH)),
-                        ),
-                      ],
-                    ),
-                  ],
+              _section(theme, 'Auto-track'),
+              _aiSegmented(ctx, s),
+              const SizedBox(height: 16),
+              _sectionWithReset(theme, 'View',
+                  onReset: () => client.fov(_defaultFov)),
+              _fovSegmented(ctx, s),
+              const SizedBox(height: 16),
+              _section(theme, 'Tone'),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _toggleBtn(ctx, 'HDR', s.hdr,
+                        () => client.hdr(!s.hdr)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Face exposure', s.faceAe,
+                        () => client.faceAe(!s.faceAe)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Face focus', s.faceFocus,
+                        () => client.faceFocus(!s.faceFocus)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Flip', s.flipH,
+                        () => client.flipH(!s.flipH)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _sectionWithReset(
+                theme,
+                'Exposure',
+                onReset: () {
+                  client.setExposureMode(_defaultExposureMode);
+                  client.setEvBias(_defaultEvBias);
+                },
+              ),
+              _exposureSegmented(ctx, s),
+              if (s.exposureMode == 'auto') _evBiasSlider(ctx, s),
+              const SizedBox(height: 12),
+              _sectionWithReset(theme, 'Anti-flicker',
+                  onReset: () =>
+                      client.setAntiFlicker(_defaultAntiFlicker)),
+              _flickerSegmented(ctx, s),
+              const SizedBox(height: 16),
+              _sectionWithReset(
+                theme,
+                'White balance',
+                onReset: () {
+                  client.setWbAuto(true);
+                  client.setWbTemp(_defaultWbKelvin);
+                },
+              ),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _toggleBtn(ctx, 'Auto WB', s.wbAuto,
+                        () => client.setWbAuto(!s.wbAuto)),
+                  ),
+                ],
+              ),
+              if (!s.wbAuto) _wbTempSlider(ctx, s),
+              const SizedBox(height: 16),
+              _sectionWithReset(
+                theme,
+                'Color',
+                onReset: () => client.colorSet(
+                  brightness: _defaultColor,
+                  contrast: _defaultColor,
+                  saturation: _defaultColor,
+                  sharpness: _defaultColor,
                 ),
               ),
-              CollapsibleSection(
-                id: 'image_exposure',
-                label: 'Exposure',
-                tooltip:
-                    'Auto adapts exposure to scene brightness. EV bias '
-                    'nudges brighter (+) or darker (-).',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    _exposureSegmented(ctx, s),
-                    if (s.exposureMode == 'auto') _evBiasSlider(ctx, s),
-                    _inlineReset(
-                      ctx,
-                      onPressed: () {
-                        client.setExposureMode(_defaultExposureMode);
-                        client.setEvBias(_defaultEvBias);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              CollapsibleSection(
-                id: 'image_anti_flicker',
-                label: 'Anti-flicker',
-                tooltip:
-                    'Suppress fluorescent-light flicker. 50 Hz in IN/EU, '
-                    '60 Hz in NA/JP.',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    _flickerSegmented(ctx, s),
-                    _inlineReset(
-                      ctx,
-                      onPressed: () =>
-                          client.setAntiFlicker(_defaultAntiFlicker),
-                    ),
-                  ],
-                ),
-              ),
-              CollapsibleSection(
-                id: 'image_wb',
-                label: 'White balance',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: _toggleBtn(ctx, 'Auto WB', s.wbAuto,
-                              () => client.setWbAuto(!s.wbAuto)),
-                        ),
-                      ],
-                    ),
-                    if (!s.wbAuto) _wbTempSlider(ctx, s),
-                    _inlineReset(
-                      ctx,
-                      onPressed: () {
-                        client.setWbAuto(true);
-                        client.setWbTemp(_defaultWbKelvin);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              CollapsibleSection(
-                id: 'image_color',
-                label: 'Color',
-                // Color sliders are the least-touched group on this page
-                // (most rooms have one decent lighting setup the user
-                // tunes once). Start collapsed so the page is shorter
-                // by default.
-                defaultOpen: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    _colorSlider(ctx, 'Brightness', s.brightness,
-                        (v) => client.colorSet(brightness: v),
-                        resetTo: _defaultColor,
-                        onReset: () =>
-                            client.colorSet(brightness: _defaultColor)),
-                    _colorSlider(ctx, 'Contrast', s.contrast,
-                        (v) => client.colorSet(contrast: v),
-                        resetTo: _defaultColor,
-                        onReset: () =>
-                            client.colorSet(contrast: _defaultColor)),
-                    _colorSlider(ctx, 'Saturation', s.saturation,
-                        (v) => client.colorSet(saturation: v),
-                        resetTo: _defaultColor,
-                        onReset: () =>
-                            client.colorSet(saturation: _defaultColor)),
-                    _colorSlider(ctx, 'Sharpness', s.sharpness,
-                        (v) => client.colorSet(sharpness: v),
-                        resetTo: _defaultColor,
-                        onReset: () =>
-                            client.colorSet(sharpness: _defaultColor)),
-                    _inlineReset(
-                      ctx,
-                      label: 'Reset all',
-                      onPressed: () => client.colorSet(
-                        brightness: _defaultColor,
-                        contrast: _defaultColor,
-                        saturation: _defaultColor,
-                        sharpness: _defaultColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _colorSlider(ctx, 'Brightness', s.brightness,
+                  (v) => client.colorSet(brightness: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(brightness: _defaultColor)),
+              _colorSlider(ctx, 'Contrast', s.contrast,
+                  (v) => client.colorSet(contrast: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(contrast: _defaultColor)),
+              _colorSlider(ctx, 'Saturation', s.saturation,
+                  (v) => client.colorSet(saturation: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(saturation: _defaultColor)),
+              _colorSlider(ctx, 'Sharpness', s.sharpness,
+                  (v) => client.colorSet(sharpness: v),
+                  resetTo: _defaultColor,
+                  onReset: () => client.colorSet(sharpness: _defaultColor)),
             ],
           ),
         );
@@ -1559,45 +729,111 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  /// Subtle full-width reset action rendered at the bottom of a
-  /// CollapsibleSection body. Replaces the old per-header "Reset" pill
-  /// so the header chrome stays clean - the reset is still one tap
-  /// away when the section is open, and out of the way when collapsed.
-  Widget _inlineReset(
-    BuildContext ctx, {
-    String label = 'Reset',
-    required VoidCallback onPressed,
-  }) {
-    final theme = Theme.of(ctx);
+  Widget _section(ThemeData theme, String label) {
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Align(
-        alignment: Alignment.centerRight,
-        child: TextButton.icon(
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-            foregroundColor: theme.colorScheme.outline,
-          ),
-          icon: const Icon(Icons.restart_alt, size: 14),
-          label: Text(label, style: const TextStyle(fontSize: 11)),
-          onPressed: onPressed,
+      padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
+      child: Text(
+        label.toUpperCase(),
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.primary,
+          letterSpacing: 1.0,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
 
-  // _aiSegmented + _fovSegmented removed in v1.4 W6 phase 3 -
-  // Auto-track and View (FOV) moved to the Drive page's AI section
-  // and View & Gimbal section respectively.
+  Widget _sectionWithReset(ThemeData theme, String label,
+      {required VoidCallback onReset}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              label.toUpperCase(),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                letterSpacing: 1.0,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              foregroundColor: theme.colorScheme.outline,
+            ),
+            icon: const Icon(Icons.restart_alt, size: 14),
+            label: const Text('Reset', style: TextStyle(fontSize: 11)),
+            onPressed: onReset,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Theme-override-resistant style for every SegmentedButton on this tab.
+  // M3's internal `_SegmentedButtonDefaultsM3` resolver wins over
+  // `SegmentedButtonThemeData.style.backgroundColor` on selected segments
+  // in some Flutter versions, so explicit `selectedBackgroundColor` /
+  // `selectedForegroundColor` here pin the brand red across the board
+  // (the theme override in main.dart stays as belt + braces for any
+  // segmented call site we miss).
+  ButtonStyle _segStyle(BuildContext ctx) {
+    final cs = Theme.of(ctx).colorScheme;
+    return SegmentedButton.styleFrom(
+      backgroundColor: cs.surfaceContainer,
+      foregroundColor: cs.onSurface,
+      selectedBackgroundColor: cs.primary,
+      selectedForegroundColor: cs.onPrimary,
+      side: BorderSide(color: cs.outlineVariant),
+    );
+  }
+
+  Widget _aiSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<String>(
+      style: _segStyle(ctx),
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'none', label: Text('Off')),
+        ButtonSegment<String>(
+            value: 'human', label: Text('Person'), icon: Icon(Icons.person)),
+        ButtonSegment<String>(
+            value: 'group', label: Text('Group'), icon: Icon(Icons.groups)),
+      ],
+      selected: <String>{s.aiMode},
+      onSelectionChanged: (Set<String> sel) {
+        final next = sel.first;
+        client.aiSetMode(next, 'normal');
+      },
+    );
+  }
+
+  Widget _fovSegmented(BuildContext ctx, CameraState s) {
+    return SegmentedButton<int>(
+      style: _segStyle(ctx),
+      segments: const <ButtonSegment<int>>[
+        ButtonSegment<int>(value: 86, label: Text('Wide')),
+        ButtonSegment<int>(value: 78, label: Text('Normal')),
+        ButtonSegment<int>(value: 65, label: Text('Narrow')),
+      ],
+      selected: <int>{s.fov},
+      onSelectionChanged: (Set<int> sel) => client.fov(sel.first),
+    );
+  }
 
   Widget _exposureSegmented(BuildContext ctx, CameraState s) {
-    return ForSegmented<String>(
-      values: const <String>['auto', 'manual'],
-      labels: const <String>['Auto', 'Manual'],
-      selected: s.exposureMode,
-      onChanged: client.setExposureMode,
+    return SegmentedButton<String>(
+      style: _segStyle(ctx),
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'auto', label: Text('Auto')),
+        ButtonSegment<String>(value: 'manual', label: Text('Manual')),
+      ],
+      selected: <String>{s.exposureMode},
+      onSelectionChanged: (Set<String> sel) =>
+          client.setExposureMode(sel.first),
     );
   }
 
@@ -1608,7 +844,7 @@ class _ImageTab extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 80,
+            width: 72,
             child: Text('EV bias', style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -1622,11 +858,13 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 52,
+            width: 56,
             child: Text(
-              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)}',
+              '${s.evBias >= 0 ? '+' : ''}${s.evBias.toStringAsFixed(1)} EV',
               textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
@@ -1635,11 +873,16 @@ class _ImageTab extends StatelessWidget {
   }
 
   Widget _flickerSegmented(BuildContext ctx, CameraState s) {
-    return ForSegmented<String>(
-      values: const <String>['off', '50', '60'],
-      labels: const <String>['Off', '50 Hz', '60 Hz'],
-      selected: s.antiFlicker,
-      onChanged: client.setAntiFlicker,
+    return SegmentedButton<String>(
+      style: _segStyle(ctx),
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'off', label: Text('Off')),
+        ButtonSegment<String>(value: '50', label: Text('50 Hz')),
+        ButtonSegment<String>(value: '60', label: Text('60 Hz')),
+      ],
+      selected: <String>{s.antiFlicker},
+      onSelectionChanged: (Set<String> sel) =>
+          client.setAntiFlicker(sel.first),
     );
   }
 
@@ -1650,7 +893,7 @@ class _ImageTab extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 80,
+            width: 72,
             child: Text('Temperature', style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -1664,11 +907,13 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 52,
+            width: 56,
             child: Text(
               '${s.wbKelvin}K',
               textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ],
@@ -1686,7 +931,7 @@ class _ImageTab extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 80,
+            width: 72,
             child: Text(label, style: theme.textTheme.bodySmall),
           ),
           Expanded(
@@ -1699,11 +944,13 @@ class _ImageTab extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 30,
+            width: 32,
             child: Text(
               '$value',
               textAlign: TextAlign.right,
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
             ),
           ),
           IconButton(
@@ -1728,7 +975,7 @@ class _ImageTab extends StatelessWidget {
   /// variant to `.primary` (brand red), unselected stays `.outline`.
   ///
   /// The child is a Flexible+Text with `maxLines: 2` + ellipsis so the
-  /// button does not push the Row past its slot  -  protects against the
+  /// button does not push the Row past its slot — protects against the
   /// 3-per-row narrow-width overflow seen pre-fix at 360 px.
   Widget _toggleBtn(BuildContext c, String label, bool on, VoidCallback t) {
     return SizedBox(
@@ -1736,118 +983,25 @@ class _ImageTab extends StatelessWidget {
       child: FButton.raw(
         onPress: t,
         variant: on ? FButtonVariant.primary : FButtonVariant.outline,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// forui-styled segmented control: a row of `FButton.raw` where the
-/// selected value uses `variant: FButtonVariant.primary` (brand red)
-/// and the others use `FButtonVariant.outline`.
-///
-/// PR v1.3 migration target: the Image tab's four
-/// Material `SegmentedButton`s  -  Auto-track, View (FOV), Exposure
-/// mode, Anti-flicker. Replacing in a single helper rather than
-/// per-call-site so the visual treatment, overflow guards
-/// (Flexible + ellipsis), and Semantics labelling stay in sync.
-///
-/// Why FButton row instead of FTabs or FSelectGroup:
-///   - FTabs swaps body content per tab; we just want a one-of-N
-///     picker.
-///   - FSelectGroup is checkbox/radio-shaped; doesn't render as a
-///     pill-style segmented control.
-///   - FButton row reads as a segmented control to sighted users and
-///     wraps each option in a Semantics radio role so screen readers
-///     announce position + selection state correctly.
-class ForSegmented<T> extends StatelessWidget {
-  final List<T> values;
-  final List<String> labels;
-  /// Optional leading icons; pass `null` to omit an icon for a given
-  /// option (icons drop out below ~110 px per button anyway, see
-  /// note in `_QuickActions` about the v1.2.1 320 px overflow fix).
-  final List<IconData?>? icons;
-  final T selected;
-  final ValueChanged<T> onChanged;
-  /// Optional semantic group label (e.g. "Auto-track mode"). Falls
-  /// back to no group label if not provided.
-  final String? semanticsLabel;
-
-  const ForSegmented({
-    super.key,
-    required this.values,
-    required this.labels,
-    required this.selected,
-    required this.onChanged,
-    this.icons,
-    this.semanticsLabel,
-  })  : assert(values.length == labels.length,
-            'values and labels must be the same length'),
-        assert(icons == null || icons.length == values.length,
-            'icons must be null or the same length as values');
-
-  @override
-  Widget build(BuildContext context) {
-    final children = <Widget>[];
-    for (int i = 0; i < values.length; i++) {
-      if (i > 0) children.add(const SizedBox(width: 6));
-      final v = values[i];
-      final label = labels[i];
-      final icon = icons?[i];
-      final isSelected = v == selected;
-      children.add(Expanded(
-        child: Semantics(
-          inMutuallyExclusiveGroup: true,
-          selected: isSelected,
-          button: true,
-          label: label,
-          child: FButton.raw(
-            onPress: () => onChanged(v),
-            variant: isSelected
-                ? FButtonVariant.primary
-                : FButtonVariant.outline,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 8, vertical: 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (icon != null) ...<Widget>[
-                    Icon(icon, size: 14),
-                    const SizedBox(width: 6),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
+        // FButton.raw shrink-wraps its child slot, so a bare Padding+Text
+        // sits at intrinsic width and looks left-stuck inside the wider
+        // button frame. SizedBox.expand + Align(center) gives the label
+        // the full button rect to center within.
+        child: SizedBox.expand(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Align(
+              alignment: Alignment.center,
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
               ),
             ),
           ),
         ),
-      ));
-    }
-    final row = Row(children: children);
-    if (semanticsLabel != null) {
-      return Semantics(
-        label: semanticsLabel,
-        container: true,
-        child: row,
-      );
-    }
-    return row;
+      ),
+    );
   }
 }

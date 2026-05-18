@@ -113,8 +113,12 @@ class _GridPainter extends CustomPainter {
   // and dark interior frames without competing with skin tones. The
   // `_hudGreenShadow` is a near-black outline drawn under the line + ring
   // so the green stays visible on washed-out / blown-out frames.
-  static const _hudGreen       = Color(0xFF00FF66);
-  static const _hudGreenShadow = Color(0xCC003314);
+  // Lighter, semi-transparent HUD green per user feedback - the
+  // v1.5.0 `0xFF00FF66` at full opacity read too heavy on the live
+  // preview. `0xCC` alpha (80%) + brighter mint shifts toward the
+  // flight-sim aesthetic without obscuring the subject.
+  static const _hudGreen       = Color(0xCC66FF99);
+  static const _hudGreenShadow = Color(0x66000000);
 
   @override
   void paint(Canvas canvas, Size size) {

@@ -87,6 +87,35 @@ class _ObsbotAppState extends State<ObsbotApp> {
         useMaterial3: true,
         colorScheme: colorScheme,
         scaffoldBackgroundColor: deepSurface,
+        // M3 default SegmentedButton selected fill is `secondaryContainer`,
+        // which `fromSeed(red, dark)` derives to a washed near-white that
+        // collides with our dark surface. Pin selected = brand red on white,
+        // unselected = surface on onSurface.
+        segmentedButtonTheme: SegmentedButtonThemeData(
+          style: ButtonStyle(
+            backgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+              if (states.contains(WidgetState.selected)) {
+                return colorScheme.primary;
+              }
+              return colorScheme.surfaceContainer;
+            }),
+            foregroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+              if (states.contains(WidgetState.selected)) {
+                return colorScheme.onPrimary;
+              }
+              return colorScheme.onSurface;
+            }),
+            iconColor: WidgetStateProperty.resolveWith<Color?>((states) {
+              if (states.contains(WidgetState.selected)) {
+                return colorScheme.onPrimary;
+              }
+              return colorScheme.onSurface;
+            }),
+            side: WidgetStatePropertyAll<BorderSide>(
+              BorderSide(color: colorScheme.outlineVariant),
+            ),
+          ),
+        ),
       ),
       home: AnimatedBuilder(
         animation: client,

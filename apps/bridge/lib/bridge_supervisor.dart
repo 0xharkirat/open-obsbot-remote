@@ -175,21 +175,42 @@ class BridgeSupervisor extends ChangeNotifier {
       return;
     }
 
-    // Pass --web-root pointing at the bundled Flutter web build (when running
-    // from inside the .app) or at apps/rc/build/web (dev tree).
+    // Pass --web-root pointing at the bundled Flutter web build (when
+    // running from inside a properly-bundled .app) or at
+    // apps/rc/build/web (dev tree). The dev path used to be a fragile
+    // hand-counted `../../../../../rc/build/web` chain which was off
+    // by several levels for the Debug build layout - every static
+    // file 404'd. Now we walk upward from the .app looking for the
+    // dev tree's `apps/rc/build/web` instead.
     final exe = File(Platform.resolvedExecutable);
     final macosDir = exe.parent;
     final webCandidates = <String>[
-      '${macosDir.parent.path}/Resources/web', // inside .app
-      '${macosDir.path}/../../../../../rc/build/web', // dev tree
-      '${Directory.current.path}/../rc/build/web',
+      '${macosDir.parent.path}/Resources/web', // inside .app (prod path)
+      '${Directory.current.path}/../rc/build/web', // cwd = apps/bridge
+      '${Directory.current.path}/apps/rc/build/web', // cwd = repo root
     ];
+    // Walk up from the .app looking for the dev tree.
+    Directory? walk = macosDir;
+    for (int i = 0; i < 12 && walk != null; i++) {
+      final candidate = '${walk.path}/apps/rc/build/web';
+      webCandidates.add(candidate);
+      walk = walk.parent;
+      if (walk.path == walk.parent.path) break; // hit filesystem root
+    }
     String? webRoot;
     for (final p in webCandidates) {
       if (await Directory(p).exists()) {
         webRoot = File(p).absolute.path;
         break;
       }
+    }
+    if (webRoot != null) {
+      // Useful breadcrumb when the bridge falls back to the wrong
+      // candidate (e.g. stale web build at a deeper path).
+      _writeLog('[supervisor] web-root resolved to $webRoot');
+    } else {
+      _writeLog(
+          '[supervisor] WARNING: no web-root found - phone web app will 404');
     }
 
     try {

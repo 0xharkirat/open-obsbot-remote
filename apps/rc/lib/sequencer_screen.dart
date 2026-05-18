@@ -55,6 +55,17 @@ class _SequencerEditorState extends State<SequencerEditor> {
   LoopMode _mode = LoopMode.forward;
   String _lastHydratedFrom = '__none__';   // signature of state we last hydrated
 
+  /// Signature of the named library entry the editor is anchored to.
+  /// Lets us tell whether the local `_steps + _mode` diverges from the
+  /// SAVED entry (not from the bridge's scratch, which gets overwritten
+  /// by Apply/Start). Updated only when:
+  ///   1. user picks a different sequence from the library dropdown, OR
+  ///   2. user successfully Updates / Saves-as via the bottom buttons.
+  /// `_baselineLoaded` mirrors `state.sequence.loaded` at anchor time so
+  /// we can detect dropdown changes vs. scratch echoes.
+  String _baselineSig = '__none__';
+  String _baselineLoaded = '';
+
   /// True while a recently added step is still inside its highlight
   /// + debounce window. Disables the Add step button to prevent
   /// double-fires (v1.5 W1 fix #4).
@@ -63,6 +74,20 @@ class _SequencerEditorState extends State<SequencerEditor> {
   /// The most-recently-added step. Used by the scroll-into-view +
   /// highlight pulse logic in [_stepCard].
   _EditStep? _justAdded;
+
+  /// Signature for one local step list + mode. Same encoding as
+  /// [_lastHydratedFrom] minus the loaded-name prefix so we can compare
+  /// content irrespective of which entry it came from.
+  String _sigOf(List<_EditStep> steps, LoopMode mode) {
+    return '${loopModeToWire(mode)}::${steps.length}::'
+        '${steps.map((e) => "${e.presetId}/${e.seconds}/${e.transition.inMilliseconds}").join(",")}';
+  }
+
+  String _currentSig() => _sigOf(_steps, _mode);
+
+  /// True iff a saved entry is loaded AND local edits differ from it.
+  bool get _dirty =>
+      _baselineLoaded.isNotEmpty && _currentSig() != _baselineSig;
 
   @override
   void initState() {
@@ -117,6 +142,15 @@ class _SequencerEditorState extends State<SequencerEditor> {
     }
     _lastHydratedFrom = '${seq.loaded}::${seq.mode}::${seq.steps.length}::'
         '${seq.steps.map((e) => "${e.presetId}/${e.seconds}/${e.transition.inMilliseconds}").join(",")}';
+    // Re-anchor the dirty baseline ONLY when the loaded entry actually
+    // changed (user picked a different name from the dropdown, or first
+    // hydration after mount). A scratch-echo from Apply/Start keeps the
+    // same `seq.loaded`, so the baseline stays pinned to the original
+    // library entry and the dirty flag survives the round-trip.
+    if (seq.loaded != _baselineLoaded) {
+      _baselineLoaded = seq.loaded;
+      _baselineSig = _currentSig();
+    }
     if (mounted) setState(() {});
   }
 
@@ -192,13 +226,52 @@ class _SequencerEditorState extends State<SequencerEditor> {
 
   void _stop() => widget.client.sequenceStop();
 
+  /// Silent overwrite of the currently loaded library entry. No dialog -
+  /// the operator already named it when they first saved, the button
+  /// label spells out the target ("Update 'Vocalist'"), so a second
+  /// confirmation step is friction. Snackbar gives feedback.
+  void _updateSaved(BuildContext ctx) {
+    final name = widget.client.state.sequence.loaded;
+    if (name.isEmpty) return;
+    final list = _steps
+        .map(
+          (e) => SequenceStep(
+            presetId: e.presetId,
+            seconds: e.seconds,
+            transition: e.transition,
+          ),
+        )
+        .toList();
+    widget.client.sequenceSaveAs(name, list, mode: _mode);
+    setState(() {
+      _baselineSig = _currentSig();
+      _baselineLoaded = name;
+    });
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text("Updated '$name'"),
+        duration: const Duration(milliseconds: 1100),
+      ),
+    );
+  }
+
+  /// Save-as-new flow. Used for both "first save of a scratch" and
+  /// "duplicate the loaded entry under a new name". Pre-fills with
+  /// `<loaded> (copy)` when called from a loaded entry so the user
+  /// doesn't accidentally type the same name and overwrite (that's
+  /// what [_updateSaved] is for).
   Future<void> _saveAs(BuildContext ctx) async {
     final loaded = widget.client.state.sequence.loaded;
-    final ctrl = TextEditingController(text: loaded);
+    final suggestion = loaded.isEmpty ? '' : '$loaded (copy)';
+    final ctrl = TextEditingController(text: suggestion);
+    ctrl.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: suggestion.length,
+    );
     final name = await showDialog<String>(
       context: ctx,
       builder: (BuildContext c) => AlertDialog(
-        title: const Text('Save sequence'),
+        title: Text(loaded.isEmpty ? 'Save sequence' : 'Save as new'),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -206,6 +279,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
           decoration: const InputDecoration(
             hintText: 'e.g. Morning service, Vocalist rehearsal',
           ),
+          onSubmitted: (_) => Navigator.of(c).pop(ctrl.text.trim()),
         ),
         actions: <Widget>[
           TextButton(
@@ -230,6 +304,56 @@ class _SequencerEditorState extends State<SequencerEditor> {
         )
         .toList();
     widget.client.sequenceSaveAs(name, list, mode: _mode);
+    // Optimistically anchor baseline so the dirty flag flips off
+    // immediately. _hydrateFromState will re-anchor when the bridge
+    // echoes the new loaded name.
+    setState(() {
+      _baselineSig = _currentSig();
+      _baselineLoaded = name;
+    });
+  }
+
+  /// Trailing persistence icons in the bottom action row. Three cases:
+  ///   * scratch (never saved): single Save (bookmark_add) -> dialog
+  ///   * loaded + clean       : single Save as new (bookmark_add) -> dialog
+  ///   * loaded + dirty       : Update (filled save) + Save as new
+  /// The Update button only appears when there's something to update;
+  /// hiding it in the clean state avoids a confusing greyed-out icon.
+  List<Widget> _persistenceActions(BuildContext ctx) {
+    if (_steps.isEmpty) {
+      return <Widget>[
+        IconButton.outlined(
+          tooltip: 'Save sequence',
+          icon: const Icon(Icons.bookmark_add_outlined),
+          onPressed: null,
+        ),
+      ];
+    }
+    final loaded = _baselineLoaded;
+    if (loaded.isEmpty) {
+      return <Widget>[
+        IconButton.outlined(
+          tooltip: 'Save sequence...',
+          icon: const Icon(Icons.bookmark_add_outlined),
+          onPressed: () => _saveAs(ctx),
+        ),
+      ];
+    }
+    return <Widget>[
+      if (_dirty) ...<Widget>[
+        IconButton.filled(
+          tooltip: "Update '$loaded'",
+          icon: const Icon(Icons.save),
+          onPressed: () => _updateSaved(ctx),
+        ),
+        const SizedBox(width: 8),
+      ],
+      IconButton.outlined(
+        tooltip: 'Save as new copy...',
+        icon: const Icon(Icons.bookmark_add_outlined),
+        onPressed: () => _saveAs(ctx),
+      ),
+    ];
   }
 
   @override
@@ -322,20 +446,20 @@ class _SequencerEditorState extends State<SequencerEditor> {
                       // mid-run. The bridge picks up edits at the next
                       // step boundary (see CLAUDE.md note 40).
                       IconButton.outlined(
-                        tooltip: 'Apply edits',
-                        icon: const Icon(Icons.save_outlined),
+                        tooltip: 'Apply edits to running sequence',
+                        icon: const Icon(Icons.refresh),
                         onPressed: _apply,
                       ),
                     ],
                     const SizedBox(width: 8),
-                    // Bookmark - explicit, icon-only. Always visible so
-                    // the user knows where to persist their work.
-                    IconButton.outlined(
-                      tooltip: 'Bookmark sequence...',
-                      icon: const Icon(Icons.bookmark_add_outlined),
-                      onPressed:
-                          _steps.isEmpty ? null : () => _saveAs(context),
-                    ),
+                    // Persistence row. Two modes:
+                    //   (a) loaded entry + dirty edits -> Update (filled,
+                    //       silent overwrite) + Save as new (icon).
+                    //   (b) scratch (never saved) OR loaded-not-dirty ->
+                    //       single Save / Save as icon. Update is hidden
+                    //       when there's nothing to update; the disabled
+                    //       state would just confuse.
+                    ..._persistenceActions(context),
                   ],
                 ),
               ),
