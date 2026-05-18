@@ -55,6 +55,19 @@ static void serve_client(int fd, VideoCapture* video, AuthStore* auth) {
     if (n <= 0) { ::close(fd); return; }
     buf[n] = 0;
 
+    // Hard-fail any TCP write that takes longer than 5 s. macOS's default
+    // retransmit-then-give-up is ~15 min; that timer was leaving wedged
+    // MJPEG threads + fds alive when the phone roamed Wi-Fi / backgrounded /
+    // dropped NAT state, producing the "preview stops mid-stream with no
+    // error" symptom. SO_KEEPALIVE kicks the kernel into probing the peer,
+    // SO_NOSIGPIPE avoids the per-process SIGPIPE handler in `main.cpp`
+    // being the only line of defence.
+    int yes2 = 1;
+    ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes2, sizeof(yes2));
+    struct timeval tv{5, 0};
+    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes2, sizeof(yes2));
+
     // Allow CORS preflight
     if (std::strstr(buf, "OPTIONS ") == buf) {
         const char* resp =
@@ -193,7 +206,7 @@ bool MjpegServer::start(uint16_t port, VideoCapture* video, AuthStore* auth) {
             try {
                 std::thread(serve_client, c, impl_->video, impl_->auth).detach();
             } catch (const std::exception& e) {
-                LOGW("mjpeg: thread spawn failed: %s", e.what());
+                LOGW("mjpeg: thread spawn failed fd=%d, leaked-or-closed: %s", c, e.what());
                 ::close(c);
             }
         }
