@@ -1594,6 +1594,7 @@ void DeviceSession::cmd_sequence_stop(ReplyFn reply) {
         snap_.sequence_step_index = -1;
         snap_.sequence_elapsed_s = 0;
         snap_.sequence_total_s = 0;
+        snap_.sequence_phase = "holding";   // reset to default
         return ok();
     }, std::move(reply));
 }
@@ -1685,12 +1686,22 @@ void DeviceSession::sequence_loop() {
         // for the planner to physically complete the move before
         // starting the stay clock.
         const int transition_ms = seq_steps_[seq_step_index_].transition_ms;
+        if (transition_ms > 0) {
+            std::lock_guard<std::mutex> sg(snap_mu_);
+            snap_.sequence_phase = "moving";
+        }
         trigger_step(seq_step_index_);
         if (transition_ms > 0) {
+            if (on_state_) on_state_(snapshot());
             // Generous deadline (transition_ms + 500 ms) so an ease-out
             // tail or one extra adaptive tick doesn't trip the timeout
             // and prematurely start the hold.
             motion_wait_idle(transition_ms + 500);
+            {
+                std::lock_guard<std::mutex> sg(snap_mu_);
+                snap_.sequence_phase = "holding";
+            }
+            if (on_state_) on_state_(snapshot());
         }
         step_started = std::chrono::steady_clock::now();  // stay clock starts NOW
     }
@@ -1754,9 +1765,19 @@ void DeviceSession::sequence_loop() {
                     next_transition_ms = seq_steps_[next].transition_ms;
                 }
             }
+            if (next_transition_ms > 0) {
+                std::lock_guard<std::mutex> sg(snap_mu_);
+                snap_.sequence_phase = "moving";
+            }
             trigger_step(next);
             if (next_transition_ms > 0) {
+                if (on_state_) on_state_(snapshot());
                 motion_wait_idle(next_transition_ms + 500);
+                {
+                    std::lock_guard<std::mutex> sg(snap_mu_);
+                    snap_.sequence_phase = "holding";
+                }
+                if (on_state_) on_state_(snapshot());
             }
             step_started = std::chrono::steady_clock::now();
         }
@@ -1769,6 +1790,7 @@ void DeviceSession::sequence_loop() {
         snap_.sequence_step_index = -1;
         snap_.sequence_elapsed_s = 0;
         snap_.sequence_total_s = 0;
+        snap_.sequence_phase = "holding";   // reset to default
     }
     if (on_state_) on_state_(snapshot());
 }

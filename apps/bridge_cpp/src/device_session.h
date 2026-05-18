@@ -71,6 +71,12 @@ struct DeviceSnapshot {
     int  sequence_elapsed_s = 0;
     int  sequence_total_s = 0;
     std::string sequence_mode = "forward";  // once | forward | ping_pong
+    // Sub-phase of the active step. "moving" while the MotionPlanner is
+    // physically driving toward the step's pose; "holding" while the
+    // stay-timer (step.seconds) is counting down. Default "holding" so
+    // instant-transition steps (transition_ms == 0) and idle state are
+    // both correctly reported.
+    std::string sequence_phase = "holding";
 
     // Library of saved sequences. Keys are user-chosen names (e.g.
     // "Morning service", "Vocalist rehearsal"). The currently-loaded
