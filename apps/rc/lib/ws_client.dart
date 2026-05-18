@@ -382,34 +382,67 @@ class WsClient extends ChangeNotifier {
     'duration_ms': (duration ?? Duration.zero).inMilliseconds,
   });
 
-  void aiSetMode(String mode, [String sub = 'normal']) => _send({
-    'action': 'ai.set_mode',
-    'id': _id(),
-    'mode': mode,
-    'sub_mode': sub,
-  });
+  // Optimistic-UI pattern for the Image tab. Every setter snaps the
+  // chosen value into `_state` + fires `notifyListeners` BEFORE
+  // shipping the WS command. The segmented / toggle button's
+  // `selected: <T>{state.field}` binding flips on the same frame as
+  // the tap so the UI feels instant. The bridge's eventual state-event
+  // echo (200-500 ms later over Wi-Fi) overwrites our optimistic
+  // value; if the camera clamped or rejected, the corrective value
+  // takes over - which is the right behaviour.
+  void _snap(CameraState next) {
+    _state = next;
+    notifyListeners();
+  }
 
-  void hdr(bool e) =>
-      _send({'action': 'image.set_hdr', 'id': _id(), 'enabled': e});
+  void aiSetMode(String mode, [String sub = 'normal']) {
+    _snap(_state.copyWith(aiMode: mode, aiSubMode: sub));
+    _send({
+      'action': 'ai.set_mode',
+      'id': _id(),
+      'mode': mode,
+      'sub_mode': sub,
+    });
+  }
 
-  void fov(int f) => _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
+  void hdr(bool e) {
+    _snap(_state.copyWith(hdr: e));
+    _send({'action': 'image.set_hdr', 'id': _id(), 'enabled': e});
+  }
+
+  void fov(int f) {
+    _snap(_state.copyWith(fov: f));
+    _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
+  }
 
   /// Camera face-detection-driven auto-exposure. Off by default per the
   /// v1.1 "auto-exposure makes scene dark" finding.
-  void faceAe(bool e) =>
-      _send({'action': 'image.set_face_ae', 'id': _id(), 'enabled': e});
+  void faceAe(bool e) {
+    _snap(_state.copyWith(faceAe: e));
+    _send({'action': 'image.set_face_ae', 'id': _id(), 'enabled': e});
+  }
 
   /// Bias auto-focus to detected faces.
-  void faceFocus(bool e) =>
-      _send({'action': 'image.set_face_focus', 'id': _id(), 'enabled': e});
+  void faceFocus(bool e) {
+    _snap(_state.copyWith(faceFocus: e));
+    _send({'action': 'image.set_face_focus', 'id': _id(), 'enabled': e});
+  }
 
   /// Mirror the image horizontally (useful for selfie / monitor setups).
-  void flipH(bool e) =>
-      _send({'action': 'image.set_flip_h', 'id': _id(), 'enabled': e});
+  void flipH(bool e) {
+    _snap(_state.copyWith(flipH: e));
+    _send({'action': 'image.set_flip_h', 'id': _id(), 'enabled': e});
+  }
 
   /// Update one or more color sliders (0..100). Only fields you pass are
   /// sent; unset fields are left untouched on the camera.
   void colorSet({int? brightness, int? contrast, int? saturation, int? sharpness}) {
+    _snap(_state.copyWith(
+      brightness: brightness,
+      contrast: contrast,
+      saturation: saturation,
+      sharpness: sharpness,
+    ));
     final Map<String, dynamic> msg = <String, dynamic>{
       'action': 'image.set_color',
       'id': _id(),
@@ -426,29 +459,41 @@ class WsClient extends ChangeNotifier {
   // confirmed every exposure_mode + ev_bias variant returns r=0  -  the
   // "tail air" tag in the SDK headers is misleading. All controls work.
 
-  void setExposureMode(String mode) => _send({
-        'action': 'image.set_exposure_mode',
-        'id': _id(),
-        'mode': mode, // "auto" | "manual"
-      });
+  void setExposureMode(String mode) {
+    _snap(_state.copyWith(exposureMode: mode));
+    _send({
+      'action': 'image.set_exposure_mode',
+      'id': _id(),
+      'mode': mode, // "auto" | "manual"
+    });
+  }
 
-  void setEvBias(double bias) => _send({
-        'action': 'image.set_ev_bias',
-        'id': _id(),
-        'bias': bias, // -3.0 .. +3.0 (1/3 stops). Snapped server-side.
-      });
+  void setEvBias(double bias) {
+    _snap(_state.copyWith(evBias: bias));
+    _send({
+      'action': 'image.set_ev_bias',
+      'id': _id(),
+      'bias': bias, // -3.0 .. +3.0 (1/3 stops). Snapped server-side.
+    });
+  }
 
-  void setAntiFlicker(String mode) => _send({
-        'action': 'image.set_anti_flicker',
-        'id': _id(),
-        'mode': mode, // "off" | "50" | "60" | "auto"
-      });
+  void setAntiFlicker(String mode) {
+    _snap(_state.copyWith(antiFlicker: mode));
+    _send({
+      'action': 'image.set_anti_flicker',
+      'id': _id(),
+      'mode': mode, // "off" | "50" | "60" | "auto"
+    });
+  }
 
-  void setWbAuto(bool enabled) => _send({
-        'action': 'image.set_wb_auto',
-        'id': _id(),
-        'enabled': enabled,
-      });
+  void setWbAuto(bool enabled) {
+    _snap(_state.copyWith(wbAuto: enabled));
+    _send({
+      'action': 'image.set_wb_auto',
+      'id': _id(),
+      'enabled': enabled,
+    });
+  }
 
   /// Ask the bridge to re-read live exposure / anti-flicker / WB state
   /// from the camera and stamp its snapshot. Useful when OBSBOT Center
@@ -469,11 +514,14 @@ class WsClient extends ChangeNotifier {
         'id': _id(),
       });
 
-  void setWbTemp(int kelvin) => _send({
-        'action': 'image.set_wb_temp',
-        'id': _id(),
-        'kelvin': kelvin, // 2800 .. 6500
-      });
+  void setWbTemp(int kelvin) {
+    _snap(_state.copyWith(wbKelvin: kelvin));
+    _send({
+      'action': 'image.set_wb_temp',
+      'id': _id(),
+      'kelvin': kelvin, // 2800 .. 6500
+    });
+  }
 
   void presetSave(int id, String name) => _send({
     'action': 'preset.save',
