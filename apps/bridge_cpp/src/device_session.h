@@ -31,7 +31,7 @@ struct PresetInfo {
 // `transition_ms` = how long the move TO this preset's attitude + zoom
 //             should take. 0 = instant (SDK hardware path).
 //             Anything else routes through the bridge MotionPlanner
-//             which can deliver smooth motion at any duration —
+//             which can deliver smooth motion at any duration  - 
 //             from 0.5s ("snap") to 5+ minutes ("wedding pan").
 struct SequenceStep {
     int preset_id = 0;
@@ -163,7 +163,7 @@ public:
     void cmd_image_set_face_focus(bool e, ReplyFn reply);
     void cmd_image_set_flip_h(bool e, ReplyFn reply);
 
-    // v1.2 PR G — exposure / anti-flicker / white balance.
+    // v1.2 PR G  -  exposure / anti-flicker / white balance.
     // Empirical probe on Tiny 2 Lite firmware 6.2.8.1 confirmed both
     // exposure_mode + ev_bias return r=0; the SDK's "tail air" tag is
     // misleading.
@@ -172,7 +172,7 @@ public:
     void cmd_image_set_anti_flicker(const std::string& mode, ReplyFn reply);
     void cmd_image_set_wb_auto(bool enabled, ReplyFn reply);
     void cmd_image_set_wb_temp(int kelvin, ReplyFn reply);
-    // v1.2.1 PR P — read live exposure / anti-flicker / WB state back
+    // v1.2.1 PR P  -  read live exposure / anti-flicker / WB state back
     // from the camera and stamp snap_. Defensive against firmware
     // drift or another control app (e.g. OBSBOT Center) changing
     // values while we were disconnected.
@@ -285,7 +285,7 @@ private:
     // zoom coalescing (mid-drag updates)
     std::chrono::steady_clock::time_point last_zoom_apply_{};
 
-    // Pending zoom target — when set, the periodic poller refuses to
+    // Pending zoom target  -  when set, the periodic poller refuses to
     // overwrite snap_.zoom until the camera-reported value reaches this
     // value (within tolerance). Otherwise the camera's slow firmware echo
     // would clobber the value cmd_zoom_set / cmd_preset_recall just
@@ -293,11 +293,11 @@ private:
     // the camera catches up.
     float pending_zoom_ = 0.0f;  // 0 = no pending target
 
-    // AI mode set timestamp — used to give camera firmware time to register
+    // AI mode set timestamp  -  used to give camera firmware time to register
     // the new mode before the periodic poller re-reads cs.tiny.ai_mode.
     std::chrono::steady_clock::time_point last_ai_apply_{};
 
-    // Pending AI mode target — same pattern as pending_zoom_. The camera
+    // Pending AI mode target  -  same pattern as pending_zoom_. The camera
     // firmware echo for ai_mode lags the cmd by hundreds of ms; without
     // this gate the poller reads the old value and flips snap_.ai_mode
     // back. Cleared once the camera reports the commanded mode.
@@ -306,7 +306,7 @@ private:
     // hdr debounce
     std::chrono::steady_clock::time_point last_hdr_apply_{};
 
-    // AI-mode-clear-on-first-manual flag — prevents flapping when user
+    // AI-mode-clear-on-first-manual flag  -  prevents flapping when user
     // streams velocity ticks 10-30 Hz, each one hitting cameraSetAiModeU.
     // Set on first manual ptz/preset, cleared by cmd_ai_set_mode/enabled.
     bool ai_disabled_for_manual_ = false;

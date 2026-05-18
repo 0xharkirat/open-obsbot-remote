@@ -61,7 +61,7 @@ arena win). Vertical drag works on all sizes. **Not affected.**
 ### Directional hold-buttons
 
 `_HoldDirBtn` uses `Listener.onPointerDown/Up`. Tapping (no drag) on
-iPhone 390×844 fired 8 ptz.velocity ticks at 80ms cadence + 1 stop —
+iPhone 390×844 fired 8 ptz.velocity ticks at 80ms cadence + 1 stop  - 
 clean. The user's "sometimes work, sometimes don't" report is most
 likely not the button itself but the user inadvertently dragging
 slightly during a hold (gesture arena re-evaluation), or scroll-conflict
@@ -76,7 +76,7 @@ when content overflows. Re-test on real Android once P0-2 lands.
   → positive yaw_speed = camera rotates LEFT (in viewer frame), negative
   = RIGHT. **App-side mapping is inverted on yaw too.**
 
-Phone and hold-buttons emit positive yaw for "right" intent — confirmed
+Phone and hold-buttons emit positive yaw for "right" intent  -  confirmed
 backwards. Fix in **bridge** so all current and future clients get
 consistent semantics:
 
@@ -101,7 +101,7 @@ Smoke test must assert direction not |delta|.
 Restructure `_buildPortrait` so preview + joystick + zoom slider are
 NEVER inside a scrollable. Two options:
 
-**Option A — Fixed top, scrollable bottom (preferred):**
+**Option A  -  Fixed top, scrollable bottom (preferred):**
 
 ```dart
 return Column(
@@ -121,13 +121,13 @@ return Column(
 );
 ```
 
-**Option B — Wrap PtzPad in `Listener`:**
+**Option B  -  Wrap PtzPad in `Listener`:**
 
 `Listener` doesn't enter the gesture arena. It receives raw pointer
 events before any `GestureDetector`. PtzPad would need a small refactor
 to use `onPointerDown/Move/Up/Cancel`.
 
-Recommend Option A for production — matches mobile UX expectation
+Recommend Option A for production  -  matches mobile UX expectation
 (hero controls always visible, only preset rows scroll).
 
 ### P0-1 fix (concrete)

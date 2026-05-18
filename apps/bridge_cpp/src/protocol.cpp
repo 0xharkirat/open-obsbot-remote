@@ -236,7 +236,7 @@ void dispatch_message(DeviceSession& session,
     if (action == "image.set_face_focus") { session.cmd_image_set_face_focus(msg.value("enabled", false), reply_cb); return; }
     if (action == "image.set_flip_h")     { session.cmd_image_set_flip_h(msg.value("enabled", false), reply_cb); return; }
 
-    // v1.2 PR G — exposure / anti-flicker / white balance.
+    // v1.2 PR G  -  exposure / anti-flicker / white balance.
     if (action == "image.set_exposure_mode") {
         session.cmd_image_set_exposure_mode(msg.value("mode", std::string("auto")), reply_cb);
         return;
@@ -257,7 +257,7 @@ void dispatch_message(DeviceSession& session,
         session.cmd_image_set_wb_temp(msg.value("kelvin", 4700), reply_cb);
         return;
     }
-    // v1.2.1 PR P — re-read live exposure / anti-flicker / WB state
+    // v1.2.1 PR P  -  re-read live exposure / anti-flicker / WB state
     // from the camera. Defensive against firmware drift or other
     // apps (OBSBOT Center, etc.) that may have changed values while
     // we were disconnected. UI binds to a "Refresh from camera"
@@ -276,7 +276,7 @@ void dispatch_message(DeviceSession& session,
     if (action == "preset.recall") {
         int pid = msg.value("preset_id", 0);
         // Protocol contract: `duration_ms` is the move time. 0 = instant.
-        // No defaults — callers should pass it explicitly. Older clients
+        // No defaults  -  callers should pass it explicitly. Older clients
         // that omit the field get instant.
         int dur = msg.value("duration_ms", 0);
         session.cmd_preset_recall(pid, dur, reply_cb);

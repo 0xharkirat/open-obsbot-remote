@@ -1,4 +1,4 @@
-# OBSBOT SDK — local setup
+# OBSBOT SDK  -  local setup
 
 This repo does not include the OBSBOT SDK in git. Each developer keeps a local copy at `third_party/obsbot-sdk/`. The macOS build pulls `libdev.dylib` from there and bundles it inside the resulting `.app`.
 

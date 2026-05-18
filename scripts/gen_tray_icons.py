@@ -2,9 +2,9 @@
 """Generate the v1.3 multi-state tray icon set procedurally.
 
 Three variants, each as 22x22 (@1x) and 44x44 (@2x):
-  - cameraTemplate.png        — idle/running with camera (already shipped in v1.2.1, regenerated for parity)
-  - cameraTemplateWarn.png    — running but no camera (camera iris with a diagonal slash)
-  - cameraTemplateError.png   — bridge stopped or error (X mark)
+  - cameraTemplate.png         -  idle/running with camera (already shipped in v1.2.1, regenerated for parity)
+  - cameraTemplateWarn.png     -  running but no camera (camera iris with a diagonal slash)
+  - cameraTemplateError.png    -  bridge stopped or error (X mark)
 
 All glyphs are black-opaque on transparent. macOS auto-tints
 template images to the menubar foreground colour at runtime.

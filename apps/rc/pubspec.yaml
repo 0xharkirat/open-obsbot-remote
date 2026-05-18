@@ -65,7 +65,7 @@ flutter_launcher_icons:
     image_path: "assets/icon-1024.png"
     background_color: "#0E1116"
     theme_color: "#1976D2"
-  # macOS not generated for the mobile app — it's a phone-first product;
+  # macOS not generated for the mobile app  -  it's a phone-first product;
   # the bridge owns the Mac icon.
 
 # For information on the generic Dart part of this file, see the

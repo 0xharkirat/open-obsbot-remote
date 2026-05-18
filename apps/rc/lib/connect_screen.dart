@@ -83,7 +83,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     widget.client.connecting
                         ? 'Connecting...'
                         : widget.client.socketOpen
-                            ? 'Connected — waiting for camera...'
+                            ? 'Connected  -  waiting for camera...'
                             : 'Connect',
                   ),
                 ),

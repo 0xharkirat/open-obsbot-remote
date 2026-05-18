@@ -9,7 +9,7 @@ namespace obs {
 
 // Captures the Tiny 2 Lite as a regular UVC webcam via AVFoundation,
 // JPEG-encodes the latest frame in software, and exposes it to the HTTP
-// route. libdev is unaffected — control + video go to the same USB device
+// route. libdev is unaffected  -  control + video go to the same USB device
 // over independent endpoints.
 class VideoCapture {
 public:
@@ -27,7 +27,7 @@ public:
     // Returns a copy of the latest JPEG, or empty vector if none yet.
     std::vector<uint8_t> latest_jpeg() const;
 
-    // Returns a monotonically increasing counter — useful for clients
+    // Returns a monotonically increasing counter  -  useful for clients
     // wanting to wait for the next frame.
     uint64_t frame_seq() const;
 

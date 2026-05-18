@@ -4,13 +4,13 @@
 // Debug-only override: append `.dev` so dev installs claim a
 // distinct macOS bundle id from prod (`com.harksingh.obsbotbridge`).
 // Without this, dev + prod share a TCC slot, Launch Services slot,
-// and SharedPreferences NSUserDefaults domain — switching between
+// and SharedPreferences NSUserDefaults domain  -  switching between
 // the two clobbers permissions and prefs unpredictably.
 //
 // Side effects of the .dev suffix:
 //   - Camera + Local Network prompts fire separately for dev.
 //   - SharedPreferences write to `com.harksingh.obsbotbridge.dev`
-//     instead of prod's domain — dev has its own start-hidden / etc.
+//     instead of prod's domain  -  dev has its own start-hidden / etc.
 //   - Auth file path is unchanged (it's keyed on app NAME not id, so
 //     dev still reads / writes the same PIN + tokens as prod).
 //   - Subprocess re-signed as `com.harksingh.obsbotbridge.dev.helper`

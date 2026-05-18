@@ -7,11 +7,11 @@ import 'ws_client.dart';
 /// Visual aid overlay composited on top of the MJPEG preview.
 ///
 /// Four layers, all optional, all toggleable independently:
-///   • center crosshair        — small `+` at frame center; gap in the
+///   • center crosshair         -  small `+` at frame center; gap in the
 ///                               middle so it doesn't bisect faces. This
 ///                               is the "you are pointing here right now"
 ///                               mark.
-///   • attitude indicator      — full-width / full-height cross that
+///   • attitude indicator       -  full-width / full-height cross that
 ///                               *moves* relative to the static center,
 ///                               showing where the camera's home position
 ///                               (yaw 0, pitch 0) sits in the current
@@ -21,8 +21,8 @@ import 'ws_client.dart';
 ///                               translates with yaw. Align the moving
 ///                               cross with the static crosshair to
 ///                               re-center the camera.
-///   • rule-of-thirds grid     — dashed lines at 1/3 and 2/3 both axes
-///   • Pan / Tilt readout      — top-left text showing live pan (yaw) +
+///   • rule-of-thirds grid      -  dashed lines at 1/3 and 2/3 both axes
+///   • Pan / Tilt readout       -  top-left text showing live pan (yaw) +
 ///                               tilt (pitch) in degrees so the operator
 ///                               knows the gimbal's current attitude
 ///
@@ -195,7 +195,7 @@ class _GridPainter extends CustomPainter {
   }
 
   void _paintCrosshair(Canvas canvas, double w, double h) {
-    // Small + at frame center — the "you are pointing here" fixed
+    // Small + at frame center  -  the "you are pointing here" fixed
     // reticle. Aircraft analogy: this is the airplane symbol fixed to
     // the cockpit; the attitude indicator's moving cross is the world
     // horizon.

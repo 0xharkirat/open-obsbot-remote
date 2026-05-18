@@ -62,7 +62,7 @@ class _ObsbotAppState extends State<ObsbotApp> {
 
   @override
   Widget build(BuildContext context) {
-    // v1.2 palette — OBSBOT brand red accent on near-black neutral.
+    // v1.2 palette  -  OBSBOT brand red accent on near-black neutral.
     // Replaces the v1.1 default blue. Deep surface keeps the live
     // preview from looking grey-washed; red primary matches the camera
     // hardware + the OBSBOT Center mac app.

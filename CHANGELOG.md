@@ -22,20 +22,20 @@ regression can be reverted without unwinding the whole release.
 
 - **Drive / Image / More tab structure (W6).** Phone app's advanced
   mode is now three top-level pages inspired by OBSBOT Center:
-  - **Drive** — sticky `_QuickActions` row + collapsible sections:
+  - **Drive**  -  sticky `_QuickActions` row + collapsible sections:
     Presets (6 cards), View & Gimbal (joystick + zoom slider + FOV
     pills + Reset), Move pacing (duration chips), AI tracking
     (mode pills + sub-mode pills).
-  - **Image** — every group (Tone / Exposure / Anti-flicker / WB /
+  - **Image**  -  every group (Tone / Exposure / Anti-flicker / WB /
     Color) wrapped in a `CollapsibleSection`, persisted open state
     via SharedPreferences key `section_<id>_open`.
-  - **More** — Device info, Sequence library, Grid overlay toggles,
+  - **More**  -  Device info, Sequence library, Grid overlay toggles,
     Connection (URL + Disconnect + Reset cache), About panel.
   - Folds the previous Joystick + Buttons tabs into Drive with a
     "Control style" toggle (joystick vs 8-way pad).
 - **AI sub-mode picker.** 5 pills (Normal / Upper-body / Close-up /
   Headless / Lower-body) on Drive's AI section, wired to the
-  existing `client.aiSetMode(mode, subMode)` — bridge already
+  existing `client.aiSetMode(mode, subMode)`  -  bridge already
   accepted the sub-mode arg but the phone UI hardcoded `'normal'`.
 - **`image.refresh`-style affordance per section.** `CollapsibleSection`
   has an optional `onRefresh` slot; ready for per-section refresh
@@ -77,7 +77,7 @@ regression can be reverted without unwinding the whole release.
   ~15 min), and the serving thread + its fd were stuck.
   Client saw a freeze with no browser error and no bridge crash.
   Log evidence: 145 `client connected` vs 104 `client disconnected`
-  before the fix — 41 missing disconnects. After the fix
+  before the fix  -  41 missing disconnects. After the fix
   (`setsockopt SO_KEEPALIVE + SO_SNDTIMEO 5s + SO_NOSIGPIPE`),
   any wedged write fails fast → the existing loop-exit path logs
   the disconnect → thread + fd self-recycle. Suspects #3 and #4
@@ -96,7 +96,7 @@ regression can be reverted without unwinding the whole release.
   facing `j['msg']` ("send {action:'pair', pin:<6-digit>} or
   {action:'hello', token:...}") into `_lastAuthError`, which the
   pair screen rendered as a destructive-coloured label under the
-  PIN field. Now sets `_lastAuthError = null` — entering the pair
+  PIN field. Now sets `_lastAuthError = null`  -  entering the pair
   screen is a state transition, not an error.
 - **Wrong PIN UX polish (W1 A3).** Field re-focuses after a clear
   (FocusNode added) so the mobile keyboard re-arms. Dropped the
@@ -124,11 +124,11 @@ regression can be reverted without unwinding the whole release.
   control, not an image control. AI mode + sub-mode pills live
   together.
 - **FOV (Wide / Normal / Narrow) moves from Image to Drive's View
-  & Gimbal section.** Same reasoning — framing not image.
+  & Gimbal section.** Same reasoning  -  framing not image.
 - **CollapsibleSection persists per-section open state** via
   SharedPreferences key `section_<id>_open`. Defaults to open.
-- **`_InlinePresetCard` label updated** from "tap recall — hold to
-  save" to "tap recall — hold for options" to advertise the new
+- **`_InlinePresetCard` label updated** from "tap recall  -  hold to
+  save" to "tap recall  -  hold for options" to advertise the new
   bottom sheet.
 - **Sequencer step row layout** now stacked: header → preset
   dropdown → Move-to row → Stay row → ≈ total caption. Wire
@@ -143,7 +143,7 @@ regression can be reverted without unwinding the whole release.
 
 - `IconToggleRow` and `LabeledSlider` widgets are built and tested
   but not yet wired into the Image tab body. v1.5 follow-up.
-- Hue slider + Snapshot button — `WsClient.imageSnapshot()` stub
+- Hue slider + Snapshot button  -  `WsClient.imageSnapshot()` stub
   exists; needs bridge action + UI button. v1.5 follow-up.
 
 ## [1.2.1] - 2026-05-13
@@ -151,7 +151,7 @@ regression can be reverted without unwinding the whole release.
 Maintenance + polish release on top of v1.2.0. Highlights: replaced
 the fragile `tray_manager` macOS plugin with a first-party
 NSStatusItem implementation; brought the bridge UX in line with
-Handy (cjpais/Handy) — dock icon follows the main window
+Handy (cjpais/Handy)  -  dock icon follows the main window
 automatically, tray carries the pairing PIN inline; smoothed out
 preset-recall motion + zoom; made the camera permission grant
 survive rebuilds.
@@ -159,17 +159,17 @@ survive rebuilds.
 ### Added
 
 - **First-party macOS NSStatusItem tray (`NativeTray.swift`).** Replaces
-  `tray_manager` 0.5.2 — its `popUpContextMenu` plumbing dropped
+  `tray_manager` 0.5.2  -  its `popUpContextMenu` plumbing dropped
   NSMenu's target/action dispatch on macOS Sonoma+, so menu clicks
   rendered fine but never fired the Dart handler. Net effect: Quit /
   Show main window / Reveal PIN / Copy PIN were no-ops. New impl
   attaches the NSMenu permanently to the status item and routes
   clicks through `@objc menuItemClicked:` straight to the
-  `obsbot.bridge/tray` channel — rock-solid.
+  `obsbot.bridge/tray` channel  -  rock-solid.
 - **Hybrid dock-visibility (Handy-style).** The dock icon now tracks
   the main window: closing the window flips activation policy to
   `.accessory` (no dock icon), showing it flips back to `.regular`.
-  No persistent "hide dock" setting needed — the dock just goes
+  No persistent "hide dock" setting needed  -  the dock just goes
   where the user is looking. Pattern lifted from cjpais/Handy.
   Per-user toggle "Start hidden in menubar" persists across launches
   (replaces the old `bridge_menubar_only` key; migrated on first run).
@@ -178,12 +178,12 @@ survive rebuilds.
   can see the PIN.
 - **Tray pairing PIN inline.** Tray now shows
   `Pairing PIN:  ######` directly, plus a `Copy PIN to clipboard`
-  item — the most-used info is one click away (Tailscale / Dropbox
+  item  -  the most-used info is one click away (Tailscale / Dropbox
   pattern). Version line at the top of the tray menu too.
 - **Stable subprocess code signature.** `build-bridge-mac.sh` now
   re-signs `obsbot-bridge` with the stable identifier
   `com.harksingh.obsbotbridge.helper` after the `--deep` parent sign
-  (which otherwise stamps it as `obsbot-bridge-<contenthash>` —
+  (which otherwise stamps it as `obsbot-bridge-<contenthash>`  - 
   changes every rebuild, invalidates the camera TCC grant). One-time
   Allow click now persists across rebuilds.
 - **Menubar-only mode (macOS).** Optional setting in the bridge's Settings
@@ -197,7 +197,7 @@ survive rebuilds.
   ev_bias, anti_flicker, wb_type+kelvin from the camera via the SDK
   getters and stamps its snapshot, which flows out to every connected
   phone as a normal state event. Useful when OBSBOT Center or another
-  phone changed those values out-of-band — without it our cached state
+  phone changed those values out-of-band  -  without it our cached state
   was stale and the user had no way to resync without reconnecting.
 - **"Refresh from camera" button** on the Image tab (top-right). One
   tap, brief toast confirms the resync.
@@ -218,13 +218,13 @@ survive rebuilds.
 - **forui migration extended into tab content.** PR Q migrates two
   high-traffic surfaces from Material to forui:
   - `_QuickActions` (the Recenter / Sleep / Wake row at the top of
-    the Joystick + Buttons tabs) — 3-per-row `OutlinedButton` →
+    the Joystick + Buttons tabs)  -  3-per-row `OutlinedButton` →
     `FButton.raw` with `variant: FButtonVariant.outline`. Each
     button's child is a Flexible+Text with `maxLines: 1` +
     `TextOverflow.ellipsis` to structurally prevent the 360 px
     overflow we shipped before the v1.2 fix.
   - `_toggleBtn` (HDR / Face exposure / Face focus / Flip / Auto WB
-    pair-row toggles on the Image tab) — `FilledButton` with
+    pair-row toggles on the Image tab)  -  `FilledButton` with
     hand-rolled `colorScheme` overrides → `FButton.raw` with
     `variant: on ? FButtonVariant.primary : FButtonVariant.outline`.
     On-state now uses the brand red consistently from the forui
@@ -237,7 +237,7 @@ survive rebuilds.
 
 - **Motion planner: jittery preset recall on any duration > 0.**
   v1.2 sent `gimbalSetSpeedPositionR(.., speed=90)` every 100 ms tick
-  — motor raced to each tick target inside the window, waited, raced
+   -  motor raced to each tick target inside the window, waited, raced
   again. Visible 100 ms-cadence stutter on every 1 s+ move. Live
   report: "anything starting from 1 second time difference to change
   preset is so shaky." Fix: rate-scale the SDK speed parameter to
@@ -256,16 +256,16 @@ survive rebuilds.
   required a non-empty preset name; unnamed saves fell through to
   the empty-slot branch and tap-to-recall silently became
   tap-to-save. Now `_saved` is true on any entry regardless of
-  name. Live report: "if I tap or hold, it saves the preset — tap
+  name. Live report: "if I tap or hold, it saves the preset  -  tap
   should be to change to that preset."
 - **applicationShouldTerminateAfterLastWindowClosed now returns false.**
   Before, closing the window in any mode could trigger an
   auto-terminate. With the tray owning the bridge lifecycle (Quit
   via tray, red-dot just hides), false is the correct answer. Also
-  required for menubar-only mode — the hidden launch window was being
+  required for menubar-only mode  -  the hidden launch window was being
   misread as "last window closed" and the app died instantly.
 - **Camera permission lost on every rebuild.** Subprocess code
-  signature was `obsbot-bridge-<contenthash>` — every build a new
+  signature was `obsbot-bridge-<contenthash>`  -  every build a new
   identifier, every build macOS TCC treated it as a new app and
   threw away the camera grant. Pinned to stable
   `com.harksingh.obsbotbridge.helper` in `build-bridge-mac.sh`.
@@ -462,18 +462,18 @@ slow-pan tier.
   as terminal; bridge bypasses the mid-drag coalesce so the lens always
   lands where the user released. `WsClient.zoomSet(value, terminal: true)`.
 - **Production-grade test infrastructure.**
-  - `tests/bridge_smoke.mjs` — Node + ws smoke harness, 27 tests against
+  - `tests/bridge_smoke.mjs`  -  Node + ws smoke harness, 27 tests against
     real Tiny 2 Lite, runs in ~28s. Tails bridge log for new errors.
-  - `docs/V1.1_PLAN.md` — full v1.1 backlog with sequencing.
-  - `docs/TOUCH_FINDINGS_2026-05-10.md` — touch-emulation reproduction
+  - `docs/V1.1_PLAN.md`  -  full v1.1 backlog with sequencing.
+  - `docs/TOUCH_FINDINGS_2026-05-10.md`  -  touch-emulation reproduction
     recipe + diagnostics for any future gesture-arena bug.
 - **PR-styled workflow** for every change going forward.
   `docs/CONTRIBUTING.md` documents branch model + PR template +
   release-branch process.
-- **Bridge cache chain** — `index.html`, `flutter_bootstrap.js`, and
+- **Bridge cache chain**  -  `index.html`, `flutter_bootstrap.js`, and
   `main.dart.js` all now have `?v=<mtime>` cache busters; service worker
   replaced with self-unregistering stub. New builds ship instantly.
-- **Auto-HDR-off on connect** — Tiny 2 Lite ships HDR DOL2TO1 raw frames
+- **Auto-HDR-off on connect**  -  Tiny 2 Lite ships HDR DOL2TO1 raw frames
   that our AVFoundation passthrough doesn't tone-map. Bridge forces
   HDR off on every device-plugged so preview always looks like OBSBOT
   Center's tone-mapped output.
@@ -488,7 +488,7 @@ slow-pan tier.
   mobile-portrait layout wrapped the entire page in
   `SingleChildScrollView`, which won the gesture arena over the
   joystick's `GestureDetector` for vertical-first drags. Reproduced at
-  Pixel 360x800 and iPad 768x1024 (overflow ≥56px) — 0 velocity messages
+  Pixel 360x800 and iPad 768x1024 (overflow ≥56px)  -  0 velocity messages
   pre-fix, 16 post-fix. Hero controls (preview + joystick + zoom slider)
   are now pinned above a scrollable region; only the action rows scroll.
 - **Intermittent zoom failure.** `zoom.set`'s mid-drag coalesce dropped
@@ -520,9 +520,9 @@ slow-pan tier.
 ## [1.0.0] - 2026-05-09
 
 ### Added
-- **Developer-friendly docs refresh** — README, run guide, architecture, protocol, app READMEs, and security policy now match the current public-source plus macOS release ZIP flow.
-- **macOS release packaging script** — `scripts/package-mac-release.sh` builds the app, verifies the bundle, optionally Developer ID signs/notarizes/staples it, creates an arm64 release ZIP, and writes a SHA-256 checksum.
-- **Saved sequence library** — name + persist sequences, switch between them via dropdown. Bridge stores them at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`. New WS actions `sequence.save_as / sequence.load / sequence.delete`. State event ships `sequence.available` + `sequence.loaded`.
+- **Developer-friendly docs refresh**  -  README, run guide, architecture, protocol, app READMEs, and security policy now match the current public-source plus macOS release ZIP flow.
+- **macOS release packaging script**  -  `scripts/package-mac-release.sh` builds the app, verifies the bundle, optionally Developer ID signs/notarizes/staples it, creates an arm64 release ZIP, and writes a SHA-256 checksum.
+- **Saved sequence library**  -  name + persist sequences, switch between them via dropdown. Bridge stores them at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`. New WS actions `sequence.save_as / sequence.load / sequence.delete`. State event ships `sequence.available` + `sequence.loaded`.
 - **AGENTS.md** so AI coding tools find the same repo guidance.
 - **CHANGELOG.md** (this file).
 - **CONTRIBUTING.md**, **CODE_OF_CONDUCT.md**, GitHub issue + PR templates.
@@ -533,28 +533,28 @@ slow-pan tier.
 - Repo renamed `obsbot-control → open-obsbot-remote`.
 
 ### Fixed
-- **Auth gate** — unauthenticated WebSocket clients no longer receive `state` broadcasts or subscribe snapshots before pairing.
-- **Zoom validation** — zoom commands now use the camera-reported range instead of accepting a hardcoded 1.0-4.0 range.
-- **Preview exposure** — removed the stale unauthenticated Crow MJPEG route; preview is served only by the token-gated MJPEG server on `ws_port + 1`.
-- **Static web assets** — bridge now serves five-segment Flutter asset paths such as `assets/packages/cupertino_icons/assets/CupertinoIcons.ttf`.
-- **Bridge restarts** — reset-pairing and camera-permission retry now wait for the subprocess to exit before starting it again.
-- **Control commands** — recenter, preset recall, and sequence steps release AI tracking before moving the gimbal; direct zoom uses the reliable speed-aware SDK call.
-- **Auth persistence** — `auth.json` is chmodded to user-only permissions after writes.
+- **Auth gate**  -  unauthenticated WebSocket clients no longer receive `state` broadcasts or subscribe snapshots before pairing.
+- **Zoom validation**  -  zoom commands now use the camera-reported range instead of accepting a hardcoded 1.0-4.0 range.
+- **Preview exposure**  -  removed the stale unauthenticated Crow MJPEG route; preview is served only by the token-gated MJPEG server on `ws_port + 1`.
+- **Static web assets**  -  bridge now serves five-segment Flutter asset paths such as `assets/packages/cupertino_icons/assets/CupertinoIcons.ttf`.
+- **Bridge restarts**  -  reset-pairing and camera-permission retry now wait for the subprocess to exit before starting it again.
+- **Control commands**  -  recenter, preset recall, and sequence steps release AI tracking before moving the gimbal; direct zoom uses the reliable speed-aware SDK call.
+- **Auth persistence**  -  `auth.json` is chmodded to user-only permissions after writes.
 
 ## [0.3.1] - 2026-05-02
 
 ### Added
 - **Move-speed presets** (Instant / Slow / Medium / Fast). Each `preset.recall` and each sequencer step honors a per-call speed via `gimbalSetSpeedPositionR`. Speed selector lives in the app bar of both Simple and Advanced modes; saved per-app in `shared_preferences`.
 - **Three sequence loop modes**: `once`, `forward`, `ping_pong` (P1→P2→P3→P2→P1→…). Bridge tracks `seq_direction_` flag.
-- **Mid-sequence edit** semantics — `sequence.set` while running clamps current index to new list bounds, applies at next step boundary; if the list becomes empty the sequence stops.
-- **Cache-clear menu** in mobile/web (PinEntry + Simple + Advanced) — wipes shared_preferences, unregisters service worker, clears Cache Storage, hard-reloads.
+- **Mid-sequence edit** semantics  -  `sequence.set` while running clamps current index to new list bounds, applies at next step boundary; if the list becomes empty the sequence stops.
+- **Cache-clear menu** in mobile/web (PinEntry + Simple + Advanced)  -  wipes shared_preferences, unregisters service worker, clears Cache Storage, hard-reloads.
 - **Hide/Show PIN+QR** on bridge UI; auto-hides 60 s after Reveal.
 - **URL printed under QR** + Copy URL button (in case scan is slow).
 - **Single-instance enforcement** for the .app: `LSMultipleInstancesProhibited`, AppDelegate self-quit if a sibling exists, `applicationShouldHandleReopen` raises existing window.
-- **SIGPIPE ignored** in bridge — phone disconnects no longer kill the bridge.
+- **SIGPIPE ignored** in bridge  -  phone disconnects no longer kill the bridge.
 - **Auto-restart** in supervisor (5 attempts, quadratic backoff) for unexpected subprocess exit.
 - **`_killStalePortsHolders`** in supervisor frees ports 8765/8766 before spawning a new subprocess.
-- Bridge wraps MJPEG / WS startup in try/catch — port-busy or bind failure logs + continues instead of crashing.
+- Bridge wraps MJPEG / WS startup in try/catch  -  port-busy or bind failure logs + continues instead of crashing.
 
 ### Fixed
 - **Pair race**: `pair()` was cancelling + re-listening on the WebSocket stream and missing the ack. Now uses a Completer + msg-id matched in the always-on subscription.
@@ -565,20 +565,20 @@ slow-pan tier.
 ## [0.3.0] - 2026-05-02
 
 ### Added
-- **PIN-paired auth** — 6-digit PIN displayed in bridge UI; phone enters once, gets 32-byte hex bearer token. Token gates all WS actions and MJPEG GETs. Persisted in `~/Library/Application Support/Open OBSBOT Bridge/auth.json`.
+- **PIN-paired auth**  -  6-digit PIN displayed in bridge UI; phone enters once, gets 32-byte hex bearer token. Token gates all WS actions and MJPEG GETs. Persisted in `~/Library/Application Support/Open OBSBOT Bridge/auth.json`.
 - **Simple mode** UI on phone: preview big + 2×3 preset grid + active-preset highlight + sequencer overlay bar.
 - **Sequencer** backend on bridge: dedicated thread, persisted at `sequence.json`, broadcast as `state.sequence.{running,step_index,elapsed_s,total_s,mode}`.
 - **Sequencer UI** on phone: drag-reorder steps, +/- step, per-step duration + speed, Start/Stop, live progress.
 - **Active-preset tracking**: `snap_.active_preset_id` set on `preset.recall`/save, cleared on any manual PTZ.
-- **Preset list** fetched from camera via `aiGetGimbalPresetListR` on connect — UI shows actual saved names.
+- **Preset list** fetched from camera via `aiGetGimbalPresetListR` on connect  -  UI shows actual saved names.
 - **MJPEG quality bump** to 20 fps, q=0.55.
 
 ## [0.2.0] - 2026-05-01
 
 ### Added
-- **Web client** — Flutter web bundle served by the bridge from `/`. Phones use any browser, no install. Auto-detects bridge host from `window.location` so user doesn't retype IP.
+- **Web client**  -  Flutter web bundle served by the bridge from `/`. Phones use any browser, no install. Auto-detects bridge host from `window.location` so user doesn't retype IP.
 - **Static file serving** in bridge (Crow routes for nested asset paths).
-- **MJPEG server** standalone on port 8766 — Crow can't stream multipart, so we hand-rolled a BSD-socket server.
+- **MJPEG server** standalone on port 8766  -  Crow can't stream multipart, so we hand-rolled a BSD-socket server.
 - **CORS** on MJPEG endpoint so cross-origin browser fetches work.
 - **Web preview** uses `HtmlElementView` + `<img>` (browsers natively render multipart) with conditional import; native uses `flutter_mjpeg`.
 

@@ -1,9 +1,9 @@
-// NativeTray.swift — first-party macOS NSStatusItem replacement for the
+// NativeTray.swift  -  first-party macOS NSStatusItem replacement for the
 // `tray_manager` Flutter plugin.
 //
 // Why we wrote this: tray_manager 0.5.2's `popUpContextMenu` toggles
 // `statusItem.menu` on and off around each click. On macOS Sonoma+ that
-// dance drops NSMenu's target/action dispatch — the menu shows but
+// dance drops NSMenu's target/action dispatch  -  the menu shows but
 // menuitem clicks never reach the Dart-side TrayListener. The bug bit
 // us on v1.2.1 hard enough that Quit / Show window / Reveal PIN all
 // became no-ops.
@@ -65,7 +65,7 @@ class NativeTray: NSObject {
 
     case "setTitle":
       // Optional text title next to the icon (Handy uses this for "REC"
-      // overlay etc). For the bridge we usually leave this empty — the
+      // overlay etc). For the bridge we usually leave this empty  -  the
       // icon carries the visual.
       let title = (call.arguments as? [String: Any])?["title"] as? String ?? ""
       statusItem.button?.title = title
@@ -92,7 +92,7 @@ class NativeTray: NSObject {
   // Build NSImage from raw bytes sent by Dart. Originally we tried
   // FlutterDartProject.lookupKey + Bundle.main.url, but Flutter assets
   // live inside `App.framework/Resources/flutter_assets/` on macOS,
-  // not in `Bundle.main` directly — Bundle.main returned nil and the
+  // not in `Bundle.main` directly  -  Bundle.main returned nil and the
   // status item rendered with no icon. Passing PNG bytes through the
   // channel is the robust path (matches what tray_manager itself did
   // with base64 strings; FlutterStandardTypedData is the binary
@@ -107,7 +107,7 @@ class NativeTray: NSObject {
   // Builds the NSMenu from a list of {key, label, type, disabled} dicts.
   // type defaults to "normal"; the only other value is "separator". We
   // wire each item's target = self, action = #menuItemClicked: so the
-  // dispatch goes through the NSMenu pipeline directly — no
+  // dispatch goes through the NSMenu pipeline directly  -  no
   // popUpContextMenu toggling.
   private func setMenu(_ items: [[String: Any]]) {
     let menu = NSMenu()
@@ -121,7 +121,15 @@ class NativeTray: NSObject {
       let label = item["label"] as? String ?? ""
       let disabled = item["disabled"] as? Bool ?? false
       let key = item["key"] as? String ?? "__item_\(i)"
-      let mi = NSMenuItem(title: label, action: #selector(menuItemClicked(_:)), keyEquivalent: "")
+      // Optional macOS key equivalent (Cmd-Q, Cmd-O, etc). Dart side
+      // sends a 1-char string + an NSEventModifierFlags raw mask. Empty
+      // string = no shortcut (renders without a glyph on the right).
+      let keyEquiv = item["keyEquivalent"] as? String ?? ""
+      let modMask = item["keyEquivalentModifierMask"] as? Int ?? 0
+      let mi = NSMenuItem(title: label, action: #selector(menuItemClicked(_:)), keyEquivalent: keyEquiv)
+      if !keyEquiv.isEmpty && modMask != 0 {
+        mi.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: UInt(modMask))
+      }
       mi.target = self
       mi.isEnabled = !disabled
       // representedObject carries the Dart-supplied key back to us.

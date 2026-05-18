@@ -1,4 +1,4 @@
-# Contributing — branch + PR workflow
+# Contributing  -  branch + PR workflow
 
 Effective from v1.1.0. Pre-1.1 commits landed directly on `main` for
 speed; from now on every change goes through a pull request.
@@ -26,7 +26,7 @@ Branch names are lowercase, hyphenated, scoped:
    git checkout -b fix/<short-description> origin/main
    ```
 
-2. Implement the change. **Keep PRs small** — one logical change per PR
+2. Implement the change. **Keep PRs small**  -  one logical change per PR
    (joystick fix and cinema speed are two PRs, not one).
 
 3. Run regression locally before pushing:

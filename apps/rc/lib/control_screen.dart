@@ -70,7 +70,7 @@ class _ControlScreenState extends State<ControlScreen> {
             ],
           ),
           body: SafeArea(
-            // Status chips removed in the post-review pass — every field
+            // Status chips removed in the post-review pass  -  every field
             // they carried has a dedicated home now:
             //   * Pan / Tilt → overlaid on the preview (grid readout).
             //   * Zoom       → next to the vertical zoom slider.
@@ -124,7 +124,7 @@ class HoldDirBtn extends StatefulWidget {
 ///   - On vertical drags (Up / Down on the 3×3 pad) the surrounding
 ///     `SingleChildScrollView` claimed the pointer once the user's
 ///     finger moved a few pixels, cancelling the press silently with
-///     no velocity actually delivered to the bridge — user reported
+///     no velocity actually delivered to the bridge  -  user reported
 ///     "up / down don't work".
 ///
 /// This rewrite uses a raw `Listener` directly on a `Material` surface
@@ -397,7 +397,7 @@ class _ZoomSliderState extends State<ZoomSlider> {
                 // 5 s, 30 s, 3 min) the bridge planner runs to that
                 // target. Sending a new value every 100 ms while
                 // dragging would cancel-and-restart the planner at
-                // each tick — lens motor stutters, never reaching
+                // each tick  -  lens motor stutters, never reaching
                 // the target. So: mid-drag is always *instant* so the
                 // lens follows your finger; the chosen move-duration
                 // is applied only on release (terminal=true below).

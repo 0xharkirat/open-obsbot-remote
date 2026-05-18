@@ -14,7 +14,7 @@ static std::atomic<bool> g_shutdown{false};
 
 static void on_signal(int) {
     g_shutdown = true;
-    // _Exit skips libdev's global destructors — they have a known crash
+    // _Exit skips libdev's global destructors  -  they have a known crash
     // on teardown that we'd rather not trigger in front of the user.
     std::_Exit(0);
 }
@@ -22,7 +22,7 @@ static void on_signal(int) {
 int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
-    // Ignore SIGPIPE — when a phone client closes its socket mid-write
+    // Ignore SIGPIPE  -  when a phone client closes its socket mid-write
     // (very common: page reload, switch tab, lock screen), the default
     // POSIX behaviour is to terminate the process. We want the bridge
     // to keep serving everyone else.
@@ -61,17 +61,17 @@ int main(int argc, char** argv) {
     // hold the camera at the same time.
     obs::VideoCapture video;
     if (!video.start()) {
-        obs::log("warn ", "video capture not available — preview disabled");
+        obs::log("warn ", "video capture not available  -  preview disabled");
     }
 
     // MJPEG preview server runs on the next port up (default 8766).
-    // Best-effort — if the port is busy (e.g. previous instance dying),
+    // Best-effort  -  if the port is busy (e.g. previous instance dying),
     // log + continue without preview rather than crash the whole bridge.
     obs::MjpegServer mjpeg;
     if (video.running()) {
         try {
             if (!mjpeg.start((uint16_t)(port + 1), &video, &auth)) {
-                obs::log("warn ", "mjpeg server failed to start (port busy?) — preview disabled");
+                obs::log("warn ", "mjpeg server failed to start (port busy?)  -  preview disabled");
             }
         } catch (const std::exception& e) {
             obs::log("error", "mjpeg server crashed: %s", e.what());

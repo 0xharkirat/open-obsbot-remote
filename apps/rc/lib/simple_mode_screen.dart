@@ -143,7 +143,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Text(
-                'Sequence — step ${s.sequence.stepIndex + 1}',
+                'Sequence  -  step ${s.sequence.stepIndex + 1}',
                 style: theme.textTheme.labelSmall,
               ),
               const SizedBox(height: 4),

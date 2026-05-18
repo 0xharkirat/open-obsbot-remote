@@ -16,10 +16,10 @@ class MainFlutterWindow: NSWindow {
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     // First-party tray (NativeTray.swift) replaces tray_manager for
-    // menu-item dispatch — see that file's header for the reasoning.
+    // menu-item dispatch  -  see that file's header for the reasoning.
     nativeTray = NativeTray(messenger: flutterViewController.engine.binaryMessenger)
 
-    // MethodChannel: obsbot.bridge/dock — lets Dart flip the dock
+    // MethodChannel: obsbot.bridge/dock  -  lets Dart flip the dock
     // activation policy at runtime. Handy-style hybrid model: when
     // the main window is hidden the bridge should switch to
     // .accessory (no dock icon), and back to .regular when shown.

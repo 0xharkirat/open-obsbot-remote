@@ -8,7 +8,7 @@ class AppDelegate: FlutterAppDelegate {
   // Closing the red dot just hides the window (windowManager
   // setPreventClose(true) + TrayController.onWindowClose handle the
   // intercept). Returning false here is also required for
-  // menubar-only mode — otherwise the missing window at launch is
+  // menubar-only mode  -  otherwise the missing window at launch is
   // misread as "last window closed" and the app quits immediately.
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return false
@@ -47,7 +47,7 @@ class AppDelegate: FlutterAppDelegate {
   //
   // The Handy-style dynamic flip (dock icon follows window visibility
   // once Flutter is up) is handled via the obsbot.bridge/dock
-  // MethodChannel in MainFlutterWindow.swift — Dart calls into the
+  // MethodChannel in MainFlutterWindow.swift  -  Dart calls into the
   // channel from windowManager show/hide events, see TrayController.
   //
   // Migration: v1.2.1 PR O used `bridge_menubar_only`; v1.2.1 PR R

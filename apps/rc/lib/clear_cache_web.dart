@@ -31,7 +31,7 @@ Future<void> clearAppCache() async {
     }
   } catch (_) {}
 
-  // 4) hard reload — fetches fresh index.html (no-cache header on it
+  // 4) hard reload  -  fetches fresh index.html (no-cache header on it
   //    means new main.dart.js hash kicks in immediately).
   web.window.location.reload();
 }

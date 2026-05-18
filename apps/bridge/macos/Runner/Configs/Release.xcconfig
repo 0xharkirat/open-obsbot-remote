@@ -2,7 +2,7 @@
 #include "Warnings.xcconfig"
 
 // Production bundle id (the one that ships in the release ZIP). The
-// matching dev id is in Debug.xcconfig — they intentionally differ
+// matching dev id is in Debug.xcconfig  -  they intentionally differ
 // so dev + prod can coexist on the same Mac with separate TCC
 // grants and NSUserDefaults domains.
 PRODUCT_BUNDLE_IDENTIFIER = com.harksingh.obsbotbridge

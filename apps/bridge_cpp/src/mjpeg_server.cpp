@@ -112,7 +112,7 @@ static void serve_client(int fd, VideoCapture* video, AuthStore* auth) {
             "Content-Type: text/plain\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             "Connection: close\r\n\r\n"
-            "video capture not running — check macOS camera permission";
+            "video capture not running  -  check macOS camera permission";
         send_all(fd, resp, std::strlen(resp));
         ::close(fd);
         return;
