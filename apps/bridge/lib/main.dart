@@ -109,7 +109,6 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
       supervisor.start(); // auto-start on launch
       _tray = TrayController(
         supervisor: supervisor,
-        onRevealPin: () => _revealRequest.value++,
         version: _kAppVersion,
       );
       _tray!.init();

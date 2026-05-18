@@ -121,7 +121,15 @@ class NativeTray: NSObject {
       let label = item["label"] as? String ?? ""
       let disabled = item["disabled"] as? Bool ?? false
       let key = item["key"] as? String ?? "__item_\(i)"
-      let mi = NSMenuItem(title: label, action: #selector(menuItemClicked(_:)), keyEquivalent: "")
+      // Optional macOS key equivalent (Cmd-Q, Cmd-O, etc). Dart side
+      // sends a 1-char string + an NSEventModifierFlags raw mask. Empty
+      // string = no shortcut (renders without a glyph on the right).
+      let keyEquiv = item["keyEquivalent"] as? String ?? ""
+      let modMask = item["keyEquivalentModifierMask"] as? Int ?? 0
+      let mi = NSMenuItem(title: label, action: #selector(menuItemClicked(_:)), keyEquivalent: keyEquiv)
+      if !keyEquiv.isEmpty && modMask != 0 {
+        mi.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: UInt(modMask))
+      }
       mi.target = self
       mi.isEnabled = !disabled
       // representedObject carries the Dart-supplied key back to us.

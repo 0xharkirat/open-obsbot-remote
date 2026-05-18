@@ -8,7 +8,8 @@ import 'bridge_prefs.dart';
 import 'bridge_supervisor.dart';
 import 'native_tray.dart';
 
-/// macOS menubar tray (v1.2 PR H, v1.2.1 PR R + S "Handy-style").
+/// macOS menubar tray (v1.2 PR H, v1.2.1 PR R + S "Handy-style",
+/// v1.4.1 simplification).
 ///
 /// PR S rewrite: dropped `tray_manager` in favour of a first-party
 /// NSStatusItem + NSMenu wrapper. The package's 0.5.2
@@ -20,6 +21,24 @@ import 'native_tray.dart';
 /// permanently and routes clicks through `@objc menuItemClicked:`
 /// straight to the `obsbot.bridge/tray` channel; rock-solid.
 ///
+/// v1.4.1 menu simplification: real users called the previous menu
+/// "confusing". The current menu is six items:
+///
+///   ● Camera connected · 2 phones     (disabled status line)
+///   ───────
+///   Pairing PIN  123456          ⌘C   (clickable; copies to clipboard)
+///   ───────
+///   Show main window             ⌘O
+///   Open log file
+///   ───────
+///   Quit                         ⌘Q
+///
+/// What we collapsed: version row (moved to About in Settings),
+/// separate "Copy PIN" + "Show PIN + QR" rows (PIN row IS the copy
+/// affordance now; QR/Reveal lives in the main window), "Restart
+/// bridge subprocess" (power-user, promote to Settings if anyone
+/// misses it).
+///
 /// Behaviour unchanged from the user's perspective:
 ///   - Bridge no longer needs the main window to stay alive. Closing
 ///     the window hides it; the bridge subprocess keeps running and
@@ -28,22 +47,18 @@ import 'native_tray.dart';
 ///     window. Hiding the window flips activation policy to
 ///     `.accessory` (no dock icon); showing it flips back to
 ///     `.regular`. Pattern lifted from Handy.
-///   - Tray carries Status, paired-phones count, version, and
-///     mirrors the live "Reveal PIN" gesture from the main window
-///     so the user can pair from any context without restoring the
-///     window.
 class TrayController with WindowListener implements NativeTrayListener {
   final BridgeSupervisor supervisor;
-  final VoidCallback onRevealPin;
-  /// App version label (e.g. "1.2.1"). Shown as the first, disabled
-  /// item in the tray menu — Handy-style at-a-glance build indicator.
+  /// App version label (e.g. "1.4.1"). No longer shown in the tray
+  /// menu after the v1.4.1 simplification — kept on the constructor
+  /// to avoid touching the call-site in main.dart and so callers can
+  /// still pass it through if they later want a tooltip variant.
   final String version;
   Timer? _refresh;
   bool _disposed = false;
 
   TrayController({
     required this.supervisor,
-    required this.onRevealPin,
     this.version = '',
   });
 
@@ -152,65 +167,84 @@ class TrayController with WindowListener implements NativeTrayListener {
   }
 
   Future<void> _rebuildMenu() async {
-    final running = supervisor.status == BridgeStatus.running;
+    // Build ONE status line that captures both camera state and phone
+    // count. The tray icon already encodes colour (green = camera OK,
+    // amber = no camera, red = error/stopped) so the text just has to
+    // be terse. Examples:
+    //
+    //   "Camera connected · 2 phones"
+    //   "No camera · 0 phones"
+    //   "Starting up…"
+    //   "Stopped"
+    //   "Error: bridge exited with code 1"
     final cameraOk = supervisor.cameraConnected;
-    final paired = supervisor.pairedTokenCount;
     final clients = supervisor.wsClientCount;
+    final phonesLabel = '$clients ${clients == 1 ? "phone" : "phones"}';
+    String statusLabel;
+    switch (supervisor.status) {
+      case BridgeStatus.running:
+        statusLabel = cameraOk
+            ? 'Camera connected  ·  $phonesLabel'
+            : 'No camera  ·  $phonesLabel';
+        break;
+      case BridgeStatus.starting:
+        statusLabel = 'Starting up…';
+        break;
+      case BridgeStatus.error:
+        statusLabel = 'Error: ${supervisor.lastError ?? "unknown"}';
+        break;
+      case BridgeStatus.stopped:
+        statusLabel = 'Stopped';
+        break;
+    }
+
+    // PIN line: clickable. Clicking copies the PIN to clipboard
+    // (Tailscale / Dropbox idiom — collapse "PIN: XXXXXX" + "Copy PIN"
+    // into a single affordance). The label ends with the standard
+    // macOS ⌘C glyph hint to make the action discoverable.
+    //
+    // When the PIN is not yet known (auth.json still being read or the
+    // bridge is starting up), show "Pairing PIN  ……" and keep the row
+    // disabled.
+    final hasPin = supervisor.pin.isNotEmpty;
+    final pinLabel = hasPin
+        ? 'Pairing PIN  ${supervisor.pin}'
+        : 'Pairing PIN  ……';
 
     final items = <NativeTrayItem>[
-      if (version.isNotEmpty)
-        NativeTrayItem(
-          key: 'version',
-          label: 'OBSBOT Bridge v$version',
-          disabled: true,
-        ),
-      if (version.isNotEmpty) const NativeTrayItem.separator(),
+      // Status. Disabled (NSMenu still renders, just non-clickable).
+      // This is the only "live" line — the tray icon's colour glyph
+      // says the same thing visually.
       NativeTrayItem(
         key: 'status',
-        label: running
-            ? (cameraOk
-                ? 'Status: Running (camera OK)'
-                : 'Status: Running (no camera)')
-            : (supervisor.status == BridgeStatus.error
-                ? 'Status: Error'
-                : 'Status: Stopped'),
-        disabled: true,
-      ),
-      NativeTrayItem(
-        key: 'clients',
-        label: '$clients phones connected ($paired paired)',
+        label: statusLabel,
         disabled: true,
       ),
       const NativeTrayItem.separator(),
-      // Pairing PIN, inline. Tailscale / Dropbox idiom: the most-used
-      // piece of info is one click away.
+      // The PIN row IS the copy affordance.
       NativeTrayItem(
-        key: 'pin_display',
-        label: supervisor.pin.isNotEmpty
-            ? 'Pairing PIN:  ${supervisor.pin}'
-            : 'Pairing PIN:  (generating…)',
-        disabled: true,
+        key: 'copy_pin',
+        label: pinLabel,
+        disabled: !hasPin,
+        keyEquivalent: hasPin ? 'c' : '',
       ),
-      if (supervisor.pin.isNotEmpty)
-        const NativeTrayItem(key: 'copy_pin', label: 'Copy PIN to clipboard'),
-      NativeTrayItem(
-        key: 'reveal_pin',
-        label: 'Show PIN + QR code in main window',
-        disabled: supervisor.pin.isEmpty,
-      ),
-      const NativeTrayItem(key: 'show_window', label: 'Show main window'),
       const NativeTrayItem.separator(),
+      const NativeTrayItem(
+        key: 'show_window',
+        label: 'Show main window',
+        keyEquivalent: 'o',
+      ),
       NativeTrayItem(
         key: 'open_log',
         label: 'Open log file',
         disabled: supervisor.logFilePath == null,
       ),
-      const NativeTrayItem(
-        key: 'restart_bridge',
-        label: 'Restart bridge subprocess',
-      ),
       const NativeTrayItem.separator(),
-      const NativeTrayItem(key: 'quit', label: 'Quit OBSBOT Bridge'),
+      const NativeTrayItem(
+        key: 'quit',
+        label: 'Quit',
+        keyEquivalent: 'q',
+      ),
     ];
     await NativeTray.setMenu(items);
   }
@@ -220,10 +254,6 @@ class TrayController with WindowListener implements NativeTrayListener {
   @override
   void onTrayMenuClick(String key) async {
     switch (key) {
-      case 'reveal_pin':
-        await _showAndFocus();
-        onRevealPin();
-        break;
       case 'copy_pin':
         if (supervisor.pin.isNotEmpty) {
           await Clipboard.setData(ClipboardData(text: supervisor.pin));
@@ -234,11 +264,6 @@ class TrayController with WindowListener implements NativeTrayListener {
         break;
       case 'open_log':
         supervisor.revealLogInFinder();
-        break;
-      case 'restart_bridge':
-        await supervisor.stop();
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        await supervisor.start();
         break;
       case 'quit':
         await supervisor.stop();
