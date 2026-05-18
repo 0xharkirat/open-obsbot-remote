@@ -319,7 +319,6 @@ class _HomeScreenState extends State<HomeScreen> {
   /// SnackBar overlay, AlertDialog) still find a Material ancestor when
   /// they paint inside the MacosScaffold.
   Widget _buildBody(BuildContext context, ScrollController scrollController) {
-    final theme = Theme.of(context);
     return Material(
       type: MaterialType.transparency,
       child: SingleChildScrollView(
@@ -366,68 +365,17 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 6),
             _revealCard(context),
             if (lanIps.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: Text('— offline (no Wi-Fi) —'),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'Offline - no Wi-Fi network detected.',
+                  style: MacosTheme.of(context).typography.subheadline.copyWith(
+                    color: MacosColors.systemGrayColor,
+                  ),
+                ),
               ),
             const SizedBox(height: 20),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Text('Bridge log', style: theme.textTheme.titleSmall),
-                const Spacer(),
-                if (supervisor.logFilePath != null) ...<Widget>[
-                  Flexible(
-                    child: Text(
-                      supervisor.logFilePath!.replaceAll(
-                        Platform.environment['HOME'] ?? '',
-                        '~',
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'Menlo',
-                        fontSize: 10,
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                    ),
-                    icon: const Icon(Icons.folder_open, size: 14),
-                    label: const Text('Reveal'),
-                    onPressed: supervisor.revealLogInFinder,
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 220,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: ListView.builder(
-                  itemCount: supervisor.logTail.length,
-                  itemBuilder: (BuildContext ctx, int i) {
-                    return SelectableText(
-                      supervisor.logTail[i],
-                      style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
-                    );
-                  },
-                ),
-              ),
-            ),
+            _logSection(context),
             const AppFooter(),
           ],
         ),
@@ -435,71 +383,199 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _revealCard(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    if (!_revealed) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: <Widget>[
-            Icon(Icons.lock_outline, color: theme.colorScheme.outline),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Pairing PIN + QR hidden.\nReveal only when a phone is in front of you.',
-                style: TextStyle(
-                  color: theme.colorScheme.outline,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            FilledButton.icon(
-              icon: const Icon(Icons.visibility, size: 16),
-              label: const Text('Reveal'),
-              onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
-            ),
-          ],
-        ),
-      );
-    }
+  /// "Bridge log" section header with reveal-in-Finder action, plus the
+  /// scrollable monospace log box, all wrapped in the same group-card
+  /// chrome as the Status section above.
+  Widget _logSection(BuildContext ctx) {
+    final macosTheme = MacosTheme.of(ctx);
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    final mutedColor = isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            Expanded(child: _pinBlock(ctx)),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.visibility_off, size: 14),
-              label: const Text('Hide'),
-              onPressed: _toggleReveal,
-            ),
-          ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                'BRIDGE LOG',
+                style: macosTheme.typography.caption1.copyWith(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                  color: mutedColor,
+                ),
+              ),
+              const Spacer(),
+              if (supervisor.logFilePath != null) ...<Widget>[
+                Flexible(
+                  child: Text(
+                    supervisor.logFilePath!.replaceAll(
+                      Platform.environment['HOME'] ?? '',
+                      '~',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Menlo',
+                      fontSize: 10,
+                      color: mutedColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                PushButton(
+                  controlSize: ControlSize.small,
+                  secondary: true,
+                  onPressed: supervisor.revealLogInFinder,
+                  child: const Text('Reveal'),
+                ),
+              ],
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
-        Text('Connect from your phone to:', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 4),
-        if (lanIps.isNotEmpty) _qrCard(ctx, lanIps.first),
-        ...lanIps.map((ip) => _ipPill(ctx, '$ip:8765')),
-        const SizedBox(height: 4),
-        Text(
-          'Auto-hides in 60 seconds',
-          style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+        const SizedBox(height: 6),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: isDark
+                ? const Color(0xFF1C1C1E)
+                : const Color(0xFFF6F6F8),
+            borderRadius: const BorderRadius.all(Radius.circular(8)),
+            border: Border.all(
+              color: isDark
+                  ? const Color(0x1FFFFFFF)
+                  : const Color(0x14000000),
+              width: 0.5,
+            ),
+          ),
+          child: SizedBox(
+            height: 220,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              child: ListView.builder(
+                itemCount: supervisor.logTail.length,
+                itemBuilder: (BuildContext ctx, int i) {
+                  return SelectableText(
+                    supervisor.logTail[i],
+                    style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+                  );
+                },
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
 
+  Widget _revealCard(BuildContext ctx) {
+    final macosTheme = MacosTheme.of(ctx);
+    final mutedColor = MacosTheme.brightnessOf(ctx).isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
+    if (!_revealed) {
+      return _groupCard(ctx, <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
+            children: <Widget>[
+              MacosIcon(
+                CupertinoIcons.lock_fill,
+                color: mutedColor,
+                size: 18,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      'PIN and QR hidden',
+                      style: macosTheme.typography.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Reveal only when a phone is in front of you.',
+                      style: macosTheme.typography.subheadline.copyWith(
+                        color: mutedColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              PushButton(
+                controlSize: ControlSize.regular,
+                onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
+                child: const Text('Reveal'),
+              ),
+            ],
+          ),
+        ),
+      ]);
+    }
+    return _groupCard(ctx, <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+        child: Row(
+          children: <Widget>[
+            Expanded(child: _pinBlock(ctx)),
+            const SizedBox(width: 12),
+            PushButton(
+              controlSize: ControlSize.regular,
+              secondary: true,
+              onPressed: _toggleReveal,
+              child: const Text('Hide'),
+            ),
+          ],
+        ),
+      ),
+      if (lanIps.isNotEmpty) ...<Widget>[
+        _divider(ctx),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Connect from your phone to',
+                style: macosTheme.typography.body.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _qrCard(ctx, lanIps.first),
+              for (final ip in lanIps.skip(1)) _ipPill(ctx, '$ip:8765'),
+              const SizedBox(height: 8),
+              Text(
+                'Auto-hides in 60 seconds',
+                style: macosTheme.typography.caption1.copyWith(
+                  color: mutedColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ]);
+  }
+
   Widget _qrCard(BuildContext ctx, String firstIp) {
     final url = 'http://$firstIp:8765/';
-    final theme = Theme.of(ctx);
+    final macosTheme = MacosTheme.of(ctx);
+    final mutedColor = MacosTheme.brightnessOf(ctx).isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -528,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              // URL under QR — type if scanning is slow
+              // URL under QR - type if scanning is slow
               SelectableText(
                 url,
                 style: const TextStyle(
@@ -537,17 +613,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 2),
-              TextButton.icon(
-                icon: const Icon(Icons.copy, size: 14),
-                label: const Text('Copy URL'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                ),
+              const SizedBox(height: 4),
+              PushButton(
+                controlSize: ControlSize.small,
+                secondary: true,
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: url));
                   ScaffoldMessenger.of(ctx).showSnackBar(
@@ -557,6 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                 },
+                child: const Text('Copy URL'),
               ),
             ],
           ),
@@ -569,17 +639,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   Text(
                     'Scan or type the URL on any phone to open the web remote.',
-                    style: TextStyle(
-                      color: theme.colorScheme.outline,
-                      fontSize: 12,
+                    style: macosTheme.typography.subheadline.copyWith(
+                      color: mutedColor,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     'After the page loads, type the 6-digit PIN above to pair.',
-                    style: TextStyle(
-                      color: theme.colorScheme.outline,
-                      fontSize: 11,
+                    style: macosTheme.typography.caption1.copyWith(
+                      color: mutedColor,
                       fontStyle: FontStyle.italic,
                     ),
                   ),
@@ -593,99 +661,88 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _pinBlock(BuildContext ctx) {
-    final theme = Theme.of(ctx);
+    final macosTheme = MacosTheme.of(ctx);
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    final mutedColor = isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
     if (supervisor.pin.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          'Pairing PIN — generated on first launch',
-          style: TextStyle(color: theme.colorScheme.outline),
-        ),
+      return Text(
+        'Pairing PIN - generated on first launch',
+        style: macosTheme.typography.body.copyWith(color: mutedColor),
       );
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                'Pairing PIN',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onPrimaryContainer.withValues(
-                    alpha: 0.7,
-                  ),
-                ),
+    return Row(
+      children: <Widget>[
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'PAIRING PIN',
+              style: macosTheme.typography.caption1.copyWith(
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+                color: mutedColor,
               ),
-              const SizedBox(height: 2),
-              SelectableText(
-                supervisor.pin,
-                style: TextStyle(
-                  fontFamily: 'Menlo',
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 6,
-                  color: theme.colorScheme.onPrimaryContainer,
-                ),
+            ),
+            const SizedBox(height: 4),
+            SelectableText(
+              supervisor.pin,
+              style: const TextStyle(
+                fontFamily: 'Menlo',
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 6,
               ),
-            ],
-          ),
-          const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                '${supervisor.pairedTokenCount} paired',
-                style: theme.textTheme.labelSmall,
+            ),
+          ],
+        ),
+        const Spacer(),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              '${supervisor.pairedTokenCount} paired',
+              style: macosTheme.typography.caption1.copyWith(
+                color: mutedColor,
               ),
-              const SizedBox(height: 4),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.refresh, size: 14),
-                label: const Text('Reset pairing'),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: () async {
-                  final ok = await showDialog<bool>(
-                    context: ctx,
-                    builder: (BuildContext c) => AlertDialog(
-                      title: const Text('Reset pairing?'),
-                      content: const Text(
-                        'This deletes the PIN and revokes every paired phone. '
-                        'A new PIN will be generated. Each phone has to re-enter it.',
-                      ),
-                      actions: <Widget>[
-                        TextButton(
-                          onPressed: () => Navigator.of(c).pop(false),
-                          child: const Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.of(c).pop(true),
-                          child: const Text('Reset'),
-                        ),
-                      ],
+            ),
+            const SizedBox(height: 6),
+            PushButton(
+              controlSize: ControlSize.small,
+              secondary: true,
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: ctx,
+                  builder: (BuildContext c) => AlertDialog(
+                    title: const Text('Reset pairing?'),
+                    content: const Text(
+                      'This deletes the PIN and revokes every paired phone. '
+                      'A new PIN will be generated. Each phone has to re-enter it.',
                     ),
-                  );
-                  if (ok == true) {
-                    await supervisor.resetPairing();
-                  }
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
+                    actions: <Widget>[
+                      TextButton(
+                        onPressed: () => Navigator.of(c).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(c).pop(true),
+                        child: const Text('Reset'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  await supervisor.resetPairing();
+                }
+              },
+              child: const Text('Reset pairing'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1140,13 +1197,6 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              '  ',
-              style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
-            ),
-          ),
           Expanded(
             child: SelectableText(
               hostPort,
@@ -1157,9 +1207,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Copy',
-            icon: const Icon(Icons.copy, size: 16),
+          MacosIconButton(
+            backgroundColor: Colors.transparent,
+            icon: MacosIcon(
+              CupertinoIcons.doc_on_clipboard,
+              color: MacosTheme.brightnessOf(ctx).isDark
+                  ? MacosColors.systemGrayColor
+                  : const MacosColor(0xff6E6E73),
+              size: 14,
+            ),
+            semanticLabel: 'Copy URL',
             onPressed: () {
               Clipboard.setData(ClipboardData(text: hostPort));
             },
