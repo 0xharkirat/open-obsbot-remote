@@ -85,7 +85,7 @@ Future<void> main() async {
 /// Hardcoded for now; mirrors `version:` in `apps/bridge/pubspec.yaml`.
 /// `package_info_plus` would let us read it at runtime but it adds a
 /// dependency for a single string. Update both places at release time.
-const String _kAppVersion = '1.4.0';
+const String _kAppVersion = '1.4.1';
 
 class ObsbotBridgeApp extends StatefulWidget {
   final BridgePrefs prefs;

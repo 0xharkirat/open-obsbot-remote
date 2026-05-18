@@ -4,6 +4,62 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-18
+
+Bridge UI polish on v1.4.0. Two worktree branches (W1 + W2) plus
+small visual fixes after live screenshot review.
+
+### Added
+
+- **Bridge HomeScreen rewritten with `macos_ui` widgets** (W1).
+  `MacosScaffold` + `ToolBar` + native-shaped status group card.
+  Hero status banner, sectioned Status + Pairing + Bridge log.
+  Reads as a Mac app, not a debug console.
+- **App logo in the toolbar title.** 22 px rounded OBSBOT icon
+  next to the "OBSBOT Bridge" text.
+- **`informational: true` flag on the status row helper.** Swaps
+  the leading dot for an info-circle icon. Used on the firewall
+  row because we can't measure firewall state from a
+  non-privileged app - the row is a hint, not a status.
+
+### Fixed
+
+- **Tray menu simplified** (W2). 12 items collapsed to 6: single
+  live status line, clickable PIN row with `⌘C`, Show main window
+  (`⌘O`), Open log file, Quit (`⌘Q`). Dropped version line,
+  separate clients row, "Copy PIN to clipboard", "Show PIN + QR",
+  "Restart bridge subprocess".
+- **Camera-connected status reflects AVFoundation, not just libdev**
+  (W2). On a hot-replug, libdev sometimes misses the plug event
+  and `snap_.connected` sticks at false even though AVFoundation
+  grabbed the camera. `cameraConnected` now returns
+  `_cameraConnected || _videoRunning`; the `_videoRunning` flag
+  is parsed from the bridge log's `video: capture session started`
+  line. `detectedModel` falls back to the log's
+  `using device '<name>'` string.
+- **Em dashes (`—`) stripped repo-wide.** ~80 instances across
+  Dart, Swift, C++, Markdown, shell. CLAUDE.md has had the
+  "plain hyphen surrounded by spaces" rule since v1.1; v1.4.1
+  finally enforces it.
+- **Action-button padding bumped** from `ControlSize.small` to
+  `ControlSize.regular` on the firewall row "Open Firewall
+  Settings", camera permission row "Open Settings" + "Reset &
+  retry", and pairing "Reset pairing" buttons.
+- **Firewall deep-link targets Network pane on macOS Sonoma+.**
+  Legacy URL `com.apple.preference.security?Firewall` silently
+  dropped the `?Firewall` fragment on modern macOS and landed
+  on Privacy & Security root. Now opens
+  `com.apple.Network-Settings.extension` first, falls back to
+  the legacy URL for older macOS.
+- **Settings dialog About footer collapsed to one inline GitHub
+  link.** The trio of link buttons overflowed past the
+  AlertDialog's Close button. Replaced with `by Hark Singh with
+  OBSBOT SDK + Flutter [↗ GitHub]`.
+- **Firewall row moved to last position in Status group**, since
+  it's a hint not a measurement.
+- **Bridge log "Reveal" button says "Open"** (it opens the file in
+  Console, not reveals a Finder folder).
+
 ## [1.4.0] - 2026-05-18
 
 Big release. Skips v1.3 (the in-flight v1.3-polish PR was rolled
