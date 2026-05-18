@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter/cupertino.dart' show CupertinoColors, CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
@@ -328,41 +328,42 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Row(
-              children: <Widget>[
-                Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: _statusColor(context),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _statusLabel(),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _cameraPermissionRow(context),
-            _firewallRow(context),
-            _row(
-              context,
-              'Camera',
-              supervisor.cameraConnected
-                  ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
-                  : '— none plugged in —',
-            ),
-            _row(
-              context,
-              'Phone clients connected',
-              '${supervisor.wsClientCount}  (${supervisor.pairedTokenCount} paired)',
-            ),
-            const SizedBox(height: 16),
+            // Hero status row - oversized dot + native macos_ui title
+            // typography. Lives outside the Status group so it reads as
+            // a banner rather than a row.
+            _statusBanner(context),
+            const SizedBox(height: 18),
+            _sectionHeader(context, 'Status'),
+            const SizedBox(height: 6),
+            _groupCard(context, <Widget>[
+              _cameraPermissionRow(context),
+              _divider(context),
+              _firewallRow(context),
+              _divider(context),
+              _statusRow(
+                context,
+                title: 'Camera',
+                subtitle: supervisor.cameraConnected
+                    ? '${supervisor.detectedModel}  -  ${supervisor.detectedSn}'
+                    : 'Not detected',
+                dotColor: supervisor.cameraConnected
+                    ? CupertinoColors.systemGreen
+                    : MacosColors.systemGrayColor,
+              ),
+              _divider(context),
+              _statusRow(
+                context,
+                title: 'Phone clients connected',
+                subtitle:
+                    '${supervisor.wsClientCount} active  ·  ${supervisor.pairedTokenCount} paired',
+                dotColor: supervisor.wsClientCount > 0
+                    ? CupertinoColors.systemGreen
+                    : MacosColors.systemGrayColor,
+              ),
+            ]),
+            const SizedBox(height: 18),
+            _sectionHeader(context, 'Pairing'),
+            const SizedBox(height: 6),
             _revealCard(context),
             if (lanIps.isEmpty)
               const Padding(
@@ -688,145 +689,221 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ---- v1.4.1 macos_ui status section helpers ----
+
+  /// Hero banner above the Status group. Big status dot + title3
+  /// typography in MacosTheme. Reads as a glanceable indicator rather
+  /// than just another row.
+  Widget _statusBanner(BuildContext ctx) {
+    final macosTheme = MacosTheme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: _statusColor(ctx),
+              shape: BoxShape.circle,
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: _statusColor(ctx).withValues(alpha: 0.5),
+                  blurRadius: 6,
+                  spreadRadius: 0,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _statusLabel(),
+              style: macosTheme.typography.title3.copyWith(
+                fontWeight: MacosFontWeight.w590,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Section header above a grouped list (Status / Pairing / etc.).
+  /// SF-style: caps + tighter tracking + muted color.
+  Widget _sectionHeader(BuildContext ctx, String label) {
+    final macosTheme = MacosTheme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Text(
+        label.toUpperCase(),
+        style: macosTheme.typography.caption1.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
+          color: MacosTheme.brightnessOf(ctx).isDark
+              ? MacosColors.systemGrayColor
+              : const MacosColor(0xff6E6E73),
+        ),
+      ),
+    );
+  }
+
+  /// Card container that groups a list of rows with a subtle background
+  /// + rounded corners, matching the System Settings group style.
+  Widget _groupCard(BuildContext ctx, List<Widget> children) {
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0x14FFFFFF)
+            : MacosColors.controlBackgroundColor.color,
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        border: Border.all(
+          color: isDark
+              ? const Color(0x1FFFFFFF)
+              : const Color(0x14000000),
+          width: 0.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+
+  /// 1px inset divider between rows in a [_groupCard].
+  Widget _divider(BuildContext ctx) {
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    return Padding(
+      padding: const EdgeInsets.only(left: 36),
+      child: Container(
+        height: 0.5,
+        color: isDark
+            ? const Color(0x1FFFFFFF)
+            : const Color(0x14000000),
+      ),
+    );
+  }
+
+  /// Generic status row inside [_groupCard]. Status dot (leading),
+  /// title (bold), subtitle (muted), optional trailing action.
+  Widget _statusRow(
+    BuildContext ctx, {
+    required String title,
+    required String subtitle,
+    required Color dotColor,
+    Widget? trailing,
+  }) {
+    final macosTheme = MacosTheme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: macosTheme.typography.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: macosTheme.typography.subheadline.copyWith(
+                    color: MacosTheme.brightnessOf(ctx).isDark
+                        ? MacosColors.systemGrayColor
+                        : const MacosColor(0xff6E6E73),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) ...<Widget>[
+            const SizedBox(width: 8),
+            trailing,
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _cameraPermissionRow(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    String label;
+    String title;
+    String subtitle;
     Color dot;
     Widget? trailing;
     switch (supervisor.cameraPermission) {
       case CameraPermission.granted:
-        label = 'Granted';
-        dot = Colors.green;
+        title = 'Camera permission';
+        subtitle = 'Granted';
+        dot = CupertinoColors.systemGreen;
         break;
       case CameraPermission.denied:
-        label = 'Denied — click "Open Settings" and turn on OBSBOT Bridge';
-        dot = theme.colorScheme.error;
+        title = 'Camera permission';
+        subtitle = 'Denied - turn on OBSBOT Bridge in System Settings';
+        dot = CupertinoColors.systemRed;
         trailing = Wrap(
           spacing: 6,
           children: <Widget>[
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-              ),
-              icon: const Icon(Icons.settings, size: 14),
-              label: const Text('Open Settings'),
+            PushButton(
+              controlSize: ControlSize.small,
+              secondary: true,
               onPressed: supervisor.openSystemCameraSettings,
+              child: const Text('Open Settings'),
             ),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-              ),
-              icon: const Icon(Icons.refresh, size: 14),
-              label: const Text('Reset & retry'),
+            PushButton(
+              controlSize: ControlSize.small,
+              secondary: true,
               onPressed: () async {
                 await supervisor.resetCameraPermissionAndRestart();
               },
+              child: const Text('Reset & retry'),
             ),
           ],
         );
         break;
       case CameraPermission.noCamera:
-        label = 'Granted (no camera detected yet)';
-        dot = Colors.amber;
+        title = 'Camera permission';
+        subtitle = 'Granted (no camera detected yet)';
+        dot = CupertinoColors.systemYellow;
         break;
       case CameraPermission.unknown:
-        label = 'Not determined yet';
-        dot = theme.colorScheme.outline;
+        title = 'Camera permission';
+        subtitle = 'Not determined yet';
+        dot = MacosColors.systemGrayColor;
         break;
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              'Camera permission',
-              style: TextStyle(color: theme.colorScheme.outline),
-            ),
-          ),
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          ?trailing,
-        ],
-      ),
+    return _statusRow(
+      ctx,
+      title: title,
+      subtitle: subtitle,
+      dotColor: dot,
+      trailing: trailing,
     );
   }
 
   Widget _firewallRow(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              'Network firewall',
-              style: TextStyle(color: theme.colorScheme.outline),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              'If phones cannot connect, allow incoming connections below.',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            ),
-            icon: const Icon(Icons.security, size: 14),
-            label: const Text('Open Firewall Settings'),
-            onPressed: supervisor.openSystemFirewallSettings,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(BuildContext ctx, String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              k,
-              style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              v,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
+    return _statusRow(
+      ctx,
+      title: 'Network firewall',
+      subtitle: 'If phones cannot connect, allow incoming connections.',
+      dotColor: MacosColors.systemGrayColor,
+      trailing: PushButton(
+        controlSize: ControlSize.small,
+        secondary: true,
+        onPressed: supervisor.openSystemFirewallSettings,
+        child: const Text('Open Settings'),
       ),
     );
   }
