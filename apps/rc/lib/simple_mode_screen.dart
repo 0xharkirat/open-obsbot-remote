@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'cache_menu.dart';
 import 'footer.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
+import 'widgets/app_bar_actions.dart';
 import 'ws_client.dart';
 
 /// Performer-mode UI: live preview at the top + a grid of named preset
@@ -37,13 +37,17 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         return Scaffold(
           appBar: AppBar(
             title: Text(s.modelDisplay.isEmpty ? 'Open OBSBOT Remote' : s.modelDisplay),
+            // Standard 4 icons + overflow: mesh / sequencer / mode / speed.
+            // Disconnect + Clear cache live in the 3-dot overflow.
             actions: <Widget>[
-              _speedMenu(context),
+              GridOverlayMenu(client: client),
               IconButton(
-                tooltip: 'Sequence',
-                icon: Icon(s.sequence.running
-                    ? Icons.timer
-                    : Icons.timer_outlined),
+                tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
+                icon: Icon(
+                  s.sequence.running
+                      ? Icons.multiline_chart
+                      : Icons.timeline,
+                ),
                 onPressed: () {
                   Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => SequencerScreen(client: client),
@@ -55,12 +59,8 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
                 icon: const Icon(Icons.tune),
                 onPressed: widget.onSwitchAdvanced,
               ),
-              IconButton(
-                tooltip: 'Disconnect',
-                icon: const Icon(Icons.logout),
-                onPressed: () => client.close(),
-              ),
-              CacheMenu(onCleared: () => client.close()),
+              _speedMenu(context),
+              AppBarOverflowMenu(client: client),
             ],
           ),
           body: SafeArea(

@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'cache_menu.dart';
 import 'sequencer_screen.dart';
 import 'tab_shell.dart';
+import 'widgets/app_bar_actions.dart';
 import 'ws_client.dart';
 
 class ControlScreen extends StatefulWidget {
@@ -42,18 +42,12 @@ class _ControlScreenState extends State<ControlScreen> {
         return Scaffold(
           appBar: AppBar(
             title: Text('${s.modelDisplay} • ${s.sn.isEmpty ? '...' : s.sn}'),
+            // Standard 3 icons + overflow: mesh / sequencer / mode.
+            // Speed lives in the bottom chip strip on each tab; no
+            // need to mirror in the AppBar. Disconnect + Clear cache
+            // live in the 3-dot overflow.
             actions: <Widget>[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Center(
-                  child: Text('${widget.client.lastLatencyMs} ms'),
-                ),
-              ),
-              // Move-duration is controlled by the chip strip at the
-              // bottom of every advanced-mode tab — no need to mirror
-              // it in the AppBar. Simple mode (which has no chips)
-              // still surfaces the popup in its own AppBar.
-              _gridMenu(context),
+              GridOverlayMenu(client: widget.client),
               IconButton(
                 tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
                 icon: Icon(
@@ -73,12 +67,7 @@ class _ControlScreenState extends State<ControlScreen> {
                   icon: const Icon(Icons.dashboard_customize),
                   onPressed: widget.onSwitchSimple,
                 ),
-              IconButton(
-                tooltip: 'Disconnect',
-                icon: const Icon(Icons.logout),
-                onPressed: () => widget.client.close(),
-              ),
-              CacheMenu(onCleared: () => widget.client.close()),
+              AppBarOverflowMenu(client: widget.client),
             ],
           ),
           body: SafeArea(
@@ -98,51 +87,8 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
-  Widget _gridMenu(BuildContext ctx) {
-    return PopupMenuButton<String>(
-      tooltip: 'Grid overlay',
-      icon: const Icon(Icons.grid_on),
-      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
-        CheckedPopupMenuItem<String>(
-          value: 'crosshair',
-          checked: widget.client.gridCrosshair,
-          child: const Text('Center crosshair'),
-        ),
-        CheckedPopupMenuItem<String>(
-          value: 'center',
-          checked: widget.client.gridCenterLines,
-          // Renamed in the live-test feedback round: the "center lines"
-          // are no longer static — they translate with yaw / pitch and
-          // rotate with roll, like an aircraft attitude indicator. Use
-          // the airplane glyph so the menu hints at the new behavior.
-          child: const Text('Attitude indicator (steer to align)'),
-        ),
-        CheckedPopupMenuItem<String>(
-          value: 'thirds',
-          checked: widget.client.gridThirds,
-          child: const Text('Rule of thirds'),
-        ),
-        CheckedPopupMenuItem<String>(
-          value: 'readout',
-          checked: widget.client.gridReadout,
-          child: const Text('Pan / Tilt readout'),
-        ),
-      ],
-      onSelected: (v) {
-        switch (v) {
-          case 'crosshair':
-            widget.client.setGridCrosshair(!widget.client.gridCrosshair);
-          case 'center':
-            widget.client.setGridCenterLines(!widget.client.gridCenterLines);
-          case 'thirds':
-            widget.client.setGridThirds(!widget.client.gridThirds);
-          case 'readout':
-            widget.client.setGridReadout(!widget.client.gridReadout);
-        }
-      },
-    );
-  }
-
+  // Grid menu extracted to widgets/app_bar_actions.dart so simple +
+  // advanced share the same toggles.
 }
 
 // ----------------------------------------------------------------------------
