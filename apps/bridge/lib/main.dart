@@ -345,15 +345,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('Bridge log', style: theme.textTheme.titleSmall),
                 const Spacer(),
                 if (supervisor.logFilePath != null) ...<Widget>[
-                  Text(
-                    supervisor.logFilePath!.replaceAll(
-                      Platform.environment['HOME'] ?? '',
-                      '~',
-                    ),
-                    style: TextStyle(
-                      fontFamily: 'Menlo',
-                      fontSize: 10,
-                      color: theme.colorScheme.outline,
+                  Flexible(
+                    child: Text(
+                      supervisor.logFilePath!.replaceAll(
+                        Platform.environment['HOME'] ?? '',
+                        '~',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'Menlo',
+                        fontSize: 10,
+                        color: theme.colorScheme.outline,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -727,6 +731,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
@@ -752,6 +758,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: Text(
               'If phones cannot connect, allow incoming connections below.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),

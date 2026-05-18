@@ -260,7 +260,11 @@ class WsClient extends ChangeNotifier {
           _send({'action': 'subscribe', 'id': _id()});
           _pendingPair!.complete(true);
         } else {
-          _lastAuthError = j['msg'] as String? ?? 'wrong PIN';
+          // Friendly copy. We deliberately discard `j['msg']` here too -
+          // the server hint is internal protocol detail; the user just
+          // needs to know the PIN was wrong and where to look for it.
+          _lastAuthError =
+              "That PIN didn't match. Check the bridge window and try again.";
           _pendingPair!.complete(false);
         }
         _pendingPair = null;
@@ -282,7 +286,14 @@ class WsClient extends ChangeNotifier {
         }
       } else if (j['type'] == 'ack' && j['err'] == 'auth_required') {
         _needsPairing = true;
-        _lastAuthError = j['msg'] as String?;
+        // Discard the server hint (`msg`) here. The bridge sends a
+        // developer-facing protocol prompt like
+        // `send {action:'pair', pin:<6-digit>}` which is correct for an
+        // SDK consumer but reads as a JSON-ish red error to a phone user
+        // arriving at the pair screen. Entering the pair screen is a
+        // state transition, not a failure - keep the error slot empty
+        // until the user actually submits a wrong PIN.
+        _lastAuthError = null;
         notifyListeners();
       } else if (j['type'] == 'ack' && j['ok'] == false) {
         final msg = j['msg'];
