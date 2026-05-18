@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
@@ -268,32 +269,62 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
+    // v1.4.1 native-shape rewrite. Outer chrome is now MacosScaffold +
+    // ToolBar (AppKit-style title bar buttons + sectioned content) so
+    // the window reads as a real Mac app instead of "Flutter debug
+    // console". Body content still uses Material widgets inside the
+    // ContentArea - SnackBar (URL copied), AlertDialog (Reset pairing,
+    // Settings) and the log monospace box keep their existing
+    // semantics. The MaterialApp wrapper above us provides the
+    // Localizations + Material context they need.
+    final isRunning = supervisor.status == BridgeStatus.running;
+    return MacosScaffold(
+      toolBar: ToolBar(
         title: const Text('OBSBOT Bridge'),
-        actions: <Widget>[
-          if (supervisor.status == BridgeStatus.running)
-            IconButton(
-              tooltip: 'Stop bridge',
-              icon: const Icon(Icons.stop_circle_outlined),
-              onPressed: supervisor.stop,
-            )
-          else
-            IconButton(
-              tooltip: 'Start bridge',
-              icon: const Icon(Icons.play_circle_outline),
-              onPressed: supervisor.start,
+        titleWidth: 180,
+        actions: <ToolbarItem>[
+          ToolBarIconButton(
+            label: isRunning ? 'Stop' : 'Start',
+            icon: MacosIcon(
+              isRunning
+                  ? CupertinoIcons.stop_circle
+                  : CupertinoIcons.play_circle,
             ),
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
+            onPressed: isRunning ? supervisor.stop : supervisor.start,
+            showLabel: false,
+            tooltipMessage: isRunning ? 'Stop bridge' : 'Start bridge',
+          ),
+          ToolBarIconButton(
+            label: 'Settings',
+            icon: const MacosIcon(CupertinoIcons.gear),
             onPressed: _showSettings,
+            showLabel: false,
+            tooltipMessage: 'Settings',
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+      children: <Widget>[
+        ContentArea(
+          builder: (BuildContext context, ScrollController scrollController) {
+            return _buildBody(context, scrollController);
+          },
+        ),
+      ],
+    );
+  }
+
+  /// Body content for the [ContentArea]. Split out so the build() method
+  /// stays scoped to the shell. The Material wrapper is required so the
+  /// Material-flavoured rows below (TextButton, IconButton, Card chrome,
+  /// SnackBar overlay, AlertDialog) still find a Material ancestor when
+  /// they paint inside the MacosScaffold.
+  Widget _buildBody(BuildContext context, ScrollController scrollController) {
+    final theme = Theme.of(context);
+    return Material(
+      type: MaterialType.transparency,
+      child: SingleChildScrollView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
