@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/cupertino.dart' show CupertinoColors, CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
@@ -268,134 +269,113 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
+    // v1.4.1 native-shape rewrite. Outer chrome is now MacosScaffold +
+    // ToolBar (AppKit-style title bar buttons + sectioned content) so
+    // the window reads as a real Mac app instead of "Flutter debug
+    // console". Body content still uses Material widgets inside the
+    // ContentArea - SnackBar (URL copied), AlertDialog (Reset pairing,
+    // Settings) and the log monospace box keep their existing
+    // semantics. The MaterialApp wrapper above us provides the
+    // Localizations + Material context they need.
+    final isRunning = supervisor.status == BridgeStatus.running;
+    return MacosScaffold(
+      toolBar: ToolBar(
         title: const Text('OBSBOT Bridge'),
-        actions: <Widget>[
-          if (supervisor.status == BridgeStatus.running)
-            IconButton(
-              tooltip: 'Stop bridge',
-              icon: const Icon(Icons.stop_circle_outlined),
-              onPressed: supervisor.stop,
-            )
-          else
-            IconButton(
-              tooltip: 'Start bridge',
-              icon: const Icon(Icons.play_circle_outline),
-              onPressed: supervisor.start,
+        titleWidth: 180,
+        actions: <ToolbarItem>[
+          ToolBarIconButton(
+            label: isRunning ? 'Stop' : 'Start',
+            icon: MacosIcon(
+              isRunning
+                  ? CupertinoIcons.stop_circle
+                  : CupertinoIcons.play_circle,
             ),
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
+            onPressed: isRunning ? supervisor.stop : supervisor.start,
+            showLabel: false,
+            tooltipMessage: isRunning ? 'Stop bridge' : 'Start bridge',
+          ),
+          ToolBarIconButton(
+            label: 'Settings',
+            icon: const MacosIcon(CupertinoIcons.gear),
             onPressed: _showSettings,
+            showLabel: false,
+            tooltipMessage: 'Settings',
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+      children: <Widget>[
+        ContentArea(
+          builder: (BuildContext context, ScrollController scrollController) {
+            return _buildBody(context, scrollController);
+          },
+        ),
+      ],
+    );
+  }
+
+  /// Body content for the [ContentArea]. Split out so the build() method
+  /// stays scoped to the shell. The Material wrapper is required so the
+  /// Material-flavoured rows below (TextButton, IconButton, Card chrome,
+  /// SnackBar overlay, AlertDialog) still find a Material ancestor when
+  /// they paint inside the MacosScaffold.
+  Widget _buildBody(BuildContext context, ScrollController scrollController) {
+    return Material(
+      type: MaterialType.transparency,
+      child: SingleChildScrollView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Row(
-              children: <Widget>[
-                Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: _statusColor(context),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _statusLabel(),
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _cameraPermissionRow(context),
-            _firewallRow(context),
-            _row(
-              context,
-              'Camera',
-              supervisor.cameraConnected
-                  ? '${supervisor.detectedModel}  •  ${supervisor.detectedSn}'
-                  : '— none plugged in —',
-            ),
-            _row(
-              context,
-              'Phone clients connected',
-              '${supervisor.wsClientCount}  (${supervisor.pairedTokenCount} paired)',
-            ),
-            const SizedBox(height: 16),
+            // Hero status row - oversized dot + native macos_ui title
+            // typography. Lives outside the Status group so it reads as
+            // a banner rather than a row.
+            _statusBanner(context),
+            const SizedBox(height: 18),
+            _sectionHeader(context, 'Status'),
+            const SizedBox(height: 6),
+            _groupCard(context, <Widget>[
+              _cameraPermissionRow(context),
+              _divider(context),
+              _firewallRow(context),
+              _divider(context),
+              _statusRow(
+                context,
+                title: 'Camera',
+                subtitle: supervisor.cameraConnected
+                    ? '${supervisor.detectedModel}  -  ${supervisor.detectedSn}'
+                    : 'Not detected',
+                dotColor: supervisor.cameraConnected
+                    ? CupertinoColors.systemGreen
+                    : MacosColors.systemGrayColor,
+              ),
+              _divider(context),
+              _statusRow(
+                context,
+                title: 'Phone clients connected',
+                subtitle:
+                    '${supervisor.wsClientCount} active  ·  ${supervisor.pairedTokenCount} paired',
+                dotColor: supervisor.wsClientCount > 0
+                    ? CupertinoColors.systemGreen
+                    : MacosColors.systemGrayColor,
+              ),
+            ]),
+            const SizedBox(height: 18),
+            _sectionHeader(context, 'Pairing'),
+            const SizedBox(height: 6),
             _revealCard(context),
             if (lanIps.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: Text('— offline (no Wi-Fi) —'),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'Offline - no Wi-Fi network detected.',
+                  style: MacosTheme.of(context).typography.subheadline.copyWith(
+                    color: MacosColors.systemGrayColor,
+                  ),
+                ),
               ),
             const SizedBox(height: 20),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Text('Bridge log', style: theme.textTheme.titleSmall),
-                const Spacer(),
-                if (supervisor.logFilePath != null) ...<Widget>[
-                  Flexible(
-                    child: Text(
-                      supervisor.logFilePath!.replaceAll(
-                        Platform.environment['HOME'] ?? '',
-                        '~',
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'Menlo',
-                        fontSize: 10,
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                    ),
-                    icon: const Icon(Icons.folder_open, size: 14),
-                    label: const Text('Reveal'),
-                    onPressed: supervisor.revealLogInFinder,
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 220,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: ListView.builder(
-                  itemCount: supervisor.logTail.length,
-                  itemBuilder: (BuildContext ctx, int i) {
-                    return SelectableText(
-                      supervisor.logTail[i],
-                      style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
-                    );
-                  },
-                ),
-              ),
-            ),
+            _logSection(context),
             const AppFooter(),
           ],
         ),
@@ -403,71 +383,199 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _revealCard(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    if (!_revealed) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: <Widget>[
-            Icon(Icons.lock_outline, color: theme.colorScheme.outline),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Pairing PIN + QR hidden.\nReveal only when a phone is in front of you.',
-                style: TextStyle(
-                  color: theme.colorScheme.outline,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            FilledButton.icon(
-              icon: const Icon(Icons.visibility, size: 16),
-              label: const Text('Reveal'),
-              onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
-            ),
-          ],
-        ),
-      );
-    }
+  /// "Bridge log" section header with reveal-in-Finder action, plus the
+  /// scrollable monospace log box, all wrapped in the same group-card
+  /// chrome as the Status section above.
+  Widget _logSection(BuildContext ctx) {
+    final macosTheme = MacosTheme.of(ctx);
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    final mutedColor = isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            Expanded(child: _pinBlock(ctx)),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.visibility_off, size: 14),
-              label: const Text('Hide'),
-              onPressed: _toggleReveal,
-            ),
-          ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                'BRIDGE LOG',
+                style: macosTheme.typography.caption1.copyWith(
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                  color: mutedColor,
+                ),
+              ),
+              const Spacer(),
+              if (supervisor.logFilePath != null) ...<Widget>[
+                Flexible(
+                  child: Text(
+                    supervisor.logFilePath!.replaceAll(
+                      Platform.environment['HOME'] ?? '',
+                      '~',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Menlo',
+                      fontSize: 10,
+                      color: mutedColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                PushButton(
+                  controlSize: ControlSize.small,
+                  secondary: true,
+                  onPressed: supervisor.revealLogInFinder,
+                  child: const Text('Reveal'),
+                ),
+              ],
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
-        Text('Connect from your phone to:', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 4),
-        if (lanIps.isNotEmpty) _qrCard(ctx, lanIps.first),
-        ...lanIps.map((ip) => _ipPill(ctx, '$ip:8765')),
-        const SizedBox(height: 4),
-        Text(
-          'Auto-hides in 60 seconds',
-          style: TextStyle(fontSize: 11, color: theme.colorScheme.outline),
+        const SizedBox(height: 6),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: isDark
+                ? const Color(0xFF1C1C1E)
+                : const Color(0xFFF6F6F8),
+            borderRadius: const BorderRadius.all(Radius.circular(8)),
+            border: Border.all(
+              color: isDark
+                  ? const Color(0x1FFFFFFF)
+                  : const Color(0x14000000),
+              width: 0.5,
+            ),
+          ),
+          child: SizedBox(
+            height: 220,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              child: ListView.builder(
+                itemCount: supervisor.logTail.length,
+                itemBuilder: (BuildContext ctx, int i) {
+                  return SelectableText(
+                    supervisor.logTail[i],
+                    style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+                  );
+                },
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
 
+  Widget _revealCard(BuildContext ctx) {
+    final macosTheme = MacosTheme.of(ctx);
+    final mutedColor = MacosTheme.brightnessOf(ctx).isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
+    if (!_revealed) {
+      return _groupCard(ctx, <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
+            children: <Widget>[
+              MacosIcon(
+                CupertinoIcons.lock_fill,
+                color: mutedColor,
+                size: 18,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      'PIN and QR hidden',
+                      style: macosTheme.typography.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Reveal only when a phone is in front of you.',
+                      style: macosTheme.typography.subheadline.copyWith(
+                        color: mutedColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              PushButton(
+                controlSize: ControlSize.regular,
+                onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
+                child: const Text('Reveal'),
+              ),
+            ],
+          ),
+        ),
+      ]);
+    }
+    return _groupCard(ctx, <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+        child: Row(
+          children: <Widget>[
+            Expanded(child: _pinBlock(ctx)),
+            const SizedBox(width: 12),
+            PushButton(
+              controlSize: ControlSize.regular,
+              secondary: true,
+              onPressed: _toggleReveal,
+              child: const Text('Hide'),
+            ),
+          ],
+        ),
+      ),
+      if (lanIps.isNotEmpty) ...<Widget>[
+        _divider(ctx),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Connect from your phone to',
+                style: macosTheme.typography.body.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _qrCard(ctx, lanIps.first),
+              for (final ip in lanIps.skip(1)) _ipPill(ctx, '$ip:8765'),
+              const SizedBox(height: 8),
+              Text(
+                'Auto-hides in 60 seconds',
+                style: macosTheme.typography.caption1.copyWith(
+                  color: mutedColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ]);
+  }
+
   Widget _qrCard(BuildContext ctx, String firstIp) {
     final url = 'http://$firstIp:8765/';
-    final theme = Theme.of(ctx);
+    final macosTheme = MacosTheme.of(ctx);
+    final mutedColor = MacosTheme.brightnessOf(ctx).isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -496,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              // URL under QR — type if scanning is slow
+              // URL under QR - type if scanning is slow
               SelectableText(
                 url,
                 style: const TextStyle(
@@ -505,17 +613,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 2),
-              TextButton.icon(
-                icon: const Icon(Icons.copy, size: 14),
-                label: const Text('Copy URL'),
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                ),
+              const SizedBox(height: 4),
+              PushButton(
+                controlSize: ControlSize.small,
+                secondary: true,
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: url));
                   ScaffoldMessenger.of(ctx).showSnackBar(
@@ -525,6 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                 },
+                child: const Text('Copy URL'),
               ),
             ],
           ),
@@ -537,17 +639,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: <Widget>[
                   Text(
                     'Scan or type the URL on any phone to open the web remote.',
-                    style: TextStyle(
-                      color: theme.colorScheme.outline,
-                      fontSize: 12,
+                    style: macosTheme.typography.subheadline.copyWith(
+                      color: mutedColor,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     'After the page loads, type the 6-digit PIN above to pair.',
-                    style: TextStyle(
-                      color: theme.colorScheme.outline,
-                      fontSize: 11,
+                    style: macosTheme.typography.caption1.copyWith(
+                      color: mutedColor,
                       fontStyle: FontStyle.italic,
                     ),
                   ),
@@ -561,241 +661,306 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _pinBlock(BuildContext ctx) {
-    final theme = Theme.of(ctx);
+    final macosTheme = MacosTheme.of(ctx);
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    final mutedColor = isDark
+        ? MacosColors.systemGrayColor
+        : const MacosColor(0xff6E6E73);
     if (supervisor.pin.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          'Pairing PIN — generated on first launch',
-          style: TextStyle(color: theme.colorScheme.outline),
-        ),
+      return Text(
+        'Pairing PIN - generated on first launch',
+        style: macosTheme.typography.body.copyWith(color: mutedColor),
       );
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return Row(
+      children: <Widget>[
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'PAIRING PIN',
+              style: macosTheme.typography.caption1.copyWith(
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+                color: mutedColor,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SelectableText(
+              supervisor.pin,
+              style: const TextStyle(
+                fontFamily: 'Menlo',
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 6,
+              ),
+            ),
+          ],
+        ),
+        const Spacer(),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              '${supervisor.pairedTokenCount} paired',
+              style: macosTheme.typography.caption1.copyWith(
+                color: mutedColor,
+              ),
+            ),
+            const SizedBox(height: 6),
+            PushButton(
+              controlSize: ControlSize.small,
+              secondary: true,
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: ctx,
+                  builder: (BuildContext c) => AlertDialog(
+                    title: const Text('Reset pairing?'),
+                    content: const Text(
+                      'This deletes the PIN and revokes every paired phone. '
+                      'A new PIN will be generated. Each phone has to re-enter it.',
+                    ),
+                    actions: <Widget>[
+                      TextButton(
+                        onPressed: () => Navigator.of(c).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(c).pop(true),
+                        child: const Text('Reset'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  await supervisor.resetPairing();
+                }
+              },
+              child: const Text('Reset pairing'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ---- v1.4.1 macos_ui status section helpers ----
+
+  /// Hero banner above the Status group. Big status dot + title3
+  /// typography in MacosTheme. Reads as a glanceable indicator rather
+  /// than just another row.
+  Widget _statusBanner(BuildContext ctx) {
+    final macosTheme = MacosTheme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                'Pairing PIN',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onPrimaryContainer.withValues(
-                    alpha: 0.7,
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: _statusColor(ctx),
+              shape: BoxShape.circle,
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: _statusColor(ctx).withValues(alpha: 0.5),
+                  blurRadius: 6,
+                  spreadRadius: 0,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _statusLabel(),
+              style: macosTheme.typography.title3.copyWith(
+                fontWeight: MacosFontWeight.w590,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Section header above a grouped list (Status / Pairing / etc.).
+  /// SF-style: caps + tighter tracking + muted color.
+  Widget _sectionHeader(BuildContext ctx, String label) {
+    final macosTheme = MacosTheme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Text(
+        label.toUpperCase(),
+        style: macosTheme.typography.caption1.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
+          color: MacosTheme.brightnessOf(ctx).isDark
+              ? MacosColors.systemGrayColor
+              : const MacosColor(0xff6E6E73),
+        ),
+      ),
+    );
+  }
+
+  /// Card container that groups a list of rows with a subtle background
+  /// + rounded corners, matching the System Settings group style.
+  Widget _groupCard(BuildContext ctx, List<Widget> children) {
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0x14FFFFFF)
+            : MacosColors.controlBackgroundColor.color,
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        border: Border.all(
+          color: isDark
+              ? const Color(0x1FFFFFFF)
+              : const Color(0x14000000),
+          width: 0.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+
+  /// 1px inset divider between rows in a [_groupCard].
+  Widget _divider(BuildContext ctx) {
+    final isDark = MacosTheme.brightnessOf(ctx).isDark;
+    return Padding(
+      padding: const EdgeInsets.only(left: 36),
+      child: Container(
+        height: 0.5,
+        color: isDark
+            ? const Color(0x1FFFFFFF)
+            : const Color(0x14000000),
+      ),
+    );
+  }
+
+  /// Generic status row inside [_groupCard]. Status dot (leading),
+  /// title (bold), subtitle (muted), optional trailing action.
+  Widget _statusRow(
+    BuildContext ctx, {
+    required String title,
+    required String subtitle,
+    required Color dotColor,
+    Widget? trailing,
+  }) {
+    final macosTheme = MacosTheme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: macosTheme.typography.body.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              SelectableText(
-                supervisor.pin,
-                style: TextStyle(
-                  fontFamily: 'Menlo',
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 6,
-                  color: theme.colorScheme.onPrimaryContainer,
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: macosTheme.typography.subheadline.copyWith(
+                    color: MacosTheme.brightnessOf(ctx).isDark
+                        ? MacosColors.systemGrayColor
+                        : const MacosColor(0xff6E6E73),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                '${supervisor.pairedTokenCount} paired',
-                style: theme.textTheme.labelSmall,
-              ),
-              const SizedBox(height: 4),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.refresh, size: 14),
-                label: const Text('Reset pairing'),
-                style: OutlinedButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: () async {
-                  final ok = await showDialog<bool>(
-                    context: ctx,
-                    builder: (BuildContext c) => AlertDialog(
-                      title: const Text('Reset pairing?'),
-                      content: const Text(
-                        'This deletes the PIN and revokes every paired phone. '
-                        'A new PIN will be generated. Each phone has to re-enter it.',
-                      ),
-                      actions: <Widget>[
-                        TextButton(
-                          onPressed: () => Navigator.of(c).pop(false),
-                          child: const Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.of(c).pop(true),
-                          child: const Text('Reset'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (ok == true) {
-                    await supervisor.resetPairing();
-                  }
-                },
-              ),
-            ],
-          ),
+          if (trailing != null) ...<Widget>[
+            const SizedBox(width: 8),
+            trailing,
+          ],
         ],
       ),
     );
   }
 
   Widget _cameraPermissionRow(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    String label;
+    String title;
+    String subtitle;
     Color dot;
     Widget? trailing;
     switch (supervisor.cameraPermission) {
       case CameraPermission.granted:
-        label = 'Granted';
-        dot = Colors.green;
+        title = 'Camera permission';
+        subtitle = 'Granted';
+        dot = CupertinoColors.systemGreen;
         break;
       case CameraPermission.denied:
-        label = 'Denied — click "Open Settings" and turn on OBSBOT Bridge';
-        dot = theme.colorScheme.error;
+        title = 'Camera permission';
+        subtitle = 'Denied - turn on OBSBOT Bridge in System Settings';
+        dot = CupertinoColors.systemRed;
         trailing = Wrap(
           spacing: 6,
           children: <Widget>[
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-              ),
-              icon: const Icon(Icons.settings, size: 14),
-              label: const Text('Open Settings'),
+            PushButton(
+              controlSize: ControlSize.small,
+              secondary: true,
               onPressed: supervisor.openSystemCameraSettings,
+              child: const Text('Open Settings'),
             ),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-              ),
-              icon: const Icon(Icons.refresh, size: 14),
-              label: const Text('Reset & retry'),
+            PushButton(
+              controlSize: ControlSize.small,
+              secondary: true,
               onPressed: () async {
                 await supervisor.resetCameraPermissionAndRestart();
               },
+              child: const Text('Reset & retry'),
             ),
           ],
         );
         break;
       case CameraPermission.noCamera:
-        label = 'Granted (no camera detected yet)';
-        dot = Colors.amber;
+        title = 'Camera permission';
+        subtitle = 'Granted (no camera detected yet)';
+        dot = CupertinoColors.systemYellow;
         break;
       case CameraPermission.unknown:
-        label = 'Not determined yet';
-        dot = theme.colorScheme.outline;
+        title = 'Camera permission';
+        subtitle = 'Not determined yet';
+        dot = MacosColors.systemGrayColor;
         break;
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              'Camera permission',
-              style: TextStyle(color: theme.colorScheme.outline),
-            ),
-          ),
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          ?trailing,
-        ],
-      ),
+    return _statusRow(
+      ctx,
+      title: title,
+      subtitle: subtitle,
+      dotColor: dot,
+      trailing: trailing,
     );
   }
 
   Widget _firewallRow(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              'Network firewall',
-              style: TextStyle(color: theme.colorScheme.outline),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              'If phones cannot connect, allow incoming connections below.',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            ),
-            icon: const Icon(Icons.security, size: 14),
-            label: const Text('Open Firewall Settings'),
-            onPressed: supervisor.openSystemFirewallSettings,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(BuildContext ctx, String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              k,
-              style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              v,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
+    return _statusRow(
+      ctx,
+      title: 'Network firewall',
+      subtitle: 'If phones cannot connect, allow incoming connections.',
+      dotColor: MacosColors.systemGrayColor,
+      trailing: PushButton(
+        controlSize: ControlSize.small,
+        secondary: true,
+        onPressed: supervisor.openSystemFirewallSettings,
+        child: const Text('Open Settings'),
       ),
     );
   }
@@ -1032,13 +1197,6 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: <Widget>[
-          SizedBox(
-            width: 180,
-            child: Text(
-              '  ',
-              style: TextStyle(color: Theme.of(ctx).colorScheme.outline),
-            ),
-          ),
           Expanded(
             child: SelectableText(
               hostPort,
@@ -1049,9 +1207,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Copy',
-            icon: const Icon(Icons.copy, size: 16),
+          MacosIconButton(
+            backgroundColor: Colors.transparent,
+            icon: MacosIcon(
+              CupertinoIcons.doc_on_clipboard,
+              color: MacosTheme.brightnessOf(ctx).isDark
+                  ? MacosColors.systemGrayColor
+                  : const MacosColor(0xff6E6E73),
+              size: 14,
+            ),
+            semanticLabel: 'Copy URL',
             onPressed: () {
               Clipboard.setData(ClipboardData(text: hostPort));
             },
