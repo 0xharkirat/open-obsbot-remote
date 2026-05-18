@@ -379,17 +379,47 @@ void main() {
     });
   });
 
-  group('More tab (phase-3 stub)', () {
-    // Phase 3 ships the More tab as a placeholder so the Drive page
-    // and tab structure can land in their own commit. The real
-    // settings page (device info, sequence library, grid overlay,
-    // connection, about) ships in phase 4.
-    testWidgets('tab is reachable and shows the phase-3 placeholder copy',
-        (tester) async {
-      await _pumpShell(tester, size: const Size(400, 1200));
+  group('More tab', () {
+    Future<void> goToMore(WidgetTester tester) async {
+      await _pumpShell(tester, size: const Size(400, 1800));
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('phase 4'), findsOneWidget);
+    }
+
+    testWidgets('shows Device / Sequence library / Grid overlay sections',
+        (tester) async {
+      await goToMore(tester);
+      expect(find.text('DEVICE'), findsOneWidget);
+      expect(find.text('SEQUENCE LIBRARY'), findsOneWidget);
+      expect(find.text('GRID OVERLAY'), findsOneWidget);
+      expect(find.text('CONNECTION'), findsOneWidget);
+      expect(find.text('ABOUT'), findsOneWidget);
+    });
+
+    testWidgets('shows the 4 grid overlay toggles', (tester) async {
+      await goToMore(tester);
+      // Expand the Grid overlay section if it's collapsed - by default
+      // it's open per defaultOpen:true.
+      expect(find.text('Center crosshair'), findsOneWidget);
+      expect(find.text('Attitude indicator'), findsOneWidget);
+      expect(find.text('Rule of thirds'), findsOneWidget);
+      expect(find.text('Pan / Tilt readout'), findsOneWidget);
+    });
+
+    testWidgets('shows the "Open editor" button in Sequence library',
+        (tester) async {
+      await goToMore(tester);
+      expect(find.text('Open editor'), findsOneWidget);
+    });
+
+    testWidgets('shows Disconnect button in Connection', (tester) async {
+      await goToMore(tester);
+      expect(find.text('Disconnect'), findsOneWidget);
+    });
+
+    testWidgets('shows version in About', (tester) async {
+      await goToMore(tester);
+      expect(find.text('1.4.0-dev'), findsOneWidget);
     });
   });
 

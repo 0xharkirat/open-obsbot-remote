@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'cache_menu.dart';
 import 'control_screen.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
+import 'sequencer_screen.dart';
 import 'widgets/collapsible_section.dart';
 import 'widgets/preset_options_sheet.dart';
 import 'ws_client.dart';
@@ -845,12 +848,17 @@ class _AiSection extends StatelessWidget {
 }
 
 // ===========================================================================
-// Tab 3 — More (placeholder for phase 3; flesh-out in phase 4)
+// Tab 3 — More (device, sequence library, grid overlay, connection, about)
 // ===========================================================================
 
-/// Phase-3 stub. The real implementation (device info, sequence
-/// library, grid overlay toggles, connection actions, about) lands in
-/// phase 4 alongside the AppBar cleanup in control_screen.dart.
+/// Consolidates the v1.2 AppBar overflow + extra surfaces into a tab:
+///   - Device: model / SN / firmware / latency (read-only).
+///   - Sequence library: tap a saved sequence to load + start, or
+///     open the full editor.
+///   - Grid overlay: 4 toggles (crosshair / attitude / thirds / readout)
+///     that drive the preview overlay across all tabs.
+///   - Connection: server URL, paired count, disconnect, cache clear.
+///   - About: version, simple-mode switch, link to bridge log notes.
 class _MoreTab extends StatelessWidget {
   final WsClient client;
   final VoidCallback? onSwitchSimple;
@@ -858,15 +866,429 @@ class _MoreTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'More - settings + device info\n'
-          'lands in phase 4 (next commit).',
-          textAlign: TextAlign.center,
-        ),
+    return AnimatedBuilder(
+      animation: client,
+      builder: (BuildContext ctx, _) {
+        final s = client.state;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              CollapsibleSection(
+                id: 'more_device',
+                label: 'Device',
+                child: _DeviceInfoBody(client: client, state: s),
+              ),
+              CollapsibleSection(
+                id: 'more_sequence_library',
+                label: 'Sequence library',
+                child: _SequenceLibraryBody(client: client, state: s),
+              ),
+              CollapsibleSection(
+                id: 'more_grid_overlay',
+                label: 'Grid overlay',
+                tooltip:
+                    'Overlays painted on the live preview - not '
+                    'recorded by the camera.',
+                child: _GridOverlayBody(client: client),
+              ),
+              CollapsibleSection(
+                id: 'more_connection',
+                label: 'Connection',
+                child: _ConnectionBody(client: client, state: s),
+              ),
+              CollapsibleSection(
+                id: 'more_about',
+                label: 'About',
+                child: _AboutBody(onSwitchSimple: onSwitchSimple),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DeviceInfoBody extends StatelessWidget {
+  final WsClient client;
+  final CameraState state;
+  const _DeviceInfoBody({required this.client, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _kvRow(context, 'Model',
+            state.modelDisplay.isEmpty ? '...' : state.modelDisplay),
+        _kvRow(context, 'Serial',
+            state.sn.isEmpty ? '...' : state.sn),
+        _kvRow(context, 'Firmware',
+            state.firmware.isEmpty ? '...' : state.firmware),
+        _kvRow(context, 'Latency', '${client.lastLatencyMs} ms'),
+        _kvRow(context, 'Status', _statusLabel(state)),
+      ],
+    );
+  }
+
+  String _statusLabel(CameraState s) {
+    if (!s.connected) return 'Not connected';
+    switch (s.runStatus) {
+      case 'run':
+        return 'Running';
+      case 'sleep':
+        return 'Sleeping';
+      case 'privacy':
+        return 'Privacy mode';
+      default:
+        return s.runStatus;
+    }
+  }
+
+  Widget _kvRow(BuildContext ctx, String k, String v) {
+    final theme = Theme.of(ctx);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 96,
+            child: Text(k,
+                style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline)),
+          ),
+          Expanded(
+            child: Text(
+              v,
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _SequenceLibraryBody extends StatelessWidget {
+  final WsClient client;
+  final CameraState state;
+  const _SequenceLibraryBody({required this.client, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lib = state.sequence.available;
+    final running = state.sequence.running;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (lib.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No saved sequences yet. Open the editor to create one.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          )
+        else
+          for (final name in lib)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Material(
+                color: theme.colorScheme.surfaceContainerLow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side:
+                      BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    client.sequenceLoad(name);
+                    if (!running) client.sequenceStart();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Loaded "$name"'),
+                        duration: const Duration(milliseconds: 900),
+                      ),
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(
+                          state.sequence.loaded == name
+                              ? Icons.bookmark
+                              : Icons.bookmark_outline,
+                          size: 16,
+                          color: state.sequence.loaded == name
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outline,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(name,
+                              style: theme.textTheme.bodyMedium,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        if (state.sequence.loaded == name && running)
+                          Icon(Icons.play_arrow,
+                              size: 16,
+                              color: theme.colorScheme.primary),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 40,
+          child: FButton.raw(
+            variant: FButtonVariant.outline,
+            onPress: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SequencerScreen(client: client),
+              ),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.edit_note, size: 16),
+                  SizedBox(width: 6),
+                  Text('Open editor'),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (running) ...<Widget>[
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 40,
+            child: FButton.raw(
+              variant: FButtonVariant.outline,
+              onPress: client.sequenceStop,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.stop, size: 16),
+                    SizedBox(width: 6),
+                    Text('Stop sequence'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GridOverlayBody extends StatelessWidget {
+  final WsClient client;
+  const _GridOverlayBody({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        SwitchListTile.adaptive(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Center crosshair'),
+          value: client.gridCrosshair,
+          onChanged: client.setGridCrosshair,
+        ),
+        SwitchListTile.adaptive(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Attitude indicator'),
+          subtitle: const Text('Steers with the gimbal like an airplane HUD'),
+          value: client.gridCenterLines,
+          onChanged: client.setGridCenterLines,
+        ),
+        SwitchListTile.adaptive(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Rule of thirds'),
+          value: client.gridThirds,
+          onChanged: client.setGridThirds,
+        ),
+        SwitchListTile.adaptive(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Pan / Tilt readout'),
+          value: client.gridReadout,
+          onChanged: client.setGridReadout,
+        ),
+      ],
+    );
+  }
+}
+
+class _ConnectionBody extends StatelessWidget {
+  final WsClient client;
+  final CameraState state;
+  const _ConnectionBody({required this.client, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 96,
+                child: Text('Server',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline)),
+              ),
+              Expanded(
+                child: Text(
+                  client.serverUri.isEmpty ? '-' : client.serverUri,
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.right,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: SizedBox(
+                height: 40,
+                child: FButton.raw(
+                  variant: FButtonVariant.outline,
+                  onPress: () => client.close(),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.logout, size: 16),
+                        SizedBox(width: 6),
+                        Text('Disconnect'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // CacheMenu uses a PopupMenuButton internally. Render it
+            // inline as a tappable surface so the visual weight matches
+            // the Disconnect button.
+            CacheMenu(onCleared: () => client.close()),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AboutBody extends StatelessWidget {
+  final VoidCallback? onSwitchSimple;
+  const _AboutBody({this.onSwitchSimple});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 96,
+                child: Text('Version',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline)),
+              ),
+              Expanded(
+                child: Text(
+                  '1.4.0-dev',
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.right,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            'Bridge logs:\n~/Library/Logs/Open OBSBOT Bridge/bridge.log\n\n'
+            'Quit the Bridge from its menubar icon, not the dock.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+              height: 1.4,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Tappable link to the project site / docs - opens in browser.
+        TextButton.icon(
+          style: TextButton.styleFrom(
+            alignment: Alignment.centerLeft,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+          ),
+          icon: const Icon(Icons.open_in_new, size: 14),
+          label: const Text('Open project README'),
+          onPressed: () => launchUrl(
+            Uri.parse('https://github.com/0xharkirat/obsbot.workspace'),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+        if (onSwitchSimple != null) ...<Widget>[
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 40,
+            child: FButton.raw(
+              variant: FButtonVariant.outline,
+              onPress: onSwitchSimple,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.dashboard_customize, size: 16),
+                    SizedBox(width: 6),
+                    Text('Switch to Simple mode'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
