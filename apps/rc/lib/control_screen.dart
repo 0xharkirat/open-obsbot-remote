@@ -41,7 +41,7 @@ class _ControlScreenState extends State<ControlScreen> {
         final s = widget.client.state;
         return Scaffold(
           appBar: AppBar(
-            title: Text('${s.modelDisplay} • ${s.sn.isEmpty ? '...' : s.sn}'),
+            title: const AppBarTitle(),
             // Standard 3 icons + overflow: mesh / sequencer / mode.
             // Speed lives in the bottom chip strip on each tab; no
             // need to mirror in the AppBar. Disconnect + Clear cache

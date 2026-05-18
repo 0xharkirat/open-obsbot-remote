@@ -36,9 +36,12 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         final s = client.state;
         return Scaffold(
           appBar: AppBar(
-            title: Text(s.modelDisplay.isEmpty ? 'Open OBSBOT Remote' : s.modelDisplay),
+            // Title is constant ("OBSBOT Remote") + logo. Camera
+            // model + status moved into the overflow menu (was eating
+            // top-bar real estate and was redundant with the live
+            // preview).
+            title: const AppBarTitle(),
             // Standard 4 icons + overflow: mesh / sequencer / mode / speed.
-            // Disconnect + Clear cache live in the 3-dot overflow.
             actions: <Widget>[
               GridOverlayMenu(client: client),
               IconButton(
@@ -81,7 +84,13 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.all(8),
-          child: PreviewWidget(client: client),
+          child: PreviewWidget(
+            client: client,
+            showCrosshair: client.gridCrosshair,
+            showCenterLines: client.gridCenterLines,
+            showThirds: client.gridThirds,
+            showReadout: client.gridReadout,
+          ),
         ),
         if (s.sequence.running) _seqBar(ctx, s),
         Expanded(child: _presetGrid(ctx, s, columns: 2)),
@@ -105,7 +114,15 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           child: Padding(
             padding: const EdgeInsets.all(8),
             child: Column(children: <Widget>[
-              Expanded(child: PreviewWidget(client: client)),
+              Expanded(
+                child: PreviewWidget(
+                  client: client,
+                  showCrosshair: client.gridCrosshair,
+                  showCenterLines: client.gridCenterLines,
+                  showThirds: client.gridThirds,
+                  showReadout: client.gridReadout,
+                ),
+              ),
               if (s.sequence.running) _seqBar(ctx, s),
             ]),
           ),
