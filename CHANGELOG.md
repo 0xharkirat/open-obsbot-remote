@@ -4,6 +4,95 @@ All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://k
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-18
+
+Sequencer UX overhaul, phone-nav consistency, FButton-primary brand-red
+fix (cosmetic regression since v1.2.1), attitude indicator HUD-green +
+clamping, and a Playwright mobile-e2e harness. Five worktree branches
+(W1-W5) merged into `feat/v1.5-major`. Plus a documented known-edge:
+60s/20° gimbal plans undershoot on Tiny 2 Lite (motor floor).
+
+### Added
+
+- **Playwright mobile e2e harness** (W5). `tests/playwright/` covers
+  iPhone 15 Pro (393×852) + Samsung Galaxy S22 (360×780) viewports.
+  Smoke: page load, pair (auto-skip when no bridge), tab swap, image
+  toggles. Run via `cd tests/playwright && npx playwright test`. Docs
+  at `docs/PLAYWRIGHT.md`. Skips cleanly when port 8765 isn't
+  listening.
+- **Sequence progress shows moving phase + remaining time** (W1).
+  New `widgets/sequence_progress_bar.dart` reads `sequence.phase`
+  (added in v1.4 W3) and interpolates a per-phase progress fill:
+  during `moving` against the planner's `transition_ms`, during
+  `holding` against `step.seconds`. Label switches between
+  "Moving to P3..." and "P3 - 38s left". Wired into tab strip,
+  sequencer running banner, simple-mode preview banner.
+- **Running-sequence highlight in the library dropdown** (W1).
+  When a saved sequence is currently executing, the dropdown
+  pre-selects its name + shows a "Running" chip.
+- **Bookmark + Start split** (W1). Footer is now
+  `[+ Add step] [Start/Stop] [Apply (in-flight only)] [bookmark icon]`.
+  Bookmark prompts for a name and persists via `sequenceSaveAs`.
+  Start no longer implicitly persists - scratch sequences stay
+  scratch unless the user explicitly bookmarks.
+- **Sequencer Add-step visual feedback** (W1). 300 ms button
+  debounce prevents accidental double-add. New card scrolls into
+  view via `Scrollable.ensureVisible` and pulses a
+  primaryContainer border for 600 ms so the user can see what
+  just happened.
+- **`OverflowMenu` (3-dot) on both phone screens** (W2). Simple +
+  advanced both expose the same destructive-action menu:
+  Disconnect + Clear cache. Removes per-screen icon-row drift.
+
+### Fixed
+
+- **FButton-primary rendered near-white since v1.2.1** (W3).
+  `FThemes.zinc.dark.colors.primary` is `#E4E4E7` by design (shadcn
+  "inverted primary" convention for dark themes). Every
+  `FButtonVariant.primary` call site - `_toggleBtn` ON state,
+  `ForSegmented` selected pill, AI sub-mode pills - has been
+  rendering as a near-white slab instead of OBSBOT red. The Image
+  tab made it visible (two ON face buttons next to two OFF
+  outline buttons). Fix: override the forui primary in
+  `tab_shell.dart`'s `FTheme` to `#FF3B30` (OBSBOT brand), white
+  foreground. One-field swap; no per-button changes. Regression
+  test added.
+- **Attitude indicator HUD-green + clamps to preview bounds** (W4).
+  `grid_overlay.dart::_paintAttitude` now strokes the moving
+  cross + ring in `#00FF66` with a dark `#003314` shadow under
+  for legibility on washed-out frames. Off-screen positions
+  clamp to `[14, w-14] x [14, h-14]` and draw a small heading
+  arrow 20 px beyond the clamp pointing along world-axes (canvas
+  space, so roll doesn't tip the arrow off-axis). Operator always
+  sees which way to pan back.
+- **8-way buttons is the default control style** (W2). New users
+  land on discrete buttons (`_driveControlStyle = 'buttons'` in
+  `ws_client.dart`); joystick reserved for users who pick it.
+  Persisted choice still honoured for existing users.
+- **Sequence library dropdown crashes on `sequenceDelete`** (W1).
+  DropdownButton threw when its `value` was no longer in `items`
+  after a delete; added `lib.contains(loadedName)` guard.
+- **Simple-mode AppBar consistency** (W2). Sequence icon now
+  matches advanced-mode (`Icons.timeline`); old timer glyph
+  retired. Disconnect + Cache moved into the new overflow menu.
+- **Sequencer density** (W1). Step card padding tightened across
+  the board (`vertical: 12 -> 8`, drag handle `8 -> 4`, etc).
+  Loop-mode radios collapsed into a `SegmentedButton<LoopMode>`
+  `[Once | Loop | Ping-pong]`. Verbose `(P1->P2->P3->P1...)`
+  subtitles dropped.
+
+### Known limits
+
+- **60s / 20° gimbal plans undershoot on Tiny 2 Lite.** Rate is
+  0.33°/s = below the motor's reliable per-tick floor at our
+  current 100 ms tick + ease_in_out_sine. `tests/slow_motion.mjs`
+  60s-plan assertion fails consistently. The motor still moves -
+  just slower than the test expects. Users who pick "1 min"
+  duration for a recall are pushing the hardware boundary; "30 s"
+  works fine. Will need a different motion strategy (single
+  velocity command + monitor instead of waypoint ticks) to truly
+  fix - deferred.
+
 ## [1.4.1] - 2026-05-18
 
 Bridge UI polish on v1.4.0. Two worktree branches (W1 + W2) plus
