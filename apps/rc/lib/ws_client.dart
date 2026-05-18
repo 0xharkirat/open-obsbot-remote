@@ -41,6 +41,11 @@ class WsClient extends ChangeNotifier {
   bool _gridThirds = false;
   bool _gridReadout = true;
 
+  /// Drive page control style: `"joystick"` (analog deflection pad) or
+  /// `"buttons"` (8-way press-and-hold pad). Persisted across launches
+  /// via SharedPreferences key `drive_control_style`. Default: joystick.
+  String _driveControlStyle = 'joystick';
+
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
@@ -49,6 +54,8 @@ class WsClient extends ChangeNotifier {
       _gridCenterLines = p.getBool('grid_center_lines') ?? _gridCenterLines;
       _gridThirds = p.getBool('grid_thirds') ?? _gridThirds;
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
+      _driveControlStyle =
+          p.getString('drive_control_style') ?? _driveControlStyle;
       notifyListeners();
     });
   }
@@ -57,6 +64,15 @@ class WsClient extends ChangeNotifier {
   bool get gridCenterLines => _gridCenterLines;
   bool get gridThirds => _gridThirds;
   bool get gridReadout => _gridReadout;
+  String get driveControlStyle => _driveControlStyle;
+
+  Future<void> setDriveControlStyle(String style) async {
+    if (style != 'joystick' && style != 'buttons') return;
+    _driveControlStyle = style;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('drive_control_style', style);
+  }
 
   Future<void> setGridCrosshair(bool v) async {
     _gridCrosshair = v;
@@ -437,6 +453,16 @@ class WsClient extends ChangeNotifier {
   /// shows our last-known state which can drift indefinitely.
   void imageRefresh() => _send({
         'action': 'image.refresh',
+        'id': _id(),
+      });
+
+  /// v1.4 W6 stub: capture a still frame from the camera. The bridge
+  /// currently ignores this action (no backend implementation yet);
+  /// the UI button is wired in advance so we can ship the capture
+  /// path in v1.5 without a phone-side update. Fires the request and
+  /// silently no-ops if the bridge replies `err: unknown_action`.
+  void imageSnapshot() => _send({
+        'action': 'image.snapshot',
         'id': _id(),
       });
 
