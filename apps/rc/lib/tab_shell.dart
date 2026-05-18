@@ -269,7 +269,7 @@ class _InlinePresetCard extends StatelessWidget {
   // required a non-empty name, which meant unnamed presets fell back
   // to the empty-slot branch and tap-to-recall silently became
   // tap-to-save. Live report: "if I tap or hold, it saves the preset
-  // — tap should be to change to that preset."
+  //  -  tap should be to change to that preset."
   bool get _saved => entry != null;
   String get _label =>
       (entry != null && entry!.name.isNotEmpty) ? entry!.name : 'P${id + 1}';
@@ -367,7 +367,7 @@ class _InlinePresetCard extends StatelessWidget {
 /// Shared bottom-of-tab control bundle.
 ///
 /// In v1.2 this carried both a live-velocity slider AND the move-duration
-/// chips. User review pointed out the redundancy — slider scaled live
+/// chips. User review pointed out the redundancy  -  slider scaled live
 /// joystick / button velocity (0.1×–1×) while the chips controlled
 /// preset-recall timing, but the conceptual overlap was confusing and
 /// having two near-identical "speed" controls on the same row hurt more
@@ -427,7 +427,7 @@ class _DurationChips extends StatelessWidget {
 }
 
 // ===========================================================================
-// Tab 1 — Drive
+// Tab 1  -  Drive
 // ===========================================================================
 //
 // v1.4 W6 consolidation: folds the old Joystick + Buttons tabs into one
@@ -848,7 +848,7 @@ class _AiSection extends StatelessWidget {
 }
 
 // ===========================================================================
-// Tab 3 — More (device, sequence library, grid overlay, connection, about)
+// Tab 3  -  More (device, sequence library, grid overlay, connection, about)
 // ===========================================================================
 
 /// Consolidates the v1.2 AppBar overflow + extra surfaces into a tab:
@@ -1295,7 +1295,7 @@ class _AboutBody extends StatelessWidget {
 
 
 // ===========================================================================
-// Tab 3 — Image (HDR / FOV / face / flip / color + Exposure / Anti-flicker
+// Tab 3  -  Image (HDR / FOV / face / flip / color + Exposure / Anti-flicker
 // / WB, each with a reset-to-default button per section)
 // ===========================================================================
 
@@ -1677,7 +1677,7 @@ class _ImageTab extends StatelessWidget {
   /// variant to `.primary` (brand red), unselected stays `.outline`.
   ///
   /// The child is a Flexible+Text with `maxLines: 2` + ellipsis so the
-  /// button does not push the Row past its slot — protects against the
+  /// button does not push the Row past its slot  -  protects against the
   /// 3-per-row narrow-width overflow seen pre-fix at 360 px.
   Widget _toggleBtn(BuildContext c, String label, bool on, VoidCallback t) {
     return SizedBox(
@@ -1704,7 +1704,7 @@ class _ImageTab extends StatelessWidget {
 /// and the others use `FButtonVariant.outline`.
 ///
 /// PR v1.3 migration target: the Image tab's four
-/// Material `SegmentedButton`s — Auto-track, View (FOV), Exposure
+/// Material `SegmentedButton`s  -  Auto-track, View (FOV), Exposure
 /// mode, Anti-flicker. Replacing in a single helper rather than
 /// per-call-site so the visual treatment, overflow guards
 /// (Flexible + ellipsis), and Semantics labelling stay in sync.

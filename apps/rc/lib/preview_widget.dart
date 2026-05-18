@@ -74,7 +74,7 @@ class PreviewWidget extends StatelessWidget {
 
   Widget _webStream(String url) {
     // Image.network on Flutter web fetches bytes via HttpRequest and tries to
-    // decode them as a single image — it can't handle multipart/x-mixed-replace.
+    // decode them as a single image  -  it can't handle multipart/x-mixed-replace.
     // Embed a real <img> element instead; the browser renders the multipart
     // stream natively. See web_mjpeg_web.dart.
     return buildWebMjpegView(url);

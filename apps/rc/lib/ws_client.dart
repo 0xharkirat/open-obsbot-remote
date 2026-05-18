@@ -183,14 +183,14 @@ class WsClient extends ChangeNotifier {
           _connected = false;
           _connecting = false;
           _lastError ??=
-              'disconnected — bridge closed the socket or it was unreachable';
+              'disconnected  -  bridge closed the socket or it was unreachable';
           notifyListeners();
         },
       );
       try {
         await ch.ready.timeout(const Duration(seconds: 6));
       } on TimeoutException {
-        _lastError = 'timed out — could not reach $hostPort.';
+        _lastError = 'timed out  -  could not reach $hostPort.';
         _connecting = false;
         notifyListeners();
         await close();
@@ -272,7 +272,7 @@ class WsClient extends ChangeNotifier {
     try {
       final j = jsonDecode(raw) as Map<String, dynamic>;
 
-      // Pair-ack (matched by id) — resolves any in-flight pair() future.
+      // Pair-ack (matched by id)  -  resolves any in-flight pair() future.
       if (j['type'] == 'ack' &&
           _pendingPair != null &&
           !_pendingPair!.isCompleted &&
@@ -370,7 +370,7 @@ class WsClient extends ChangeNotifier {
 
   /// Zoom to absolute value. `terminal: true` on slider drag-end so the
   /// bridge bypasses mid-drag coalesce. `duration` controls how long
-  /// the lens motor takes — Duration.zero = snap, larger = pro slow zoom.
+  /// the lens motor takes  -  Duration.zero = snap, larger = pro slow zoom.
   void zoomSet(double value, {bool terminal = false, Duration? duration}) => _send({
     'action': 'zoom.set',
     'id': _id(),
@@ -418,9 +418,9 @@ class WsClient extends ChangeNotifier {
     _send(msg);
   }
 
-  // v1.2 PR G — exposure / anti-flicker / white balance.
+  // v1.2 PR G  -  exposure / anti-flicker / white balance.
   // Empirical probe on Tiny 2 Lite firmware 6.2.8.1 (PR P, 2026-05-12)
-  // confirmed every exposure_mode + ev_bias variant returns r=0 — the
+  // confirmed every exposure_mode + ev_bias variant returns r=0  -  the
   // "tail air" tag in the SDK headers is misleading. All controls work.
 
   void setExposureMode(String mode) => _send({

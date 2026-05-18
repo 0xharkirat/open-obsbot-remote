@@ -90,7 +90,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
     }
     _steps.clear();
     if (seq.steps.isNotEmpty) {
-      // Bridge already has a scratch / loaded sequence — show it.
+      // Bridge already has a scratch / loaded sequence  -  show it.
       for (final src in seq.steps) {
         _steps.add(_EditStep(
           presetId: src.presetId,
@@ -100,7 +100,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
       }
       _mode = loopModeFromWire(seq.mode);
     } else {
-      // Brand new — seed with one default step.
+      // Brand new  -  seed with one default step.
       final firstId = s.presets.isNotEmpty ? s.presets.first.id : 0;
       _steps.add(_EditStep(presetId: firstId, seconds: 60));
       _mode = LoopMode.forward;
@@ -311,7 +311,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'No saved sequences yet — tap the bookmark to save this one.',
+                'No saved sequences yet  -  tap the bookmark to save this one.',
                 style: TextStyle(
                   fontSize: 12,
                   color: theme.colorScheme.outline,
@@ -386,7 +386,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
   /// rebuild from snapshot's presets/steps. The bridge persists the active
   /// scratch in sequence.json, but the LIST of steps comes via state.
   /// Currently the state event ships sequence.{step_index,total_s,...} but
-  /// not the steps list per se — so we tolerate "load triggered" by
+  /// not the steps list per se  -  so we tolerate "load triggered" by
   /// listening for loaded_sequence change and pulling the current snapshot.
 
   Widget _modeSelector(BuildContext ctx) {
@@ -440,7 +440,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Step ${s.sequence.stepIndex + 1} of ${_steps.length} — ${remaining}s left',
+            'Step ${s.sequence.stepIndex + 1} of ${_steps.length}  -  ${remaining}s left',
             style: theme.textTheme.labelLarge,
           ),
           const SizedBox(height: 6),

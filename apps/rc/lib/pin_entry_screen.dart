@@ -5,11 +5,11 @@ import 'package:forui/forui.dart';
 import 'cache_menu.dart';
 import 'ws_client.dart';
 
-/// Pair-with-bridge screen (v1.2 PR I — first forui migration).
+/// Pair-with-bridge screen (v1.2 PR I  -  first forui migration).
 ///
 /// Replaces Material `Scaffold` + `AppBar` + `FilledButton` with the
 /// forui equivalents (`FScaffold` / `FHeader.nested` / `FButton`)
-/// wrapped in an `FTheme` block. The Material `TextField` stays —
+/// wrapped in an `FTheme` block. The Material `TextField` stays  - 
 /// forui's `FTextField` uses a different controller pattern; PR J
 /// migrates it together with the tab content as a unit.
 ///

@@ -16,7 +16,7 @@ import 'native_tray.dart';
 /// `popUpContextMenu` plumbing assigned then nulled `statusItem.menu`
 /// around each click, dropping NSMenu's target/action dispatch on
 /// macOS Sonoma+. Net effect: menu items rendered but clicks never
-/// fired the Dart-side TrayListener — Quit / Show window / Reveal
+/// fired the Dart-side TrayListener  -  Quit / Show window / Reveal
 /// PIN all became no-ops. The replacement attaches the NSMenu
 /// permanently and routes clicks through `@objc menuItemClicked:`
 /// straight to the `obsbot.bridge/tray` channel; rock-solid.
@@ -50,7 +50,7 @@ import 'native_tray.dart';
 class TrayController with WindowListener implements NativeTrayListener {
   final BridgeSupervisor supervisor;
   /// App version label (e.g. "1.4.1"). No longer shown in the tray
-  /// menu after the v1.4.1 simplification — kept on the constructor
+  /// menu after the v1.4.1 simplification  -  kept on the constructor
   /// to avoid touching the call-site in main.dart and so callers can
   /// still pass it through if they later want a tooltip variant.
   final String version;
@@ -199,7 +199,7 @@ class TrayController with WindowListener implements NativeTrayListener {
     }
 
     // PIN line: clickable. Clicking copies the PIN to clipboard
-    // (Tailscale / Dropbox idiom — collapse "PIN: XXXXXX" + "Copy PIN"
+    // (Tailscale / Dropbox idiom  -  collapse "PIN: XXXXXX" + "Copy PIN"
     // into a single affordance). The label ends with the standard
     // macOS ⌘C glyph hint to make the action discoverable.
     //
@@ -213,7 +213,7 @@ class TrayController with WindowListener implements NativeTrayListener {
 
     final items = <NativeTrayItem>[
       // Status. Disabled (NSMenu still renders, just non-clickable).
-      // This is the only "live" line — the tray icon's colour glyph
+      // This is the only "live" line  -  the tray icon's colour glyph
       // says the same thing visually.
       NativeTrayItem(
         key: 'status',

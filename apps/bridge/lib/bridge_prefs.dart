@@ -14,7 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// shared_preferences_foundation plugin writes through NSUserDefaults
 /// with every key prefixed by `flutter.`. AppDelegate.swift reads
 /// `flutter.bridge_start_hidden` directly from `UserDefaults.standard`
-/// before the Flutter engine boots — that's how the dock icon never
+/// before the Flutter engine boots  -  that's how the dock icon never
 /// flickers on launch in start-hidden mode.
 class BridgePrefs {
   BridgePrefs._(this._prefs);
@@ -23,7 +23,7 @@ class BridgePrefs {
   /// plugin stores it as `flutter.bridge_start_hidden` in NSUserDefaults.
   static const _kStartHidden = 'bridge_start_hidden';
 
-  /// Legacy key from v1.2.1 PR O — same meaning, kept for migration.
+  /// Legacy key from v1.2.1 PR O  -  same meaning, kept for migration.
   static const _kMenubarOnlyLegacy = 'bridge_menubar_only';
 
   static const _dockChannel = MethodChannel('obsbot.bridge/dock');
@@ -42,7 +42,7 @@ class BridgePrefs {
     return BridgePrefs._(p);
   }
 
-  /// "Start hidden in menubar" — when true, the bridge boots without
+  /// "Start hidden in menubar"  -  when true, the bridge boots without
   /// showing the main window and with the dock icon hidden (Handy's
   /// `start_hidden`). Default false.
   ///
@@ -65,7 +65,7 @@ class BridgePrefs {
   /// main window, `setDockVisible(false)` when hiding it. Initial
   /// state at launch is set in AppDelegate.swift based on the
   /// `flutter.bridge_start_hidden` UserDefaults key, before the
-  /// Flutter engine boots — no flicker.
+  /// Flutter engine boots  -  no flicker.
   static Future<void> setDockVisible(bool visible) async {
     try {
       await _dockChannel

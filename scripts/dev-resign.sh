@@ -12,7 +12,7 @@
 #   - That identity drifts every C++ rebuild → macOS TCC treats each
 #     drift as a new app, the user has to re-grant camera every
 #     time. The prod build script (build-bridge-mac.sh) already pins
-#     the subprocess to `com.harksingh.obsbotbridge.helper` — this
+#     the subprocess to `com.harksingh.obsbotbridge.helper`  -  this
 #     mirrors that for dev with `.dev.helper`.
 #
 # Run from repo root: ./scripts/dev-resign.sh
@@ -23,7 +23,7 @@ BIN="$ROOT/apps/bridge_cpp/build/obsbot-bridge"
 ENT="$ROOT/apps/bridge/macos/Runner/Release.entitlements"
 
 if [[ ! -x "$BIN" ]]; then
-    echo "obsbot-bridge missing at $BIN — build it first (CMake build)"
+    echo "obsbot-bridge missing at $BIN  -  build it first (CMake build)"
     exit 1
 fi
 

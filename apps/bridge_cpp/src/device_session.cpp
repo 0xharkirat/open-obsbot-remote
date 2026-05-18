@@ -18,7 +18,7 @@ using namespace std::chrono;
 
 namespace obs {
 
-// forward decls — used by on_dev_changed before their bodies appear lower
+// forward decls  -  used by on_dev_changed before their bodies appear lower
 static nlohmann::json read_lib();
 static void write_lib(const nlohmann::json& j);
 
@@ -158,7 +158,7 @@ void DeviceSession::stop() {
 }
 
 // ============================================================
-// MotionPlanner — bridge-side smooth interpolation for moves
+// MotionPlanner  -  bridge-side smooth interpolation for moves
 // slower than the SDK's own floor.
 //
 // Design: docs/SLOW_MOTION_DESIGN.md
@@ -175,7 +175,7 @@ static float ease_in_out_sine(float t) {
 
 static float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 
-// (Old `duration_ms_for(MoveSpeed, ...)` removed — the protocol now
+// (Old `duration_ms_for(MoveSpeed, ...)` removed  -  the protocol now
 // carries a `duration_ms` field directly. Clients pick how long a move
 // should take in absolute time and the planner honors it.)
 
@@ -268,7 +268,7 @@ void DeviceSession::motion_loop() {
         });
         const float per_tick = largest_axis / ticks;
         if (per_tick > 0.f && per_tick < 0.1f && !t.zoom_set) {
-            // Stretch tick to keep step ≥0.1° equivalent. Gimbal-only —
+            // Stretch tick to keep step ≥0.1° equivalent. Gimbal-only  - 
             // zoom keeps the fine cadence per the note above.
             const int new_tick = (int)(tick_ms * (0.1f / per_tick));
             tick_ms = std::min(new_tick, 500);
@@ -276,7 +276,7 @@ void DeviceSession::motion_loop() {
         }
 
         // Per-tick gimbal speed (SDK 0..100 percentage). v1.2 used 90
-        // everywhere — motor raced to each tick target inside the
+        // everywhere  -  motor raced to each tick target inside the
         // window then waited, producing visible 100 ms-cadence
         // stutter on every duration_ms > 0 move. Live feedback:
         // "anything starting from 1 second time difference to change
@@ -291,7 +291,7 @@ void DeviceSession::motion_loop() {
         // isn't perfectly linear. Floor at 5 so very slow pans still
         // move; cap at 100 (SDK max).
         // Per-tick gimbal speed (SDK 0..100 percentage). v1.2 used 90
-        // everywhere — motor raced to each tick target inside the
+        // everywhere  -  motor raced to each tick target inside the
         // window then waited, producing visible 100 ms-cadence
         // stutter on every duration_ms > 0 move. Live feedback:
         // "anything starting from 1 second time difference to change
@@ -327,8 +327,8 @@ void DeviceSession::motion_loop() {
         //     would cause visible stepping.
         //   - For longer plans we tick the target at a slow cadence
         //     (zoom_tick_ms = 600 ms minimum). The lens converges to
-        //     each waypoint before the next arrives — no overshoot
-        //     oscillation — and the eased curve advances slowly
+        //     each waypoint before the next arrives  -  no overshoot
+        //     oscillation  -  and the eased curve advances slowly
         //     enough that the duration_ms is honoured.
         //
         // v1.2 ticked every 100 ms, re-arming the lens's internal
@@ -412,7 +412,7 @@ void DeviceSession::motion_loop() {
                     roll_pct, pitch_pct, yaw_pct);
             }
             if (t.zoom_set) {
-                // Terminal landing on the float API — same call shape
+                // Terminal landing on the float API  -  same call shape
                 // as intra-plan waypoints so the lens doesn't
                 // momentarily snap when transitioning into the final
                 // exact target.
@@ -523,7 +523,7 @@ void DeviceSession::poll_status_locked() {
         snap_.flip_h = cs.tiny.image_flip_hor != 0;
         // AI mode poll uses pending-target semantics like zoom. While
         // pending_ai_mode_ is set, only update snap_.ai_mode from the
-        // camera read if it matches what we commanded — otherwise we'd
+        // camera read if it matches what we commanded  -  otherwise we'd
         // flip back to the firmware's stale echo. Cleared once camera
         // catches up.
         std::string cam_mode;
@@ -609,7 +609,7 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
     auto now = steady_clock::now();
     // Joystick / direct velocity preempts any planner-driven move.
     motion_cancel();
-    // Velocity is rate-based — client decides how fast it wants the
+    // Velocity is rate-based  -  client decides how fast it wants the
     // joystick or hold-button to push (multiply its own deflection by
     // whatever speed-factor the user chose). Bridge passes the value
     // through to aiSetGimbalSpeedCtrlR.
@@ -620,7 +620,7 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
         last_velocity_apply_ = now;
         // Only disable AI on the first manual command. Repeating
         // cameraSetAiModeU/aiSetEnabledR every velocity tick (10-30 Hz)
-        // makes the SDK flap and the camera's AI status oscillate —
+        // makes the SDK flap and the camera's AI status oscillate  - 
         // user sees AI "connecting/disconnecting" rapidly.
         if (!ai_disabled_for_manual_) {
             dev_->cameraSetAiModeU(Device::AiWorkModeNone);
@@ -712,7 +712,7 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
             t.duration_ms = duration_ms;
             t.tag = "zoom.set d=" + std::to_string(duration_ms);
             motion_start(std::move(t));
-            // Don't pre-stamp snap_.zoom here — the planner ticks update
+            // Don't pre-stamp snap_.zoom here  -  the planner ticks update
             // it progressively (see motion_loop), so state events show
             // smooth zoom motion. Pre-stamping would make clients see
             // the target value immediately even though the lens is
@@ -723,7 +723,7 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
         // changed AND the previous apply was very recent. Always accept
         // edge values (=zmin or =zmax) and any value the client tagged as
         // `final` (drag-end, button tap) so the camera always lands where
-        // the user released — even if the gap from the previous tick is
+        // the user released  -  even if the gap from the previous tick is
         // tiny.
         const bool edge = (v == zmin || v == zmax);
         const bool tiny_step = std::abs(v - prev_v) < 0.1f;
@@ -738,7 +738,7 @@ void DeviceSession::cmd_zoom_set(float value, bool client_terminal, int duration
         if (terminal) motion_cancel();
         // Float-API cameraSetZoomAbsoluteR: smooth on Tiny 2 Lite. The
         // uint-API cameraSetZoomWithSpeedAbsoluteR is broken on this
-        // product — gets stuck at 1.33×. The speed param is ignored on
+        // product  -  gets stuck at 1.33×. The speed param is ignored on
         // Tiny 2 Lite anyway (the SDK header tags zoom_speed as
         // "tail2/tail2s only").
         int32_t r = dev_->cameraSetZoomAbsoluteR(v, -1);
@@ -764,7 +764,7 @@ void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
             return err("invalid_param", "zoom out of camera range");
         }
         if (speed < 1 || speed > 10) return err("invalid_param", "speed must be 1..10");
-        // SDK speed ignored on Tiny 2 Lite — pass through anyway to the
+        // SDK speed ignored on Tiny 2 Lite  -  pass through anyway to the
         // float API which handles speed internally per product.
         int32_t r = dev_->cameraSetZoomAbsoluteR(value, speed);
         if (r == 0) {
@@ -986,7 +986,7 @@ void DeviceSession::cmd_image_set_flip_h(bool e, ReplyFn reply) {
 // cameraSetExposureModeR + cameraSetAAEEvBiasR are SDK-tagged "tail air"
 // only in libdev's headers, but empirical probing on a live Tiny 2 Lite
 // (firmware 6.2.8.1, chore/exposure-empirical-probe, 2026-05-12) showed
-// every variant returns r=0 — the firmware accepts them. The earlier
+// every variant returns r=0  -  the firmware accepts them. The earlier
 // "unsupported" guard was unnecessary and made the UI grey out
 // permanently-working controls.
 
@@ -1106,7 +1106,7 @@ void DeviceSession::cmd_image_set_wb_temp(int kelvin, ReplyFn reply) {
     }, std::move(reply));
 }
 
-// v1.2.1 PR P — re-read live exposure / anti-flicker / WB state from
+// v1.2.1 PR P  -  re-read live exposure / anti-flicker / WB state from
 // the camera. Best-effort per field: if any individual read fails the
 // snap_ field is left at its current value (no clobber to a bogus
 // default). Always returns ok() unless the device is missing.
@@ -1152,7 +1152,7 @@ void DeviceSession::cmd_system_run_status(const std::string& s, ReplyFn reply) {
     }, std::move(reply));
 }
 
-// (speed_to_rates removed — all moves now flow through the
+// (speed_to_rates removed  -  all moves now flow through the
 // MotionPlanner which takes a duration_ms directly.)
 
 // (gimbal_move_ms / zoom_speed_for_duration removed: superseded by
@@ -1174,7 +1174,7 @@ void DeviceSession::cmd_preset_recall(int id, int duration_ms, ReplyFn reply) {
 
         // Look up the preset (we cache it in snap_.presets). Camera-side
         // firmware presets reliably store yaw/pitch/roll BUT zoom field
-        // often comes back as 1.0 — so we keep our own zoom in PresetInfo
+        // often comes back as 1.0  -  so we keep our own zoom in PresetInfo
         // and explicitly restore on every recall, regardless of speed.
         PresetInfo p{};
         bool found = false;

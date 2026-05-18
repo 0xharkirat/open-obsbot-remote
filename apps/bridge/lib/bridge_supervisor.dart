@@ -24,10 +24,10 @@ class BridgeSupervisor extends ChangeNotifier {
   String _detectedSn = '';
   String _detectedModel = '';
   /// True when libdev has reported the camera plugged in (USB SDK
-  /// path — gives us SN, model, firmware).
+  /// path  -  gives us SN, model, firmware).
   bool _cameraConnected = false;
   /// True when AVFoundation reports `capture session started` (UVC
-  /// path — gives us video frames over the MJPEG preview server).
+  /// path  -  gives us video frames over the MJPEG preview server).
   ///
   /// libdev and AVFoundation are independent: libdev does USB control,
   /// AVFoundation grabs the UVC video stream. Either can succeed
@@ -38,9 +38,9 @@ class BridgeSupervisor extends ChangeNotifier {
   /// fires earlier and no follow-up "device plugged" arrives, so
   /// `_cameraConnected` stays false even though the preview is
   /// streaming fine). Use `cameraConnected` (the getter) to read the
-  /// effective state — it OR's both signals.
+  /// effective state  -  it OR's both signals.
   bool _videoRunning = false;
-  /// Device name parsed from `video: using device '<name>'` — fallback
+  /// Device name parsed from `video: using device '<name>'`  -  fallback
   /// model label when libdev hasn't fired the plug event yet but
   /// AVFoundation has the camera open.
   String _videoDeviceName = '';
@@ -366,7 +366,7 @@ class BridgeSupervisor extends ChangeNotifier {
     // Track AVFoundation capture state independently of libdev. The
     // bridge subprocess's video pipeline uses AVFoundation directly,
     // so a green `video: capture session started` line means a phone
-    // client will see live preview frames — even if libdev (USB
+    // client will see live preview frames  -  even if libdev (USB
     // control SDK) hasn't fired its `device plugged` callback yet.
     // This is the v1.4.1 post-replug bug fix: libdev's callback can
     // be missed after an unplug + replug, but AVFoundation always
@@ -382,7 +382,7 @@ class BridgeSupervisor extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Reset all pairing state — deletes auth.json (PIN + tokens) and
+  /// Reset all pairing state  -  deletes auth.json (PIN + tokens) and
   /// restarts the bridge subprocess so a fresh PIN is generated and
   /// every previously-paired phone has to re-enter the PIN.
   Future<void> resetPairing() async {

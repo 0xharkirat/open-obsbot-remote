@@ -276,7 +276,7 @@ a first-party `NSStatusItem` wrapper in v1.2.1 (`apps/bridge/macos/Runner/Native
 because the package's `popUpContextMenu` plumbing broke NSMenu click
 dispatch on macOS Sonoma+. v1.2.1 also switched to a Handy-style
 dynamic dock policy (the icon follows window visibility automatically)
-instead of a static `LSUIElement` setting — see CLAUDE.md "Current dev
+instead of a static `LSUIElement` setting  -  see CLAUDE.md "Current dev
 state" for the full reasoning.
 
 ## Out of scope (v1.3+)

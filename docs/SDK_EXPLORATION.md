@@ -39,8 +39,8 @@ obsbot-sdk/
 ├── include/
 │   ├── util/comm.hpp          # logging, version macros, DEV_EXPORT
 │   └── dev/
-│       ├── dev.hpp            # Device class — main API surface (~5338 lines)
-│       └── devs.hpp           # Devices singleton — discovery + lifecycle
+│       ├── dev.hpp            # Device class  -  main API surface (~5338 lines)
+│       └── devs.hpp           # Devices singleton  -  discovery + lifecycle
 ├── OBSBOT_Sample/
 │   ├── CMakeLists.txt         # CMake 3.16, C++11
 │   └── main.cpp               # Reference console app demonstrating PTZ, AI, image
@@ -55,7 +55,7 @@ obsbot-sdk/
     └── win64-debug/
 ```
 
-**No README, license, or external docs in SDK** — all knowledge is in headers + sample. Documentation is via Doxygen-style `@brief` + `@category` comments inline in `dev.hpp`.
+**No README, license, or external docs in SDK**  -  all knowledge is in headers + sample. Documentation is via Doxygen-style `@brief` + `@category` comments inline in `dev.hpp`.
 
 ---
 
@@ -79,7 +79,7 @@ Discovery + lifecycle. One instance globally, accessed via `Devices::get()`.
 | `setTailAirWhiteList(list<bt_mac>)` | Net scan filter for Tail Air |
 | `startNetworkScanImmediately()` | Force net scan now |
 | `close()` | Tear down singleton |
-| **(BLE-only build)** | Bluetooth pairing + Wi-Fi config flow for Tail Air/Tail2 — gated on `ENABLE_BLE_FUNC` |
+| **(BLE-only build)** | Bluetooth pairing + Wi-Fi config flow for Tail Air/Tail2  -  gated on `ENABLE_BLE_FUNC` |
 
 ### `Device` (dev.hpp)
 Per-camera handle, returned as `std::shared_ptr<Device>`. ~208 R/U-suffixed methods.
@@ -87,7 +87,7 @@ Per-camera handle, returned as `std::shared_ptr<Device>`. ~208 R/U-suffixed meth
 **Suffix convention discovered:**
 - `*R` → Remo Protocol command (vendor's own protocol over UVC control transport or net)
 - `*U` → UVC extension unit command (faster, fewer bytes, but a subset of features)
-- No suffix on getters like `productType()`, `devSn()`, `cameraStatus()` — local cache reads
+- No suffix on getters like `productType()`, `devSn()`, `cameraStatus()`  -  local cache reads
 
 **Sync vs async:** Get-style methods take `GetMethod method = Block | NonBlock` plus `RxDataCallback callback` for async dispatch.
 
@@ -135,7 +135,7 @@ Devices::get().close();
 
 | Enum | Product | Notes |
 |---|---|---|
-| `ObsbotProdTiny` | Tiny | 1st gen (no PTZ gimbal — image-only crop) |
+| `ObsbotProdTiny` | Tiny | 1st gen (no PTZ gimbal  -  image-only crop) |
 | `ObsbotProdTiny4k` | Tiny 4K | 1st gen 4K |
 | `ObsbotProdTiny2` | Tiny 2 | Full PTZ gimbal |
 | `ObsbotProdTiny2Lite` | **Tiny 2 Lite** | Same protocol as Tiny 2 (uses tiny.* status struct) |
@@ -157,7 +157,7 @@ User's **Tiny 2 Lite** maps onto the `tiny` status struct and uses the Tiny 2 co
 
 ---
 
-## 5. API Surface — Categorized
+## 5. API Surface  -  Categorized
 
 Total: **208 `*R` / `*U`** methods + getters. Grouped below.
 
@@ -216,7 +216,7 @@ struct {
     float roi_cx, roi_cy, roi_alpha;  // tail air only
 };
 ```
-Plus a `PresetsAction` struct for advanced "do these settings when preset reached" (AI mode, focus, exposure, WB, image params) — useful for scene-aware presets.
+Plus a `PresetsAction` struct for advanced "do these settings when preset reached" (AI mode, focus, exposure, WB, image params)  -  useful for scene-aware presets.
 
 ### 5.4 AI tracking
 Cameras vary widely.
@@ -248,20 +248,20 @@ Style: `cameraSetImageStyleR(DevImageStyle)` (tail air).
 White balance: `cameraSetWhiteBalanceR(DevWhiteBalanceType, color_temp)` (tiny + tail + meet); `cameraGetWhiteBalanceListR` for supported types.
 
 Auto / manual exposure (tail air):
-- `cameraSetExposureModeR(int)` — auto/PAE/SAE/AAE/MAE
+- `cameraSetExposureModeR(int)`  -  auto/PAE/SAE/AAE/MAE
 - `cameraSetSAEShutterR / cameraSetMAEShutterR / cameraSetMAEIsoR / cameraSetISOLimitR / cameraSetAELockR / cameraSetPAEEvBiasR / cameraSetSAEEvBiasR / cameraSetAAEEvBiasR / cameraSetMAEApertureR`
 - `cameraSetFaceAER(int)` (all)
 - `cameraSetAntiFlickR(50/60/auto/off)` (tiny+tail+meet)
 
 Focus (tail air, tail2):
-- `cameraSetAutoFocusModeR(DevAutoFocusType)` — afc/afs/manual
-- `cameraSetFocusPosR(int)` / `cameraGetFocusPosR(&)` — manual focus (Tiny 2 Lite uses simpler `cameraSetFocusAbsolute(50, false)` shown in sample line 605)
+- `cameraSetAutoFocusModeR(DevAutoFocusType)`  -  afc/afs/manual
+- `cameraSetFocusPosR(int)` / `cameraGetFocusPosR(&)`  -  manual focus (Tiny 2 Lite uses simpler `cameraSetFocusAbsolute(50, false)` shown in sample line 605)
 - `cameraSetAFCTrackModeR(DevAFCType)` (tail air, tail2)
 - `cameraSetFaceFocusR(bool)` (all)
 
 HDR / WDR: `cameraSetWdrR(DevWdrModeNone | Dol2TO1 | …)` (tiny4k, tiny2, meet, tail air).
 
-FOV: `cameraSetFovU(FovType86 | 78 | 65)` (tiny + meet) — wide/medium/narrow.
+FOV: `cameraSetFovU(FovType86 | 78 | 65)` (tiny + meet)  -  wide/medium/narrow.
 
 Mirror/flip (tail air): `cameraSetMirrorFlipR(DevImageMirrorFlipType)`.
 
@@ -284,28 +284,28 @@ Image transfer: `setLocalResourcePath` + `startFileUploadAsync(UploadImage0..3)`
 | `DevMediaParamSrt` + `cameraSetMediaOperateParamR(stream_id, action)` | SRT + stream lifecycle (tail2) |
 
 ### 5.8 System & device
-- `cameraSetDevRunStatusR(DevStatus Run/Sleep/Privacy)` — wake/sleep
-- `cameraSetRestoreFactorySettingsR()` — factory reset
-- `cameraSetSuspendTimeU(int)` — auto-sleep timer
+- `cameraSetDevRunStatusR(DevStatus Run/Sleep/Privacy)`  -  wake/sleep
+- `cameraSetRestoreFactorySettingsR()`  -  factory reset
+- `cameraSetSuspendTimeU(int)`  -  auto-sleep timer
 - `cameraSetMicrophoneDuringSleepU(int)`
 - `cameraSetImageFlipHorizonU(int)`
-- `cameraSetVerticalModeU(int)` — portrait orientation (tiny4k)
-- `cameraSetLedCtrlU(bool)` — special LED pattern (tinySE, used while configuring zone tracking)
-- `cameraSetAudioCtrlStateU(AudioCtrlCmdType, state)` — voice control (tiny2)
-- `cameraSetAudioAutoGainU(bool)` — AGC (tiny2)
-- `cameraSetBootModeU(AiWorkModeType, AiSubModeType)` — boot AI mode (tiny2)
+- `cameraSetVerticalModeU(int)`  -  portrait orientation (tiny4k)
+- `cameraSetLedCtrlU(bool)`  -  special LED pattern (tinySE, used while configuring zone tracking)
+- `cameraSetAudioCtrlStateU(AudioCtrlCmdType, state)`  -  voice control (tiny2)
+- `cameraSetAudioAutoGainU(bool)`  -  AGC (tiny2)
+- `cameraSetBootModeU(AiWorkModeType, AiSubModeType)`  -  boot AI mode (tiny2)
 - `sysMgSetDeviceNameR / sysMgGetDeviceNameR` (tail air)
 - `sysMgSetIndicatorStateR / sysMgClearIndicatorStateR` (tail air, tail2)
 - `sysMgSetBuzzerEnabledR / sysMgGetBuzzerEnabledR` (tail air)
 - `cameraSetPowerCtrlActionR(Resume/Suspend/Reboot/PowerOff/MediaExit)` (tail air)
 
 ### 5.9 Status streaming
-- `setDevStatusCallbackFunc(cb, ud)` + `enableDevStatusCallback(true)` — periodic push every ~2-3s
-- `setFastDevStatusCallbackFunc(cb, ud)` — faster cadence variant
-- `setDevEventNotifyCallbackFunc(cb, ud)` — event-driven (Tail Air): >120 event types in `RmEventType` (sd card, battery, mic plug/unplug, target loss, new media file, etc.)
-- `nextRefreshDevStatus(period)` / `fastNextRefreshDevStatus(period)` — control polling rate
-- `cameraStatus()` — read last cached `CameraStatus` (a tagged union by product family: `tiny`, `meet`, `tail_air`)
-- `cameraGetCameraStatusU(CameraStatus&)` — sync force-refresh
+- `setDevStatusCallbackFunc(cb, ud)` + `enableDevStatusCallback(true)`  -  periodic push every ~2-3s
+- `setFastDevStatusCallbackFunc(cb, ud)`  -  faster cadence variant
+- `setDevEventNotifyCallbackFunc(cb, ud)`  -  event-driven (Tail Air): >120 event types in `RmEventType` (sd card, battery, mic plug/unplug, target loss, new media file, etc.)
+- `nextRefreshDevStatus(period)` / `fastNextRefreshDevStatus(period)`  -  control polling rate
+- `cameraStatus()`  -  read last cached `CameraStatus` (a tagged union by product family: `tiny`, `meet`, `tail_air`)
+- `cameraGetCameraStatusU(CameraStatus&)`  -  sync force-refresh
 
 `CameraStatus` has 60+ fields per family. Useful ones:
 - **tiny** struct: `zoom_ratio`, `hdr`, `face_ae`, `dev_status`, `auto_sleep_time`, `vertical`, `face_auto_focus`, `auto_focus`, `manual_focus_value`, `fov`, `ai_mode`, `ai_sub_mode`, `voice_ctrl`, `voice_ctrl_zoom`, `audio_auto_gain`, `bg_img_idx`, `fps`, `boot_mode`, `led_brightness_level`, `ble_status`, `ai_tracker_speed`, ...
@@ -321,50 +321,50 @@ Derived from `@category` annotations on every method.
 | Feature | Tiny | Tiny4K | **Tiny2 / 2Lite** | TinySE | Tiny3/3Lite | Meet/4K | Meet2/SE | TailAir | Tail2/2S |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | Motorized PTZ (gimbal) | ✗ (digital) | ✗ | **✓** | ✓ | ✓ | ✗ | ✗ | ✓ | ✓ |
-| Pan/Tilt absolute | (image crop) | — | **✓** | ✓ | ✓ | ✓ (-1..1 image) | ✓ | ✓ | ✓ |
-| Pan/Tilt speed | ✓ | ✓ | **✓** | ✓ | ✓ | — | — | ✓ | ✓ |
-| Gimbal stop | — | — | **✓** | ✓ | ✓ | — | — | ✓ | ✓ |
+| Pan/Tilt absolute | (image crop) |  -  | **✓** | ✓ | ✓ | ✓ (-1..1 image) | ✓ | ✓ | ✓ |
+| Pan/Tilt speed | ✓ | ✓ | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
+| Gimbal stop |  -  |  -  | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
 | Zoom (1.0–2.0) | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Zoom (up to 4.0) | — | — | **✓** | ✓ | ✓ | — | — | ✓ | ✓ (up to 20×) |
-| Zoom with speed | — | — | **✓** | ✓ | ✓ | — | — | ✓ | ✓ |
-| Boot/home preset | ✓ | ✓ | **✓** | ✓ | ✓ | — | — | ✓ | ✓ |
-| Gimbal presets (add/recall/del) | ✓ | ✓ | **✓** | ✓ | ✓ | — | — | ✓ | ✓ |
-| Zone presets / zone tracking | — | — | — | ✓ | — | — | — | — | — |
-| Hand tracking | — | — | **✓** | ✓ | — | — | — | — | — |
-| AI work mode (Human/Group/Hand/Whiteboard/Desk) | basic | basic | **✓** | ✓ | + Speech | — | — | (different API) | (different API) |
-| AI track mode (Normal/FullBody/HalfBody/CloseUp/AutoView/Animal) | — | — | ✓ | ✓ | ✓ | — | — | ✓ | ✓ |
-| Tap-to-track (box select) | — | — | — | — | — | — | — | ✓ | ✓ |
-| Track speed (Lazy..Crazy) | — | — | — | — | ✓ | — | — | ✓ | ✓ |
-| Vertical track mode (Standard/Headroom/Motion) | ✓ | ✓ | **✓** | ✓ | — | — | — | — | — |
-| Gesture controls | ✓ | ✓ | **✓** | ✓ | ✓ | — | — | ✓ | ✓ |
-| Voice control (HiTiny/Sleep/Track/Zoom) | — | — | **✓** | ✓ | ✓ | — | — | — | — |
+| Zoom (up to 4.0) |  -  |  -  | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ (up to 20×) |
+| Zoom with speed |  -  |  -  | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
+| Boot/home preset | ✓ | ✓ | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
+| Gimbal presets (add/recall/del) | ✓ | ✓ | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
+| Zone presets / zone tracking |  -  |  -  |  -  | ✓ |  -  |  -  |  -  |  -  |  -  |
+| Hand tracking |  -  |  -  | **✓** | ✓ |  -  |  -  |  -  |  -  |  -  |
+| AI work mode (Human/Group/Hand/Whiteboard/Desk) | basic | basic | **✓** | ✓ | + Speech |  -  |  -  | (different API) | (different API) |
+| AI track mode (Normal/FullBody/HalfBody/CloseUp/AutoView/Animal) |  -  |  -  | ✓ | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
+| Tap-to-track (box select) |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Track speed (Lazy..Crazy) |  -  |  -  |  -  |  -  | ✓ |  -  |  -  | ✓ | ✓ |
+| Vertical track mode (Standard/Headroom/Motion) | ✓ | ✓ | **✓** | ✓ |  -  |  -  |  -  |  -  |  -  |
+| Gesture controls | ✓ | ✓ | **✓** | ✓ | ✓ |  -  |  -  | ✓ | ✓ |
+| Voice control (HiTiny/Sleep/Track/Zoom) |  -  |  -  | **✓** | ✓ | ✓ |  -  |  -  |  -  |  -  |
 | Brightness/Contrast/Hue/Saturation/Sharpness | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | White balance (auto + manual K) | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Anti-flicker | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| HDR / WDR | — | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| HDR / WDR |  -  | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Auto/manual focus | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Face AE / Face AF | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Manual exposure (shutter, ISO, EV) | — | — | — | — | — | — | — | ✓ | ✓ |
-| FOV (86/78/65°) | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | — | — |
-| Image flip / mirror | — | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Vertical/portrait mode | — | ✓ | — | — | — | — | — | — | — |
+| Manual exposure (shutter, ISO, EV) |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| FOV (86/78/65°) | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ |  -  |  -  |
+| Image flip / mirror |  -  | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Vertical/portrait mode |  -  | ✓ |  -  |  -  |  -  |  -  |  -  |  -  |  -  |
 | Sleep/wake | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Auto-sleep timer | ✓ | ✓ | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Voice control switches | — | — | **✓** | ✓ | ✓ | — | — | — | — |
-| Background image upload/download | — | — | **✓ (sleep bg)** | ✓ | ✓ | ✓ (virtual bg) | ✓ | — | — |
-| Virtual background (green/replace/blur) | — | — | — | — | — | ✓ | ✓ | — | — |
-| Auto framing (group/single/closeup) | — | — | — | — | — | ✓ | ✓ | — | (different) |
-| Photo capture | — | — | — | — | — | — | — | ✓ | ✓ |
-| Video record (to SD) | — | — | — | — | — | — | — | ✓ | ✓ |
-| NDI / RTSP / SRT streaming | — | — | — | — | — | — | — | ✓ | ✓ |
-| HDMI output config | — | — | — | — | — | — | — | ✓ | ✓ |
-| Watermark | — | — | — | — | — | — | — | ✓ | ✓ |
-| BLE pairing + Wi-Fi setup | — | — | — | — | — | — | — | ✓ | ✓ |
-| Battery / SD status | — | — | — | — | — | — | — | ✓ | ✓ |
-| Buzzer / indicator LED | — | — | — | — | — | — | — | ✓ | ✓ |
-| Device rename | — | — | — | — | — | — | — | ✓ | ✓ |
-| Power ctrl (reboot/poweroff) | — | — | — | — | — | — | — | ✓ | ✓ |
-| Custom remote key bindings | — | — | — | — | — | — | — | ✓ | ✓ |
+| Voice control switches |  -  |  -  | **✓** | ✓ | ✓ |  -  |  -  |  -  |  -  |
+| Background image upload/download |  -  |  -  | **✓ (sleep bg)** | ✓ | ✓ | ✓ (virtual bg) | ✓ |  -  |  -  |
+| Virtual background (green/replace/blur) |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |  -  |  -  |
+| Auto framing (group/single/closeup) |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |  -  | (different) |
+| Photo capture |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Video record (to SD) |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| NDI / RTSP / SRT streaming |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| HDMI output config |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Watermark |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| BLE pairing + Wi-Fi setup |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Battery / SD status |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Buzzer / indicator LED |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Device rename |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Power ctrl (reboot/poweroff) |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
+| Custom remote key bindings |  -  |  -  |  -  |  -  |  -  |  -  |  -  | ✓ | ✓ |
 
 **Bold column = tested Tiny 2 Lite path. Treat it identically to Tiny 2 unless hardware testing proves otherwise.**
 
@@ -383,7 +383,7 @@ Sample `CMakeLists.txt`:
 The prebuilt `macos/arm64-release/libdev.dylib` links against:
 - AVFoundation, AppKit, Cocoa, CoreAudio, CoreMedia, **CoreMediaIO** (UVC layer), CoreVideo, Foundation, **IOKit** (USB enumeration), IOSurface, Carbon, AudioUnit, ScriptingBridge, Security, libobjc, libc++, libSystem.
 
-Implication: SDK uses macOS-native USB/UVC discovery — no libusb shim. Must run with TCC permission for camera + USB-mass-storage access (for MTP).
+Implication: SDK uses macOS-native USB/UVC discovery  -  no libusb shim. Must run with TCC permission for camera + USB-mass-storage access (for MTP).
 
 ### Verified exported symbols (via `nm -gU`)
 C++ name-mangled, namespace `Device::*` (e.g., `__ZN6Device12cameraStatusEv`, `__ZN6Device11productTypeEv`). Plus log handlers `dev_set_log_handler` and `dev_get_log_handler` as C-callable. Internal use of **boost::filesystem** is bundled in (so no separate boost dep needed for consumers).
@@ -406,20 +406,20 @@ C++ name-mangled, namespace `Device::*` (e.g., `__ZN6Device12cameraStatusEv`, `_
 
 ## 8. Limitations & Gotchas
 
-1. **No headers for Tiny 3 / Tail 2 separately** — newer cameras share the existing API. Some methods say "tail2 and later products" — implies SDK auto-routes by `productType()`.
-2. **`ENABLE_BLE_FUNC` build flag** — BLE pairing + Wi-Fi-config code only present if the SDK was compiled with BLE. The shipped libdev appears to NOT have BLE bits exported (no `__ZN8Devices*Bluetooth*` style symbols visible in the glance). For Tiny 2 Lite this is fine — USB-only. For future Tail Air support over Wi-Fi, this matters.
-3. **No version compat metadata in headers** — must check firmware version field for some commands ("Devices with old firmwares may not support some of these states").
-4. **Status struct is a `union`, indexed by `productType()`** — the bridge MUST switch on product type before reading. Wrong cast = junk data.
-5. **`*R` commands have ~3s switching latency for media-mode/HDR/WDR** — header says "not suitable to switch frequently". Bridge should debounce these.
+1. **No headers for Tiny 3 / Tail 2 separately**  -  newer cameras share the existing API. Some methods say "tail2 and later products"  -  implies SDK auto-routes by `productType()`.
+2. **`ENABLE_BLE_FUNC` build flag**  -  BLE pairing + Wi-Fi-config code only present if the SDK was compiled with BLE. The shipped libdev appears to NOT have BLE bits exported (no `__ZN8Devices*Bluetooth*` style symbols visible in the glance). For Tiny 2 Lite this is fine  -  USB-only. For future Tail Air support over Wi-Fi, this matters.
+3. **No version compat metadata in headers**  -  must check firmware version field for some commands ("Devices with old firmwares may not support some of these states").
+4. **Status struct is a `union`, indexed by `productType()`**  -  the bridge MUST switch on product type before reading. Wrong cast = junk data.
+5. **`*R` commands have ~3s switching latency for media-mode/HDR/WDR**  -  header says "not suitable to switch frequently". Bridge should debounce these.
 6. **Asynchronous callbacks run on SDK thread.** Bridge must not block in the callback (queue to a worker, return immediately).
-7. **`gimbalRstPosR()` interacts with AI** — if AI is on, gimbal is owned by AI. Have to call `aiSetTargetSelectR(false)` (tiny/tiny4k) or `cameraSetAiModeU(AiWorkModeNone)` (tiny2) first. Bridge should expose a "manual mode" toggle.
-8. **`PresetPosInfo.name` is fixed `char[64]`** — Flutter UI can pass UTF-8 names but truncate at 64 bytes.
-9. **No streaming preview from SDK** — for camera thumbnail in the Flutter app, you'd need to either grab UVC frames (out-of-band, AVFoundation) or, on Tail Air, pull RTSP/NDI. SDK doesn't expose a video-frame callback.
-10. **macOS code signing & TCC** — bridge binary will need camera/IOKit entitlements for distribution.
-11. **No async device-connect API** — SDK auto-discovers; you wait for the `devChangedCallback`. Bridge needs an init delay (sample sleeps 3s).
+7. **`gimbalRstPosR()` interacts with AI**  -  if AI is on, gimbal is owned by AI. Have to call `aiSetTargetSelectR(false)` (tiny/tiny4k) or `cameraSetAiModeU(AiWorkModeNone)` (tiny2) first. Bridge should expose a "manual mode" toggle.
+8. **`PresetPosInfo.name` is fixed `char[64]`**  -  Flutter UI can pass UTF-8 names but truncate at 64 bytes.
+9. **No streaming preview from SDK**  -  for camera thumbnail in the Flutter app, you'd need to either grab UVC frames (out-of-band, AVFoundation) or, on Tail Air, pull RTSP/NDI. SDK doesn't expose a video-frame callback.
+10. **macOS code signing & TCC**  -  bridge binary will need camera/IOKit entitlements for distribution.
+11. **No async device-connect API**  -  SDK auto-discovers; you wait for the `devChangedCallback`. Bridge needs an init delay (sample sleeps 3s).
 12. **Documentation is in headers only.** No PDF, no online docs in this drop.
 13. **`comm.hpp` defines `LIB_MAJOR_VER 1`, `LIB_MINOR_VER 3`, `LIB_REVISION 0`** → SDK 1.3.0. Check OBSBOT site for newer versions periodically.
-14. **`Devices::close()` releases all resources** — bridge must call this on SIGINT/SIGTERM, otherwise USB handle stays held until process death.
+14. **`Devices::close()` releases all resources**  -  bridge must call this on SIGINT/SIGTERM, otherwise USB handle stays held until process death.
 15. **Many `[internal]`-tagged methods exist** (e.g., `cameraGetWdrR` is "[internal] Get the current WDR state"). Ship-time deprecation risk; prefer "external" Set methods + read state from `cameraStatus()` callbacks.
 
 ---
@@ -428,7 +428,7 @@ C++ name-mangled, namespace `Device::*` (e.g., `__ZN6Device12cameraStatusEv`, `_
 
 | Question | Default chosen |
 |---|---|
-| Does Tiny 2 Lite respond to all Tiny 2 commands? | **Yes for the implemented path** — same `tiny` status struct family, same product-type branch in sample. Keep validating on real hardware for each new command. |
+| Does Tiny 2 Lite respond to all Tiny 2 commands? | **Yes for the implemented path**  -  same `tiny` status struct family, same product-type branch in sample. Keep validating on real hardware for each new command. |
 | Is there a video preview API? | **No, not in SDK.** The bridge gets preview separately through AVFoundation/UVC and streams MJPEG itself. |
 | Bluetooth/Wi-Fi config flow for Tail Air? | **Out of scope for v1.** Tiny 2 Lite is USB-only. Add when Tail Air support is requested. |
 | Multi-camera support? | **`Devices` returns a list.** Bridge can iterate. WebSocket protocol must include a `device_id` (use `devSn()`) on every command. |

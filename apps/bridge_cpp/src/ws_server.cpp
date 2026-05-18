@@ -200,7 +200,7 @@ void run_ws_server(uint16_t port,
         }
         res.set_header("Content-Type", mime_for(rel));
         // index.html: never cache (so updates ship). Everything else:
-        // cache for a year — Flutter web's asset filenames are hashed.
+        // cache for a year  -  Flutter web's asset filenames are hashed.
         if (no_cache) {
             res.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
             res.set_header("Pragma", "no-cache");
@@ -278,7 +278,7 @@ void run_ws_server(uint16_t port,
             // Replace Flutter's service worker with a self-unregistering
             // stub. Flutter SW caches main.dart.js aggressively and old
             // builds keep shipping invisible. Bridge serves over LAN
-            // localhost — offline cache is wrong tradeoff anyway.
+            // localhost  -  offline cache is wrong tradeoff anyway.
             if (path == "flutter_service_worker.js") {
                 res.set_header("Content-Type", "application/javascript");
                 res.set_header("Cache-Control", "no-store");
@@ -298,7 +298,7 @@ void run_ws_server(uint16_t port,
             }
             // index.html and json manifests should not be hard-cached.
             // main.dart.js + flutter_bootstrap.js are unhashed top-level
-            // entry points — must not be served as immutable, otherwise
+            // entry points  -  must not be served as immutable, otherwise
             // every code change ships invisible until users hard-reload.
             const bool no_cache = (path == "index.html" || path == "manifest.json" ||
                                    path == "flutter_service_worker.js" ||

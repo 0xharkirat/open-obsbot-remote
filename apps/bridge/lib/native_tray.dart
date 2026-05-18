@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 ///
 /// Replaces `tray_manager` for the bridge because the package's
 /// 0.5.2 `popUpContextMenu` plumbing drops NSMenu target/action
-/// dispatch on macOS Sonoma+ — menu items show but click events
+/// dispatch on macOS Sonoma+  -  menu items show but click events
 /// never reach the Dart side. See `macos/Runner/NativeTray.swift`
 /// for the native impl + the bug analysis in the file header.
 ///

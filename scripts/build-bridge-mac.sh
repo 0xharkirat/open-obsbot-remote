@@ -61,13 +61,13 @@ cp -R "$WEB_DIR/." "$APP/Contents/Resources/web/"
 
 # 4) ad-hoc sign the whole bundle. Without this, the unsigned subprocess
 #    has its own TCC identity and won't inherit camera-access grants
-#    from the parent .app — preview silently fails.
+#    from the parent .app  -  preview silently fails.
 #
 # Two-step sign so the subprocess gets a STABLE bundle identifier
 # (com.harksingh.obsbotbridge.helper) instead of the default
 # obsbot-bridge-<contenthash>. Without this, every rebuild produces a
 # different ad-hoc identifier for the subprocess, and macOS TCC
-# treats it as a new app — the camera permission that the user just
+# treats it as a new app  -  the camera permission that the user just
 # granted gets thrown away the next time the dev rebuilds. With the
 # stable identifier the TCC entry survives rebuilds (only invalidates
 # if entitlements or the bundle ID itself change).

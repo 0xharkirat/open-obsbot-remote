@@ -38,12 +38,12 @@ dependencies:
   path_provider: ^2.1.5
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.2
-  # tray_manager dropped in v1.2.1 PR S — its 0.5.2 popUpContextMenu
+  # tray_manager dropped in v1.2.1 PR S  -  its 0.5.2 popUpContextMenu
   # plumbing dropped NSMenu click dispatch on macOS Sonoma+. Replaced
   # by first-party NativeTray in macos/Runner/NativeTray.swift +
   # lib/native_tray.dart.
   shared_preferences: ^2.5.5
-  # macos_ui (v1.3) — native AppKit-shaped chrome for the bridge top
+  # macos_ui (v1.3)  -  native AppKit-shaped chrome for the bridge top
   # bar + window background. We keep child widgets on Material so
   # SnackBar / AlertDialog / SwitchListTile still work via the
   # Material wrapping in main.dart.
@@ -79,6 +79,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/icon-1024.png
     - assets/tray/cameraTemplate.png
     - assets/tray/cameraTemplate@2x.png
     - assets/tray/cameraTemplateWarn.png

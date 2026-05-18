@@ -43,7 +43,7 @@ Future<void> main() async {
   final prefs = await BridgePrefs.load();
   final paired = await _hasPairedTokens();
   // Handy-style onboarding override: ignore start-hidden when no
-  // pairing has happened yet — the user needs the PIN/QR card in
+  // pairing has happened yet  -  the user needs the PIN/QR card in
   // front of them. Once they've paired at least one phone the
   // start-hidden preference takes effect normally.
   final hideAtLaunch = prefs.startHidden && paired;
@@ -63,7 +63,7 @@ Future<void> main() async {
       await windowManager.setPreventClose(true);
       if (hideAtLaunch) {
         await windowManager.hide();
-        // No setDockVisible(false) call needed — AppDelegate already
+        // No setDockVisible(false) call needed  -  AppDelegate already
         // flipped policy to .accessory before super.didFinishLaunching
         // based on the same pref.
       } else {
@@ -138,8 +138,8 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
     //      typography, system colours, native window background tint
     //      via macos_window_utils) and a CupertinoApp underneath for
     //      its routing + localizations.
-    //   2. `MaterialApp` nested as `home` — but with router OFF
-    //      (`home:` set, no `routes`) — gives every descendant the
+    //   2. `MaterialApp` nested as `home`  -  but with router OFF
+    //      (`home:` set, no `routes`)  -  gives every descendant the
     //      MaterialLocalizations + Material context that Scaffold,
     //      AlertDialog, SnackBar, SwitchListTile, SegmentedButton
     //      (gone) and the v1.2.1 forui widgets rely on.
@@ -255,8 +255,8 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (supervisor.status) {
       case BridgeStatus.running:
         return supervisor.cameraConnected
-            ? 'Running — camera connected'
-            : 'Running — waiting for camera plug-in';
+            ? 'Running  -  camera connected'
+            : 'Running  -  waiting for camera plug-in';
       case BridgeStatus.starting:
         return 'Starting...';
       case BridgeStatus.error:
@@ -279,8 +279,25 @@ class _HomeScreenState extends State<HomeScreen> {
     final isRunning = supervisor.status == BridgeStatus.running;
     return MacosScaffold(
       toolBar: ToolBar(
-        title: const Text('OBSBOT Bridge'),
-        titleWidth: 180,
+        // Logo + title. Image.asset uses the 1024px icon (downscaled by
+        // the renderer); rounded clip mimics the macOS app-icon mask.
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ClipRRect(
+              borderRadius: const BorderRadius.all(Radius.circular(6)),
+              child: Image.asset(
+                'assets/icon-1024.png',
+                width: 22,
+                height: 22,
+                filterQuality: FilterQuality.medium,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text('OBSBOT Bridge'),
+          ],
+        ),
+        titleWidth: 220,
         actions: <ToolbarItem>[
           ToolBarIconButton(
             label: isRunning ? 'Stop' : 'Start',
@@ -715,7 +732,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 6),
             PushButton(
-              controlSize: ControlSize.small,
+              controlSize: ControlSize.regular,
               secondary: true,
               onPressed: () async {
                 final ok = await showDialog<bool>(
@@ -918,13 +935,13 @@ class _HomeScreenState extends State<HomeScreen> {
           spacing: 6,
           children: <Widget>[
             PushButton(
-              controlSize: ControlSize.small,
+              controlSize: ControlSize.regular,
               secondary: true,
               onPressed: supervisor.openSystemCameraSettings,
               child: const Text('Open Settings'),
             ),
             PushButton(
-              controlSize: ControlSize.small,
+              controlSize: ControlSize.regular,
               secondary: true,
               onPressed: () async {
                 await supervisor.resetCameraPermissionAndRestart();
@@ -961,7 +978,7 @@ class _HomeScreenState extends State<HomeScreen> {
       subtitle: 'If phones cannot connect, allow incoming connections.',
       dotColor: MacosColors.systemGrayColor,
       trailing: PushButton(
-        controlSize: ControlSize.small,
+        controlSize: ControlSize.regular,
         secondary: true,
         onPressed: supervisor.openSystemFirewallSettings,
         child: const Text('Open Settings'),
@@ -1123,7 +1140,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         Text(
-          'Open OBSBOT Bridge — by Hark Singh.\n'
+          'Open OBSBOT Bridge  -  by Hark Singh.\n'
           'Not affiliated with OBSBOT.',
           style: mutedStyle,
         ),

@@ -3,7 +3,7 @@
 // Final .app filename + window title shown to the user.
 PRODUCT_NAME = Open OBSBOT Bridge
 
-// Bundle identifier — moved into the per-configuration xcconfigs
+// Bundle identifier  -  moved into the per-configuration xcconfigs
 // (Debug.xcconfig and Release.xcconfig) so the Debug build can claim
 // its own `com.harksingh.obsbotbridge.dev` slot without colliding
 // with prod for TCC + Launch Services + NSUserDefaults. Defining it

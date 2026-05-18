@@ -14,7 +14,7 @@ Platform-side wrapper  (Swift on macOS / iOS, .kt on Android)
 libdev  (third_party/obsbot-sdk/<platform>/<arch>-release/)
 ```
 
-- iOS likely won't be wired up at first — `libdev` ships only macOS / Linux / Windows binaries. (iOS would need an OBSBOT-compiled iOS slice, which we'd need to request.)
+- iOS likely won't be wired up at first  -  `libdev` ships only macOS / Linux / Windows binaries. (iOS would need an OBSBOT-compiled iOS slice, which we'd need to request.)
 - macOS uses Swift 5.9+ C++ interop directly against the SDK headers.
 - Android uses JNI + an arm64 `libdev.so` from OBSBOT's Linux build.
 

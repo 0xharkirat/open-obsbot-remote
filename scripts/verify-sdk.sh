@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fail fast if the OBSBOT SDK isn't on the local filesystem.
-# The SDK is gitignored — every dev keeps their own copy under third_party/obsbot-sdk/.
+# The SDK is gitignored  -  every dev keeps their own copy under third_party/obsbot-sdk/.
 # Builds (CMake / Flutter macOS) pull libdev from here and bundle it into the resulting .app.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

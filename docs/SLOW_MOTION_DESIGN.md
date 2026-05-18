@@ -45,7 +45,7 @@ minimum).
 | Cinema | ~22 s | ~6 s |
 | **Ultra** | **2-5 min (configurable)** | **15-30 s** |
 
-Ultra is meant to be visually almost-imperceptible motion — useful for
+Ultra is meant to be visually almost-imperceptible motion  -  useful for
 weddings, religious ceremonies, theatre.
 
 ## Why we can't just lower the SDK speed parameter
@@ -63,7 +63,7 @@ cameraSetZoomWithSpeedAbsoluteR(zoom_ratio_pct, zoom_speed);
 ```
 
 `s_yaw=1` is the SDK's floor. Any value below 1 is undefined behaviour
-(empirical: motor jitters or ignores). `zoom_speed=1` likewise — there's
+(empirical: motor jitters or ignores). `zoom_speed=1` likewise  -  there's
 no `0.5` enum member.
 
 To go slower than the SDK floor, we must **synthesise** the slow motion
@@ -84,7 +84,7 @@ cancel the in-flight one.
 
 ```cpp
 struct MotionTarget {
-    // All fields optional — set only the axes you want to move.
+    // All fields optional  -  set only the axes you want to move.
     std::optional<float> yaw_deg;
     std::optional<float> pitch_deg;
     std::optional<float> roll_deg;
@@ -115,7 +115,7 @@ public:
     // True if a move is currently being driven.
     bool busy() const;
 
-    // Snapshot of the planner's current target — useful for debug + UI.
+    // Snapshot of the planner's current target  -  useful for debug + UI.
     MotionTarget active_target() const;
 };
 ```
@@ -153,14 +153,14 @@ for i in 1..tick_count:
 ```
 
 Easing function: `ease_in_out_sine(t) = 0.5 * (1 - cos(pi * t))`. Looks
-deliberately decelerating into the target — cinematographer-style.
+deliberately decelerating into the target  -  cinematographer-style.
 Linear (`progress` raw) is fine too, configurable.
 
 ### Why this works smoother than "lower the SDK parameter"
 
 - SDK's own slow rate `s_yaw=1` produces visible motor stepping for
   long moves (the camera's quartz timer drives in 50ms increments).
-- Our planner lets us fire more frequent, smaller waypoints — at
+- Our planner lets us fire more frequent, smaller waypoints  -  at
   100ms cadence with 0.3°/tick steps for a 90° / 5min move, the motor
   visibly draws a smooth arc instead of stepping.
 - Cancel semantics are clean: stop the worker thread, leave the
@@ -211,7 +211,7 @@ a "speed bias" multiplier.
 
 ### `cmd_preset_recall(id, speed)`
 
-Old path (instant): `aiTrgGimbalPresetR(id)` — fastest hardware recall.
+Old path (instant): `aiTrgGimbalPresetR(id)`  -  fastest hardware recall.
 Old path (slow/medium/fast/cinema): `gimbalSetSpeedPositionR` with
 mapped `s_yaw` etc, plus `cameraSetZoomWithSpeedAbsoluteR` paced via
 `zoom_speed_for_duration()`.
@@ -241,7 +241,7 @@ if (speed == MoveSpeed::instant) {
 ```
 
 Both axes finish at the same tick because the planner drives them
-together — no zoom-snap-while-pan-slow.
+together  -  no zoom-snap-while-pan-slow.
 
 ### `cmd_zoom_set(value, terminal)` at ultra speed
 
@@ -284,7 +284,7 @@ if (session_speed_ == MoveSpeed::ultra) {
 ```
 
 Phone joystick that previously pushed 60 deg/s now pushes 3 deg/s at
-ultra — visible-but-slow.
+ultra  -  visible-but-slow.
 
 ### `cmd_ptz_angle(yaw, pitch, roll)`
 
@@ -294,7 +294,7 @@ ultra/cinema/slow → planner; instant → direct SDK call.
 ### Sequencer step trigger
 
 Each `SequenceStep` already carries its own `MoveSpeed`. The trigger
-fires `cmd_preset_recall(step.preset_id, step.speed)` — already routed
+fires `cmd_preset_recall(step.preset_id, step.speed)`  -  already routed
 through the planner above. No sequencer-side change needed.
 
 ## Cancellation matrix
