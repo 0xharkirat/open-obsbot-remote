@@ -410,10 +410,22 @@ class BridgeSupervisor extends ChangeNotifier {
 
   /// Open System Settings → Network → Firewall so the user can allow
   /// incoming connections for the bridge if they dismissed the prompt.
+  ///
+  /// On Sonoma+ the firewall pane moved from Privacy & Security into
+  /// Network. The legacy `com.apple.preference.security?Firewall`
+  /// URL ignores the `?Firewall` fragment on modern macOS and lands
+  /// on the Privacy & Security root - confusing dead-end for the
+  /// user. Try the Network-Settings extension first; fall back to
+  /// the legacy URL for older macOS.
   Future<void> openSystemFirewallSettings() async {
-    await Process.run('open', <String>[
-      'x-apple.systempreferences:com.apple.preference.security?Firewall',
+    final r = await Process.run('open', <String>[
+      'x-apple.systempreferences:com.apple.Network-Settings.extension',
     ]);
+    if (r.exitCode != 0) {
+      await Process.run('open', <String>[
+        'x-apple.systempreferences:com.apple.preference.security?Firewall',
+      ]);
+    }
   }
 
   /// Reset macOS camera-access decisions for THIS bundle so the prompt

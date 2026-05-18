@@ -864,25 +864,36 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Generic status row inside [_groupCard]. Status dot (leading),
-  /// title (bold), subtitle (muted), optional trailing action.
+  /// Generic status row inside [_groupCard]. Status dot (leading) - or
+  /// an info icon when [informational] is true (signals "this is a
+  /// hint, not a state we measured"); title (bold); subtitle (muted);
+  /// optional trailing action.
   Widget _statusRow(
     BuildContext ctx, {
     required String title,
     required String subtitle,
     required Color dotColor,
     Widget? trailing,
+    bool informational = false,
   }) {
     final macosTheme = MacosTheme.of(ctx);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
         children: <Widget>[
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-          ),
+          if (informational)
+            MacosIcon(
+              CupertinoIcons.info_circle,
+              size: 14,
+              color: MacosColors.systemGrayColor,
+            )
+          else
+            Container(
+              width: 10,
+              height: 10,
+              decoration:
+                  BoxDecoration(color: dotColor, shape: BoxShape.circle),
+            ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -977,11 +988,15 @@ class _HomeScreenState extends State<HomeScreen> {
       title: 'Network firewall',
       subtitle: 'If phones cannot connect, allow incoming connections.',
       dotColor: MacosColors.systemGrayColor,
+      // We can't query firewall state from a non-privileged app; the
+      // row is a hint rather than a measurement. Info icon makes
+      // that explicit so the grey colour doesn't read as "broken".
+      informational: true,
       trailing: PushButton(
         controlSize: ControlSize.regular,
         secondary: true,
         onPressed: supervisor.openSystemFirewallSettings,
-        child: const Text('Open Settings'),
+        child: const Text('Open Firewall Settings'),
       ),
     );
   }
