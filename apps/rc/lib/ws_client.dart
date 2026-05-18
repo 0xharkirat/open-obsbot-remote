@@ -291,7 +291,7 @@ class WsClient extends ChangeNotifier {
         // `send {action:'pair', pin:<6-digit>}` which is correct for an
         // SDK consumer but reads as a JSON-ish red error to a phone user
         // arriving at the pair screen. Entering the pair screen is a
-        // state transition, not a failure — keep the error slot empty
+        // state transition, not a failure - keep the error slot empty
         // until the user actually submits a wrong PIN.
         _lastAuthError = null;
         notifyListeners();
