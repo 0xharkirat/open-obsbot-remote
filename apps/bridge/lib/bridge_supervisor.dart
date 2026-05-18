@@ -23,7 +23,27 @@ class BridgeSupervisor extends ChangeNotifier {
   static const int _maxLog = 200;
   String _detectedSn = '';
   String _detectedModel = '';
+  /// True when libdev has reported the camera plugged in (USB SDK
+  /// path — gives us SN, model, firmware).
   bool _cameraConnected = false;
+  /// True when AVFoundation reports `capture session started` (UVC
+  /// path — gives us video frames over the MJPEG preview server).
+  ///
+  /// libdev and AVFoundation are independent: libdev does USB control,
+  /// AVFoundation grabs the UVC video stream. Either can succeed
+  /// without the other. We've seen libdev's plug-handler miss the
+  /// replug event in the wild (last seen 2026-05-18: bridge logs
+  /// "video: capture session started" + "video: candidate
+  /// 'OBSBOT Tiny 2 Lite StreamCamera'" but `device unplugged`
+  /// fires earlier and no follow-up "device plugged" arrives, so
+  /// `_cameraConnected` stays false even though the preview is
+  /// streaming fine). Use `cameraConnected` (the getter) to read the
+  /// effective state — it OR's both signals.
+  bool _videoRunning = false;
+  /// Device name parsed from `video: using device '<name>'` — fallback
+  /// model label when libdev hasn't fired the plug event yet but
+  /// AVFoundation has the camera open.
+  String _videoDeviceName = '';
   String? _lastError;
   int _wsClientCount = 0;
   CameraPermission _cameraPermission = CameraPermission.unknown;
@@ -44,8 +64,16 @@ class BridgeSupervisor extends ChangeNotifier {
   BridgeStatus get status => _status;
   List<String> get logTail => List<String>.unmodifiable(_logTail);
   String get detectedSn => _detectedSn;
-  String get detectedModel => _detectedModel;
-  bool get cameraConnected => _cameraConnected;
+  /// Camera model. libdev's name takes priority (gives the marketing
+  /// name + product type, e.g. "Tiny 2 Lite"); falls back to the
+  /// AVFoundation device localizedName when libdev hasn't fired
+  /// (e.g. "OBSBOT Tiny 2 Lite StreamCamera").
+  String get detectedModel =>
+      _detectedModel.isNotEmpty ? _detectedModel : _videoDeviceName;
+  /// True if EITHER libdev (USB control SDK) OR AVFoundation (UVC
+  /// video) says the camera is present. See `_cameraConnected` /
+  /// `_videoRunning` for the field-level docs and the bug context.
+  bool get cameraConnected => _cameraConnected || _videoRunning;
   String? get lastError => _lastError;
   int get wsClientCount => _wsClientCount;
   CameraPermission get cameraPermission => _cameraPermission;
@@ -188,6 +216,11 @@ class BridgeSupervisor extends ChangeNotifier {
       proc.exitCode.then((int code) async {
         _proc = null;
         _cameraConnected = false;
+        // Video state lives inside the subprocess; once it's gone the
+        // AVCaptureSession is gone too. Clear so the UI doesn't keep
+        // showing "Camera connected" after a crash.
+        _videoRunning = false;
+        _videoDeviceName = '';
         if (code == 0) {
           _setStatus(BridgeStatus.stopped);
         } else {
@@ -253,6 +286,12 @@ class BridgeSupervisor extends ChangeNotifier {
   static final RegExp _videoDevicesRe = RegExp(
     r'video: \d+ capture devices visible',
   );
+  // Parses the C++ side's `video: using device 'NAME'` log line so
+  // we can show the AVFoundation device name as a fallback when
+  // libdev's plug-handler has missed the event.
+  static final RegExp _videoUsingDeviceRe = RegExp(
+    r"video: using device '([^']+)'",
+  );
   static final RegExp _videoDeniedRe = RegExp(
     r'video: camera permission denied|video: camera not authorized',
   );
@@ -313,9 +352,31 @@ class BridgeSupervisor extends ChangeNotifier {
       _cameraPermission = CameraPermission.granted;
     } else if (_videoDeniedRe.hasMatch(line)) {
       _cameraPermission = CameraPermission.denied;
+      // Permission denial => no preview stream => clear the
+      // AVFoundation-side connection signal.
+      _videoRunning = false;
+      _videoDeviceName = '';
     } else if (_videoNoCamRe.hasMatch(line)) {
       // permission was OK enough to enumerate; just no camera attached
       _cameraPermission = CameraPermission.noCamera;
+      _videoRunning = false;
+      _videoDeviceName = '';
+    }
+
+    // Track AVFoundation capture state independently of libdev. The
+    // bridge subprocess's video pipeline uses AVFoundation directly,
+    // so a green `video: capture session started` line means a phone
+    // client will see live preview frames — even if libdev (USB
+    // control SDK) hasn't fired its `device plugged` callback yet.
+    // This is the v1.4.1 post-replug bug fix: libdev's callback can
+    // be missed after an unplug + replug, but AVFoundation always
+    // picks the camera back up when start() runs.
+    if (_videoStartedRe.hasMatch(line)) {
+      _videoRunning = true;
+    }
+    final vd = _videoUsingDeviceRe.firstMatch(line);
+    if (vd != null) {
+      _videoDeviceName = vd.group(1) ?? '';
     }
 
     notifyListeners();

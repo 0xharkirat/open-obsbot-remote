@@ -110,7 +110,6 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
       supervisor.start(); // auto-start on launch
       _tray = TrayController(
         supervisor: supervisor,
-        onRevealPin: () => _revealRequest.value++,
         version: _kAppVersion,
       );
       _tray!.init();
@@ -342,8 +341,13 @@ class _HomeScreenState extends State<HomeScreen> {
               _statusRow(
                 context,
                 title: 'Camera',
+                // W2 fallback: when AVFoundation reports the camera but
+                // libdev hasn't filled in the SN yet (post-replug bug),
+                // show just the model name without the "  -  SN" suffix.
                 subtitle: supervisor.cameraConnected
-                    ? '${supervisor.detectedModel}  -  ${supervisor.detectedSn}'
+                    ? (supervisor.detectedSn.isNotEmpty
+                        ? '${supervisor.detectedModel}  -  ${supervisor.detectedSn}'
+                        : supervisor.detectedModel)
                     : 'Not detected',
                 dotColor: supervisor.cameraConnected
                     ? CupertinoColors.systemGreen

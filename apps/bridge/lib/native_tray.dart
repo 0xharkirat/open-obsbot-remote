@@ -94,23 +94,39 @@ class NativeTrayItem {
   final String? key;
   final String label;
   final bool disabled;
+  /// Single character (lower-case) for the macOS key equivalent shown
+  /// in the menu, e.g. `'q'` for Quit. Empty = no key equivalent. The
+  /// command (⌘) modifier is applied on the Swift side by default; pass
+  /// a different mask via [keyEquivalentModifierMask] only when needed.
+  final String keyEquivalent;
+  /// macOS NSEventModifierFlags raw bit mask. 1 << 20 = command.
+  /// When [keyEquivalent] is empty this is ignored. Defaults to
+  /// command (1048576) which is the right thing for the bridge tray.
+  final int keyEquivalentModifierMask;
 
   const NativeTrayItem({
     required this.key,
     required this.label,
     this.disabled = false,
+    this.keyEquivalent = '',
+    this.keyEquivalentModifierMask = 1048576, // NSEventModifierFlagCommand
   }) : type = 'normal';
 
   const NativeTrayItem.separator()
       : type = 'separator',
         key = null,
         label = '',
-        disabled = true;
+        disabled = true,
+        keyEquivalent = '',
+        keyEquivalentModifierMask = 0;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'type': type,
         if (key != null) 'key': key,
         'label': label,
         'disabled': disabled,
+        if (keyEquivalent.isNotEmpty) 'keyEquivalent': keyEquivalent,
+        if (keyEquivalent.isNotEmpty)
+          'keyEquivalentModifierMask': keyEquivalentModifierMask,
       };
 }
