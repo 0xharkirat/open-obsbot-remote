@@ -1,7 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'cache_menu.dart';
+import 'clear_cache_stub.dart' if (dart.library.js_interop) 'clear_cache_web.dart';
 import 'footer.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
@@ -42,9 +43,13 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
               _speedMenu(context),
               IconButton(
                 tooltip: 'Sequence',
+                // Graph-style icon matches the advanced-mode AppBar
+                // shortcut (see ControlScreen). When the sequence is
+                // running the icon flips to the busier `multiline_chart`
+                // so it reads as "in flight" at a glance.
                 icon: Icon(s.sequence.running
-                    ? Icons.timer
-                    : Icons.timer_outlined),
+                    ? Icons.multiline_chart
+                    : Icons.timeline),
                 onPressed: () {
                   Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => SequencerScreen(client: client),
@@ -56,12 +61,10 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
                 icon: const Icon(Icons.tune),
                 onPressed: widget.onSwitchAdvanced,
               ),
-              IconButton(
-                tooltip: 'Disconnect',
-                icon: const Icon(Icons.logout),
-                onPressed: () => client.close(),
-              ),
-              CacheMenu(onCleared: () => client.close()),
+              // Collapse Disconnect + Clear cache into a single overflow
+              // so the top bar keeps just the one-tap navigation actions
+              // (speed / sequence / mode switch) above the fold.
+              _overflowMenu(context),
             ],
           ),
           body: SafeArea(
@@ -303,6 +306,71 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           ),
       ],
     );
+  }
+
+  /// 3-dot overflow holding the destructive / one-shot actions
+  /// (Disconnect, Clear cache & reload). Mirrors the advanced-mode
+  /// AppBar overflow so muscle memory carries between modes.
+  Widget _overflowMenu(BuildContext ctx) {
+    return PopupMenuButton<String>(
+      tooltip: 'More',
+      icon: const Icon(Icons.more_vert),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(
+          value: 'disconnect',
+          child: Row(children: <Widget>[
+            Icon(Icons.logout, size: 16),
+            SizedBox(width: 8),
+            Text('Disconnect'),
+          ]),
+        ),
+        const PopupMenuItem<String>(
+          value: 'clear_cache',
+          child: Row(children: <Widget>[
+            Icon(Icons.cleaning_services_outlined, size: 16),
+            SizedBox(width: 8),
+            Text('Clear cache & reload'),
+          ]),
+        ),
+      ],
+      onSelected: (v) {
+        switch (v) {
+          case 'disconnect':
+            client.close();
+            break;
+          case 'clear_cache':
+            _confirmClearCache(ctx);
+            break;
+        }
+      },
+    );
+  }
+
+  Future<void> _confirmClearCache(BuildContext ctx) async {
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (BuildContext c) => AlertDialog(
+        title: const Text('Clear cache & reload?'),
+        content: Text(
+          kIsWeb
+              ? 'Wipes the cached web bundle, service worker, paired token, and last-server. The page will reload. You\'ll need to re-enter the PIN.'
+              : 'Wipes the paired token and stored preferences. You\'ll need to re-enter the PIN.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('Clear & reload'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await clearAppCache();
+    client.close();
   }
 
   Future<String?> _promptName(BuildContext ctx,

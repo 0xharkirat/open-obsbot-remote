@@ -463,10 +463,13 @@ class _DurationChips extends StatelessWidget {
 //     scrolls so the operator's most-used emergency actions stay one
 //     tap away no matter how deep they scroll.
 //   - Presets (default open) - inline P1..P6 row.
-//   - View & Gimbal (default open) - fixed-height control area: PtzPad
-//     OR 8-way button pad (based on `client.driveControlStyle`)
-//     beside a vertical ZoomSlider, then FOV pills (moved from Image)
-//     + a "Switch to buttons / joystick" toggle.
+//   - View & Gimbal (default open) - fixed-height control area: 8-way
+//     button pad (v1.5 default) OR PtzPad joystick (based on
+//     `client.driveControlStyle`) beside a vertical ZoomSlider, then
+//     FOV pills (moved from Image) + a "Switch to joystick / buttons"
+//     toggle. Buttons are the default because the discrete 8 directions
+//     are unambiguous - operators new to the app land on the clearer
+//     surface; joystick stays a one-tap toggle away.
 //   - Move pacing (default open) - the existing duration chip strip.
 //   - AI tracking (default open) - mode segmented (Off / Person /
 //     Group) PLUS the v1.4 sub-mode picker (Normal / Upper-body /

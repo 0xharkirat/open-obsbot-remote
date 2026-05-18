@@ -102,10 +102,15 @@ void main() {
       expect(find.text('More'), findsOneWidget);
     });
 
-    testWidgets('Drive tab is selected by default', (tester) async {
+    testWidgets('Drive tab is selected by default with 8-way button pad',
+        (tester) async {
       await _pumpShell(tester, size: const Size(400, 1100));
-      // Drive shows PtzPad by default (joystick style).
-      expect(find.byType(PtzPad), findsOneWidget);
+      // v1.5: Drive defaults to the 8-way button pad (driveControlStyle
+      // = 'buttons') so onboarding lands on the discrete, unambiguous
+      // surface. PtzPad joystick stays one toggle away in View & Gimbal.
+      expect(find.byType(PtzPad), findsNothing);
+      expect(find.text('Up'), findsOneWidget);
+      expect(find.text('Down'), findsOneWidget);
     });
 
     testWidgets('tapping Image tab swaps the content', (tester) async {
@@ -265,7 +270,7 @@ void main() {
       expect(find.text('Buttons'), findsOneWidget);
     });
 
-    testWidgets('switching control style swaps PtzPad for button pad',
+    testWidgets('switching control style swaps button pad for PtzPad',
         (tester) async {
       _initPrefs();
       await tester.binding.setSurfaceSize(const Size(400, 1400));
@@ -275,16 +280,15 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
-      expect(find.byType(PtzPad), findsOneWidget);
-      // Tap the Buttons pill - text 'Buttons' is also the tab title in
-      // v1.2, but in v1.4 the tab is Drive/Image/More so the only
-      // visible Buttons text is the pill.
-      await tester.tap(find.text('Buttons').first);
-      await tester.pumpAndSettle();
+      // v1.5 default: buttons. Joystick is one tap away.
       expect(find.byType(PtzPad), findsNothing);
-      // 8-way hold buttons surface their direction labels.
       expect(find.text('Up'), findsOneWidget);
-      expect(find.text('Down'), findsOneWidget);
+      // Tap the Joystick pill to switch.
+      await tester.tap(find.text('Joystick').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(PtzPad), findsOneWidget);
+      // 8-way hold buttons are no longer rendered.
+      expect(find.text('Up'), findsNothing);
     });
 
     testWidgets('chip reflects current move duration', (tester) async {
