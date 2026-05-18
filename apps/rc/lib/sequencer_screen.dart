@@ -122,7 +122,11 @@ class _SequencerEditorState extends State<SequencerEditor> {
     });
   }
 
-  void _save() {
+  /// Push current in-memory steps to the bridge as the active scratch.
+  /// This is the editing scratch, NOT the named library. Used both by
+  /// the "Apply" button (while running) and by [_start] right before
+  /// telling the bridge to begin.
+  void _apply() {
     final list = _steps
         .map(
           (e) => SequenceStep(
@@ -135,8 +139,13 @@ class _SequencerEditorState extends State<SequencerEditor> {
     widget.client.sequenceSet(list, mode: _mode);
   }
 
+  /// Start the sequence from the current in-memory steps. v1.5 W1 fix
+  /// #3: the old "Save & start" implicitly wrote to the named library
+  /// too - users were accidentally persisting throwaway scratches.
+  /// Now Start only pushes to the bridge scratch; library saves go
+  /// through the explicit Bookmark button.
   void _start() {
-    _save();
+    _apply();
     widget.client.sequenceStart();
   }
 
@@ -251,16 +260,13 @@ class _SequencerEditorState extends State<SequencerEditor> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Start / Stop is the primary action. Start no
+                    // longer implicitly saves to the named library -
+                    // library writes go through Bookmark below.
                     Expanded(
                       child: FilledButton.icon(
                         icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                        label: Text(
-                          running
-                              ? 'Stop'
-                              : (s.sequence.running
-                                    ? 'Apply changes'
-                                    : 'Save & start'),
-                        ),
+                        label: Text(running ? 'Stop' : 'Start'),
                         onPressed: running
                             ? _stop
                             : (_steps.isEmpty ? null : _start),
@@ -268,22 +274,24 @@ class _SequencerEditorState extends State<SequencerEditor> {
                     ),
                     if (running) ...<Widget>[
                       const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.save),
-                          label: const Text('Apply'),
-                          onPressed: _save,
-                        ),
-                      ),
-                    ],
-                    if (widget.showTopBar) ...<Widget>[
-                      const SizedBox(width: 8),
+                      // Apply pushes the edited scratch to the bridge
+                      // mid-run. The bridge picks up edits at the next
+                      // step boundary (see CLAUDE.md note 40).
                       IconButton.outlined(
-                        tooltip: 'Save sequence as…',
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                        onPressed: () => _saveAs(context),
+                        tooltip: 'Apply edits',
+                        icon: const Icon(Icons.save_outlined),
+                        onPressed: _apply,
                       ),
                     ],
+                    const SizedBox(width: 8),
+                    // Bookmark - explicit, icon-only. Always visible so
+                    // the user knows where to persist their work.
+                    IconButton.outlined(
+                      tooltip: 'Bookmark sequence...',
+                      icon: const Icon(Icons.bookmark_add_outlined),
+                      onPressed:
+                          _steps.isEmpty ? null : () => _saveAs(context),
+                    ),
                   ],
                 ),
               ),
