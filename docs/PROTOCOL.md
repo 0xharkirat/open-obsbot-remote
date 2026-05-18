@@ -225,6 +225,7 @@ The bridge broadcasts full snapshots after commands, on poll ticks (about every 
     "elapsed_s": 0,
     "total_s": 0,
     "mode": "forward",
+    "phase": "holding",
     "available": ["Main"],
     "loaded": "Main",
     "steps": [
@@ -237,6 +238,8 @@ The bridge broadcasts full snapshots after commands, on poll ticks (about every 
 The `image` block carries every camera-image setting in one snapshot. The five fields at the bottom (`exposure_mode`, `ev_bias`, `anti_flicker`, `wb_auto`, `wb_kelvin`) were added in v1.2 to cover the exposure and white-balance section of the Image tab.
 
 The `sequence.steps` array mirrors the active edit list so a returning client can hydrate the editor without re-fetching.
+
+`sequence.phase` is `"moving"` while the bridge MotionPlanner is physically driving toward the current step's pose, and `"holding"` while the stay-timer (`step.seconds`) is counting down. Idle and instant-transition steps (`transition_ms == 0`) report `"holding"`. Clients can use this for UI affordances (e.g., a "moving..." chip on the step card or a different progress-ring colour).
 
 ## Commands
 
