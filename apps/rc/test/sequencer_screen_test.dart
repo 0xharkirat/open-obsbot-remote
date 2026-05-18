@@ -139,23 +139,31 @@ void main() {
 
   // v1.5 W1 fix #3: the old "Save & start" implicitly persisted to the
   // library; users hit it expecting a quick test-run. Now Start is
-  // separate from Bookmark - start sends the scratch + begins; bookmark
-  // opens the explicit name prompt.
-  group('v1.5 W1 footer (Start + Bookmark)', () {
-    testWidgets('footer shows Add step + Start + Bookmark icon',
+  // separate from save - start sends the scratch + begins; the trailing
+  // icon opens the explicit name prompt.
+  //
+  // Update for the dirty-tracking flow: the trailing icon's tooltip
+  // depends on state. With NO loaded library entry (scratch + one seed
+  // step), the icon is "Save sequence..." -> opens the name prompt.
+  // With a loaded entry it splits into "Update '<name>'" (filled,
+  // shown only while dirty) + "Save as new copy..." (always visible).
+  // The pumpEditor here never loads from the library, so we always
+  // see the scratch tooltip.
+  group('v1.5 W1 footer (Start + Save)', () {
+    testWidgets('footer shows Add step + Start + Save icon',
         (tester) async {
       await _pumpEditor(tester);
       expect(find.text('Add step'), findsOneWidget);
       // Primary action is Start (was "Save & start" pre-v1.5).
       expect(find.text('Start'), findsOneWidget);
       expect(find.text('Save & start'), findsNothing);
-      // Bookmark is icon-only - find by tooltip.
-      expect(find.byTooltip('Bookmark sequence...'), findsOneWidget);
+      // Persistence icon for scratch state - find by tooltip.
+      expect(find.byTooltip('Save sequence...'), findsOneWidget);
     });
 
-    testWidgets('Bookmark opens save dialog', (tester) async {
+    testWidgets('Save icon opens save dialog', (tester) async {
       await _pumpEditor(tester);
-      await tester.tap(find.byTooltip('Bookmark sequence...'));
+      await tester.tap(find.byTooltip('Save sequence...'));
       await tester.pumpAndSettle();
       expect(find.text('Save sequence'), findsOneWidget);
       expect(find.text('Cancel'), findsOneWidget);
