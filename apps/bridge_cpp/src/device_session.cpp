@@ -1580,6 +1580,14 @@ void DeviceSession::cmd_sequence_stop(ReplyFn reply) {
         seq_running_ = false;
         seq_quit_ = true;
         seq_cv_.notify_all();
+        // B2 fix: if the sequencer is currently blocked inside
+        // motion_wait_idle (waiting for a long transition to land),
+        // the planner thread is the only one that can wake it. Cancel
+        // the in-flight move so motion_wait_idle returns and the
+        // sequencer loop exits its CV wait promptly. Without this, a
+        // stop pressed mid-30-second-move would block the worker
+        // thread on seq_thr_.join() for the rest of the move duration.
+        motion_cancel();
         if (seq_thr_.joinable()) seq_thr_.join();
         std::lock_guard<std::mutex> sg(snap_mu_);
         snap_.sequence_running = false;
@@ -1667,8 +1675,25 @@ void DeviceSession::sequence_loop() {
         LOGI("sequence: step %d → preset %d for %ds", idx, pid, total);
     };
 
-    trigger_step(seq_step_index_);
-    step_started = std::chrono::steady_clock::now();
+    {
+        // B2 fix: previously the stay-timer (`step.seconds`) was started
+        // immediately after trigger_step() enqueued the motion plan,
+        // which meant the move duration and the hold duration ran
+        // concurrently against the same `total = seconds` budget. With
+        // seconds=40 + transition_ms=30000 the user only saw ~10 s of
+        // observable hold time before the next step fired. Fix: wait
+        // for the planner to physically complete the move before
+        // starting the stay clock.
+        const int transition_ms = seq_steps_[seq_step_index_].transition_ms;
+        trigger_step(seq_step_index_);
+        if (transition_ms > 0) {
+            // Generous deadline (transition_ms + 500 ms) so an ease-out
+            // tail or one extra adaptive tick doesn't trip the timeout
+            // and prematurely start the hold.
+            motion_wait_idle(transition_ms + 500);
+        }
+        step_started = std::chrono::steady_clock::now();  // stay clock starts NOW
+    }
 
     while (seq_running_ && !seq_quit_) {
         std::unique_lock<std::mutex> lk(seq_mu_);
@@ -1717,7 +1742,22 @@ void DeviceSession::sequence_loop() {
             if (!seq_running_) break;
             seq_step_index_ = next;
             lk.unlock();
+            // Same B2 chain as the bootstrap path above: trigger the
+            // move, block until the planner reports idle, then start
+            // the next step's stay clock. Without the wait, fast steps
+            // with long transitions would burn most of `seconds` on the
+            // move and the hold would appear truncated.
+            int next_transition_ms = 0;
+            {
+                std::lock_guard<std::mutex> g(seq_mu_);
+                if (next >= 0 && next < (int)seq_steps_.size()) {
+                    next_transition_ms = seq_steps_[next].transition_ms;
+                }
+            }
             trigger_step(next);
+            if (next_transition_ms > 0) {
+                motion_wait_idle(next_transition_ms + 500);
+            }
             step_started = std::chrono::steady_clock::now();
         }
     }
