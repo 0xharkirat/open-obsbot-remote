@@ -68,10 +68,36 @@ class _TabShellState extends State<TabShell>
     super.dispose();
   }
 
+  // v1.5 W3 fix: forui's `FThemes.zinc.dark` defines `colors.primary`
+  // as near-white (#E4E4E7), which is shadcn's "inverted primary"
+  // convention - the primary surface on dark themes is light. The v1.2.1
+  // `_toggleBtn` / `ForSegmented` migration to `FButton.raw` with
+  // `variant: FButtonVariant.primary` assumed primary meant OBSBOT
+  // brand red (matching the Material `ColorScheme.primary` set in
+  // `main.dart`). It does NOT - the two theme systems are independent.
+  //
+  // Symptom: Image-tab Face exposure / Face focus toggles render as
+  // a white slab when ON, while HDR / Flip stay outlined when OFF.
+  // The white slab is correct forui rendering against the wrong
+  // primary color. Same applies to selected `ForSegmented` pills.
+  //
+  // Fix: build a customized `FThemeData` whose `colors.primary` is the
+  // OBSBOT brand red (matches Material `colorScheme.primary` from
+  // `main.dart`) and `primaryForeground` is white. All `variant:
+  // primary` call sites in this file inherit the correct brand color
+  // without touching individual buttons.
+  static final FThemeData _obsbotForTheme = FThemeData(
+    touch: true,
+    colors: FThemes.zinc.dark.touch.colors.copyWith(
+      primary: const Color(0xFFFF3B30),
+      primaryForeground: const Color(0xFFFFFFFF),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return FTheme(
-      data: FThemes.zinc.dark.touch,
+      data: _obsbotForTheme,
       child: LayoutBuilder(
         builder: (BuildContext ctx, BoxConstraints c) {
           final wide = c.maxWidth >= 600;
