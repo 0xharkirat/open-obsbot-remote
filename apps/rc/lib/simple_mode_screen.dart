@@ -1,14 +1,11 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'clear_cache_stub.dart' if (dart.library.js_interop) 'clear_cache_web.dart';
+import 'cache_menu.dart';
 import 'footer.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
 import 'sequencer_screen.dart';
-import 'widgets/preset_options_sheet.dart';
-import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
 /// Performer-mode UI: live preview at the top + a grid of named preset
@@ -44,13 +41,9 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
               _speedMenu(context),
               IconButton(
                 tooltip: 'Sequence',
-                // Graph-style icon matches the advanced-mode AppBar
-                // shortcut (see ControlScreen). When the sequence is
-                // running the icon flips to the busier `multiline_chart`
-                // so it reads as "in flight" at a glance.
                 icon: Icon(s.sequence.running
-                    ? Icons.multiline_chart
-                    : Icons.timeline),
+                    ? Icons.timer
+                    : Icons.timer_outlined),
                 onPressed: () {
                   Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => SequencerScreen(client: client),
@@ -62,10 +55,12 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
                 icon: const Icon(Icons.tune),
                 onPressed: widget.onSwitchAdvanced,
               ),
-              // Collapse Disconnect + Clear cache into a single overflow
-              // so the top bar keeps just the one-tap navigation actions
-              // (speed / sequence / mode switch) above the fold.
-              _overflowMenu(context),
+              IconButton(
+                tooltip: 'Disconnect',
+                icon: const Icon(Icons.logout),
+                onPressed: () => client.close(),
+              ),
+              CacheMenu(onCleared: () => client.close()),
             ],
           ),
           body: SafeArea(
@@ -88,11 +83,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           padding: const EdgeInsets.all(8),
           child: PreviewWidget(client: client),
         ),
-        if (s.sequence.running)
-          SequenceProgressBar(
-            client: client,
-            onStop: client.sequenceStop,
-          ),
+        if (s.sequence.running) _seqBar(ctx, s),
         Expanded(child: _presetGrid(ctx, s, columns: 2)),
         const AppFooter(),
       ],
@@ -115,11 +106,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             padding: const EdgeInsets.all(8),
             child: Column(children: <Widget>[
               Expanded(child: PreviewWidget(client: client)),
-              if (s.sequence.running)
-                SequenceProgressBar(
-                  client: client,
-                  onStop: client.sequenceStop,
-                ),
+              if (s.sequence.running) _seqBar(ctx, s),
             ]),
           ),
         ),
@@ -128,6 +115,55 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           child: _presetGrid(ctx, s, columns: 2),
         ),
       ],
+    );
+  }
+
+  Widget _seqBar(BuildContext ctx, CameraState s) {
+    final theme = Theme.of(ctx);
+    final pct = s.sequence.totalS == 0
+        ? 0.0
+        : (s.sequence.elapsedS / s.sequence.totalS).clamp(0.0, 1.0);
+    final remaining = (s.sequence.totalS - s.sequence.elapsedS).clamp(0, 9999);
+    final mm = (remaining ~/ 60).toString().padLeft(2, '0');
+    final ss = (remaining % 60).toString().padLeft(2, '0');
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: <Widget>[
+        const Icon(Icons.timer, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                'Sequence — step ${s.sequence.stepIndex + 1}',
+                style: theme.textTheme.labelSmall,
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(value: pct, minHeight: 6),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text('$mm:$ss',
+            style: const TextStyle(
+                fontFamily: 'Menlo', fontWeight: FontWeight.w700)),
+        const SizedBox(width: 12),
+        IconButton(
+          tooltip: 'Stop',
+          icon: const Icon(Icons.stop_circle),
+          onPressed: client.sequenceStop,
+        ),
+      ]),
     );
   }
 
@@ -178,26 +214,9 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           : null,
       onLongPress: () async {
         HapticFeedback.heavyImpact();
-        if (hasPreset) {
-          // v1.4 W4 - long-press on a saved tile opens the explicit
-          // options sheet (update / recall instant / rename / delete).
-          // Empty slots keep the original one-step name-prompt + save.
-          await showPresetOptions(
-            ctx,
-            client,
-            id,
-            entry,
-            onRename: () => showPresetRenameDialog(
-              ctx,
-              initial: entry.name.isNotEmpty ? entry.name : 'P${id + 1}',
-            ),
-          );
-        } else {
-          final name =
-              await _promptName(ctx, initial: 'P${id + 1}');
-          if (name == null) return;
-          client.presetSave(id, name);
-        }
+        final name = await _promptName(ctx, initial: entry?.name ?? 'P${id + 1}');
+        if (name == null) return;
+        client.presetSave(id, name);
       },
       child: Container(
         decoration: BoxDecoration(
@@ -235,7 +254,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             bottom: 4,
             left: 8,
             child: Text(
-              hasPreset ? 'P${id + 1} • hold for options' : 'hold to save here',
+              hasPreset ? 'P${id + 1} • hold to rename' : 'hold to save here',
               style: TextStyle(
                 fontSize: 10,
                 color: (active ? fg : theme.colorScheme.outline).withValues(alpha: 0.7),
@@ -266,71 +285,6 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           ),
       ],
     );
-  }
-
-  /// 3-dot overflow holding the destructive / one-shot actions
-  /// (Disconnect, Clear cache & reload). Mirrors the advanced-mode
-  /// AppBar overflow so muscle memory carries between modes.
-  Widget _overflowMenu(BuildContext ctx) {
-    return PopupMenuButton<String>(
-      tooltip: 'More',
-      icon: const Icon(Icons.more_vert),
-      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(
-          value: 'disconnect',
-          child: Row(children: <Widget>[
-            Icon(Icons.logout, size: 16),
-            SizedBox(width: 8),
-            Text('Disconnect'),
-          ]),
-        ),
-        const PopupMenuItem<String>(
-          value: 'clear_cache',
-          child: Row(children: <Widget>[
-            Icon(Icons.cleaning_services_outlined, size: 16),
-            SizedBox(width: 8),
-            Text('Clear cache & reload'),
-          ]),
-        ),
-      ],
-      onSelected: (v) {
-        switch (v) {
-          case 'disconnect':
-            client.close();
-            break;
-          case 'clear_cache':
-            _confirmClearCache(ctx);
-            break;
-        }
-      },
-    );
-  }
-
-  Future<void> _confirmClearCache(BuildContext ctx) async {
-    final ok = await showDialog<bool>(
-      context: ctx,
-      builder: (BuildContext c) => AlertDialog(
-        title: const Text('Clear cache & reload?'),
-        content: Text(
-          kIsWeb
-              ? 'Wipes the cached web bundle, service worker, paired token, and last-server. The page will reload. You\'ll need to re-enter the PIN.'
-              : 'Wipes the paired token and stored preferences. You\'ll need to re-enter the PIN.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(c).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(c).pop(true),
-            child: const Text('Clear & reload'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await clearAppCache();
-    client.close();
   }
 
   Future<String?> _promptName(BuildContext ctx,

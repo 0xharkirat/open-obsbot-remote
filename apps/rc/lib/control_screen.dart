@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'clear_cache_stub.dart' if (dart.library.js_interop) 'clear_cache_web.dart';
+import 'cache_menu.dart';
 import 'sequencer_screen.dart';
 import 'tab_shell.dart';
 import 'ws_client.dart';
@@ -44,22 +43,17 @@ class _ControlScreenState extends State<ControlScreen> {
           appBar: AppBar(
             title: Text('${s.modelDisplay} • ${s.sn.isEmpty ? '...' : s.sn}'),
             actions: <Widget>[
-              // Latency stays as a glanceable AppBar chip - useful any
-              // tab. Sequence shortcut stays because the running-state
-              // glyph is a meaningful indicator at-a-glance even when
-              // the operator is on Drive / Image tabs. The destructive
-              // actions (Disconnect / Clear cache) live in the 3-dot
-              // overflow so both simple and advanced modes expose the
-              // same overflow shape - muscle memory carries between modes.
-              // Inline duplicates in the More tab stay (they're useful
-              // as section affordances), the overflow is the top-bar
-              // shortcut.
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Center(
                   child: Text('${widget.client.lastLatencyMs} ms'),
                 ),
               ),
+              // Move-duration is controlled by the chip strip at the
+              // bottom of every advanced-mode tab — no need to mirror
+              // it in the AppBar. Simple mode (which has no chips)
+              // still surfaces the popup in its own AppBar.
+              _gridMenu(context),
               IconButton(
                 tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
                 icon: Icon(
@@ -73,93 +67,82 @@ class _ControlScreenState extends State<ControlScreen> {
                   ),
                 ),
               ),
-              _overflowMenu(context),
+              if (widget.onSwitchSimple != null)
+                IconButton(
+                  tooltip: 'Simple mode',
+                  icon: const Icon(Icons.dashboard_customize),
+                  onPressed: widget.onSwitchSimple,
+                ),
+              IconButton(
+                tooltip: 'Disconnect',
+                icon: const Icon(Icons.logout),
+                onPressed: () => widget.client.close(),
+              ),
+              CacheMenu(onCleared: () => widget.client.close()),
             ],
           ),
           body: SafeArea(
-            // Status chips removed in the post-review pass  -  every field
+            // Status chips removed in the post-review pass — every field
             // they carried has a dedicated home now:
             //   * Pan / Tilt → overlaid on the preview (grid readout).
             //   * Zoom       → next to the vertical zoom slider.
-            //   * AI mode    → Drive tab → AI tracking segmented.
-            //   * FOV        → Drive tab → View & Gimbal segmented.
+            //   * AI mode    → Image tab → Auto-track segmented.
+            //   * FOV        → Image tab → View segmented.
             //   * runStatus  → tray icon glyph in the menubar.
             // Dropping the bar frees ~40 px of vertical space and gives
             // the live preview more room to breathe on phones.
-            child: TabShell(
-              client: widget.client,
-              onSwitchSimple: widget.onSwitchSimple,
-            ),
+            child: TabShell(client: widget.client),
           ),
         );
       },
     );
   }
 
-  /// 3-dot overflow holding the destructive / one-shot actions
-  /// (Disconnect, Clear cache & reload). Mirrors the simple-mode
-  /// AppBar overflow so muscle memory carries between modes.
-  Widget _overflowMenu(BuildContext ctx) {
+  Widget _gridMenu(BuildContext ctx) {
     return PopupMenuButton<String>(
-      tooltip: 'More',
-      icon: const Icon(Icons.more_vert),
+      tooltip: 'Grid overlay',
+      icon: const Icon(Icons.grid_on),
       itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(
-          value: 'disconnect',
-          child: Row(children: <Widget>[
-            Icon(Icons.logout, size: 16),
-            SizedBox(width: 8),
-            Text('Disconnect'),
-          ]),
+        CheckedPopupMenuItem<String>(
+          value: 'crosshair',
+          checked: widget.client.gridCrosshair,
+          child: const Text('Center crosshair'),
         ),
-        const PopupMenuItem<String>(
-          value: 'clear_cache',
-          child: Row(children: <Widget>[
-            Icon(Icons.cleaning_services_outlined, size: 16),
-            SizedBox(width: 8),
-            Text('Clear cache & reload'),
-          ]),
+        CheckedPopupMenuItem<String>(
+          value: 'center',
+          checked: widget.client.gridCenterLines,
+          // Renamed in the live-test feedback round: the "center lines"
+          // are no longer static — they translate with yaw / pitch and
+          // rotate with roll, like an aircraft attitude indicator. Use
+          // the airplane glyph so the menu hints at the new behavior.
+          child: const Text('Attitude indicator (steer to align)'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'thirds',
+          checked: widget.client.gridThirds,
+          child: const Text('Rule of thirds'),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'readout',
+          checked: widget.client.gridReadout,
+          child: const Text('Pan / Tilt readout'),
         ),
       ],
       onSelected: (v) {
         switch (v) {
-          case 'disconnect':
-            widget.client.close();
-            break;
-          case 'clear_cache':
-            _confirmClearCache(ctx);
-            break;
+          case 'crosshair':
+            widget.client.setGridCrosshair(!widget.client.gridCrosshair);
+          case 'center':
+            widget.client.setGridCenterLines(!widget.client.gridCenterLines);
+          case 'thirds':
+            widget.client.setGridThirds(!widget.client.gridThirds);
+          case 'readout':
+            widget.client.setGridReadout(!widget.client.gridReadout);
         }
       },
     );
   }
 
-  Future<void> _confirmClearCache(BuildContext ctx) async {
-    final ok = await showDialog<bool>(
-      context: ctx,
-      builder: (BuildContext c) => AlertDialog(
-        title: const Text('Clear cache & reload?'),
-        content: Text(
-          kIsWeb
-              ? 'Wipes the cached web bundle, service worker, paired token, and last-server. The page will reload. You\'ll need to re-enter the PIN.'
-              : 'Wipes the paired token and stored preferences. You\'ll need to re-enter the PIN.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(c).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(c).pop(true),
-            child: const Text('Clear & reload'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await clearAppCache();
-    widget.client.close();
-  }
 }
 
 // ----------------------------------------------------------------------------
@@ -196,7 +179,7 @@ class HoldDirBtn extends StatefulWidget {
 ///   - On vertical drags (Up / Down on the 3×3 pad) the surrounding
 ///     `SingleChildScrollView` claimed the pointer once the user's
 ///     finger moved a few pixels, cancelling the press silently with
-///     no velocity actually delivered to the bridge  -  user reported
+///     no velocity actually delivered to the bridge — user reported
 ///     "up / down don't work".
 ///
 /// This rewrite uses a raw `Listener` directly on a `Material` surface
@@ -469,7 +452,7 @@ class _ZoomSliderState extends State<ZoomSlider> {
                 // 5 s, 30 s, 3 min) the bridge planner runs to that
                 // target. Sending a new value every 100 ms while
                 // dragging would cancel-and-restart the planner at
-                // each tick  -  lens motor stutters, never reaching
+                // each tick — lens motor stutters, never reaching
                 // the target. So: mid-drag is always *instant* so the
                 // lens follows your finger; the chosen move-duration
                 // is applied only on release (terminal=true below).
