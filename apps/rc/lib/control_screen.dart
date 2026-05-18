@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'clear_cache_stub.dart' if (dart.library.js_interop) 'clear_cache_web.dart';
 import 'sequencer_screen.dart';
 import 'tab_shell.dart';
 import 'ws_client.dart';
@@ -45,9 +47,13 @@ class _ControlScreenState extends State<ControlScreen> {
               // Latency stays as a glanceable AppBar chip - useful any
               // tab. Sequence shortcut stays because the running-state
               // glyph is a meaningful indicator at-a-glance even when
-              // the operator is on Drive / Image tabs. Everything else
-              // (grid menu / mode switch / disconnect / cache) moved to
-              // the More tab in v1.4 W6 to keep the AppBar uncluttered.
+              // the operator is on Drive / Image tabs. The destructive
+              // actions (Disconnect / Clear cache) live in the 3-dot
+              // overflow so both simple and advanced modes expose the
+              // same overflow shape - muscle memory carries between modes.
+              // Inline duplicates in the More tab stay (they're useful
+              // as section affordances), the overflow is the top-bar
+              // shortcut.
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Center(
@@ -67,6 +73,7 @@ class _ControlScreenState extends State<ControlScreen> {
                   ),
                 ),
               ),
+              _overflowMenu(context),
             ],
           ),
           body: SafeArea(
@@ -87,6 +94,71 @@ class _ControlScreenState extends State<ControlScreen> {
         );
       },
     );
+  }
+
+  /// 3-dot overflow holding the destructive / one-shot actions
+  /// (Disconnect, Clear cache & reload). Mirrors the simple-mode
+  /// AppBar overflow so muscle memory carries between modes.
+  Widget _overflowMenu(BuildContext ctx) {
+    return PopupMenuButton<String>(
+      tooltip: 'More',
+      icon: const Icon(Icons.more_vert),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(
+          value: 'disconnect',
+          child: Row(children: <Widget>[
+            Icon(Icons.logout, size: 16),
+            SizedBox(width: 8),
+            Text('Disconnect'),
+          ]),
+        ),
+        const PopupMenuItem<String>(
+          value: 'clear_cache',
+          child: Row(children: <Widget>[
+            Icon(Icons.cleaning_services_outlined, size: 16),
+            SizedBox(width: 8),
+            Text('Clear cache & reload'),
+          ]),
+        ),
+      ],
+      onSelected: (v) {
+        switch (v) {
+          case 'disconnect':
+            widget.client.close();
+            break;
+          case 'clear_cache':
+            _confirmClearCache(ctx);
+            break;
+        }
+      },
+    );
+  }
+
+  Future<void> _confirmClearCache(BuildContext ctx) async {
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (BuildContext c) => AlertDialog(
+        title: const Text('Clear cache & reload?'),
+        content: Text(
+          kIsWeb
+              ? 'Wipes the cached web bundle, service worker, paired token, and last-server. The page will reload. You\'ll need to re-enter the PIN.'
+              : 'Wipes the paired token and stored preferences. You\'ll need to re-enter the PIN.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('Clear & reload'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await clearAppCache();
+    widget.client.close();
   }
 }
 

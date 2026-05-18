@@ -136,4 +136,63 @@ void main() {
       expect(find.text('≈ 61 s total'), findsNothing);
     });
   });
+
+  // v1.5 W1 fix #3: the old "Save & start" implicitly persisted to the
+  // library; users hit it expecting a quick test-run. Now Start is
+  // separate from Bookmark - start sends the scratch + begins; bookmark
+  // opens the explicit name prompt.
+  group('v1.5 W1 footer (Start + Bookmark)', () {
+    testWidgets('footer shows Add step + Start + Bookmark icon',
+        (tester) async {
+      await _pumpEditor(tester);
+      expect(find.text('Add step'), findsOneWidget);
+      // Primary action is Start (was "Save & start" pre-v1.5).
+      expect(find.text('Start'), findsOneWidget);
+      expect(find.text('Save & start'), findsNothing);
+      // Bookmark is icon-only - find by tooltip.
+      expect(find.byTooltip('Bookmark sequence...'), findsOneWidget);
+    });
+
+    testWidgets('Bookmark opens save dialog', (tester) async {
+      await _pumpEditor(tester);
+      await tester.tap(find.byTooltip('Bookmark sequence...'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save sequence'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Save'), findsOneWidget);
+    });
+  });
+
+  // v1.5 W1 fix #4: 3-radio ListTile column for loop mode replaced
+  // with a single segmented row [ Once | Loop | Ping-pong ].
+  group('v1.5 W1 loop-mode segmented', () {
+    testWidgets('three labels rendered in one row', (tester) async {
+      await _pumpEditor(tester);
+      expect(find.text('Once'), findsOneWidget);
+      expect(find.text('Loop'), findsOneWidget);
+      expect(find.text('Ping-pong'), findsOneWidget);
+      // Old verbose subtitles are gone.
+      expect(find.textContaining('stop at end'), findsNothing);
+      expect(find.textContaining('P1 -> P2 -> P3 -> P1'), findsNothing);
+    });
+  });
+
+  // v1.5 W1 fix #4: Add step debounces for 300ms after a tap to
+  // prevent the second of two rapid taps from appending a duplicate.
+  group('v1.5 W1 Add step debounce', () {
+    testWidgets('two rapid taps only add one card', (tester) async {
+      await _pumpEditor(tester);
+      // Seed = 1 step. Tap Add twice without pumping the timer.
+      await tester.tap(find.text('Add step'));
+      await tester.pump();
+      await tester.tap(find.text('Add step'), warnIfMissed: false);
+      await tester.pump();
+      // Should still be 2 steps total, not 3.
+      expect(find.textContaining('Step 1:'), findsOneWidget);
+      expect(find.textContaining('Step 2:'), findsOneWidget);
+      expect(find.textContaining('Step 3:'), findsNothing);
+      // Wait out the debounce + highlight to clean up timers.
+      await tester.pump(const Duration(milliseconds: 700));
+    });
+  });
 }

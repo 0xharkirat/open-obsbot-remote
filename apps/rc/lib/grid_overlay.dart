@@ -27,10 +27,17 @@ import 'ws_client.dart';
 ///                               knows the gimbal's current attitude
 ///
 /// The overlay listens to `client.state.yaw / pitch / roll / fov` via
-/// AnimatedBuilder wherever it's mounted (see PreviewWidget). White at
-/// 30%/45%/60% opacity so it reads against bright and dark scenes
-/// without obscuring the subject; `IgnorePointer` keeps every layer
-/// below tap-invisible.
+/// AnimatedBuilder wherever it's mounted (see PreviewWidget). The
+/// attitude indicator renders in saturated HUD green over a dark
+/// outline (flight-sim convention; reads on bright and dark frames);
+/// the static crosshair / rule-of-thirds / readout are white at
+/// 30%/60% opacity so they don't compete with the moving green cross.
+/// `IgnorePointer` keeps every layer below tap-invisible.
+///
+/// When home is panned outside the visible frame the moving cross is
+/// clamped to the nearest edge with a small arrow tip pointing toward
+/// the actual heading, so the operator always sees which way to pan
+/// back to re-center.
 class GridOverlay extends StatelessWidget {
   final WsClient client;
   final bool showCrosshair;
@@ -98,9 +105,16 @@ class _GridPainter extends CustomPainter {
   });
 
   static const _white30 = Color(0x4DFFFFFF);
-  static const _white45 = Color(0x73FFFFFF);
   static const _white60 = Color(0x99FFFFFF);
   static const _shadow  = Color(0x66000000);
+
+  // HUD green for the attitude indicator. Flight-simulator / camera-rig
+  // HUDs use a saturated green because it reads against both bright sky
+  // and dark interior frames without competing with skin tones. The
+  // `_hudGreenShadow` is a near-black outline drawn under the line + ring
+  // so the green stays visible on washed-out / blown-out frames.
+  static const _hudGreen       = Color(0xFF00FF66);
+  static const _hudGreenShadow = Color(0xCC003314);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -133,6 +147,13 @@ class _GridPainter extends CustomPainter {
     //
     // To re-center the camera you steer the moving cross onto the
     // static crosshair at frame center.
+    //
+    // Edge handling: when home is panned outside the visible frame the
+    // marker is clamped to the nearest edge (inset by `_edgeInset` so
+    // the ring isn't half-clipped) and a small arrow tip is drawn at
+    // the clamp point pointing in the *actual* heading direction. This
+    // keeps the user oriented when the camera is panned far from home
+    // instead of letting the marker silently disappear off-screen.
 
     final cx = w / 2;
     final cy = h / 2;
@@ -147,8 +168,21 @@ class _GridPainter extends CustomPainter {
     // before the first state event arrives).
     final yawOffPx = fovH <= 0 ? 0.0 : -yaw / fovH * w;
     final pitchOffPx = fovV <= 0 ? 0.0 : pitch / fovV * h;
-    final homeX = cx + yawOffPx;
-    final homeY = cy + pitchOffPx;
+    final rawHomeX = cx + yawOffPx;
+    final rawHomeY = cy + pitchOffPx;
+
+    // Clamp the marker into the visible frame. Inset so the ring stays
+    // wholly on-screen instead of being half-cropped at the boundary.
+    const edgeInset = 14.0;
+    final minX = edgeInset;
+    final maxX = w - edgeInset;
+    final minY = edgeInset;
+    final maxY = h - edgeInset;
+    final homeX = rawHomeX.clamp(minX, maxX);
+    final homeY = rawHomeY.clamp(minY, maxY);
+    final clampedX = rawHomeX != homeX;
+    final clampedY = rawHomeY != homeY;
+    final clamped = clampedX || clampedY;
 
     canvas.save();
     canvas.translate(homeX, homeY);
@@ -159,8 +193,18 @@ class _GridPainter extends CustomPainter {
     // visible area.
     final span = math.sqrt(w * w + h * h) * 1.2;
 
+    // Shadow pass: a slightly thicker dark stroke under the green so
+    // the indicator stays legible against bright / washed-out frames.
+    final shadowLine = Paint()
+      ..color = _hudGreenShadow
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(-span, 0), Offset(span, 0), shadowLine);
+    canvas.drawLine(Offset(0, -span), Offset(0, span), shadowLine);
+
     final line = Paint()
-      ..color = _white45
+      ..color = _hudGreen
       ..strokeWidth = 1.5
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
@@ -168,14 +212,65 @@ class _GridPainter extends CustomPainter {
     canvas.drawLine(Offset(0, -span), Offset(0, span), line);
 
     // Small ring on the moving cross so the user can spot the home
-    // marker even when it's far from frame center.
+    // marker even when it's near an edge. Shadow first, then green.
+    final ringShadow = Paint()
+      ..color = _hudGreenShadow
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(Offset.zero, 6.0, ringShadow);
     final ring = Paint()
-      ..color = _white60
+      ..color = _hudGreen
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
     canvas.drawCircle(Offset.zero, 6.0, ring);
 
     canvas.restore();
+
+    // When clamped, draw an arrow tip OUTSIDE the rotated frame (in
+    // canvas-space, not painter-space) pointing toward the actual
+    // heading. This avoids inheriting the gimbal roll - the arrow
+    // should always point along world-axes (left/right/up/down) so
+    // the operator knows which way to pan back.
+    if (clamped) {
+      final dx = clampedX ? (rawHomeX - homeX).sign : 0.0;
+      final dy = clampedY ? (rawHomeY - homeY).sign : 0.0;
+      _paintHeadingArrow(canvas, Offset(homeX, homeY), dx, dy);
+    }
+  }
+
+  void _paintHeadingArrow(Canvas canvas, Offset at, double dx, double dy) {
+    // Small triangle 12 px outside the ring, pointing along (dx, dy).
+    // (dx, dy) is a unit-ish direction; both components are -1, 0, or +1.
+    final len = math.sqrt(dx * dx + dy * dy);
+    if (len <= 0) return;
+    final ux = dx / len;
+    final uy = dy / len;
+    // Tip sits 14 px beyond the ring radius (6 px), so 20 px out.
+    final tip = at + Offset(ux * 20, uy * 20);
+    // Base is 8 px back from tip, ±4 px perpendicular.
+    final back = tip - Offset(ux * 8, uy * 8);
+    final perpX = -uy * 4;
+    final perpY = ux * 4;
+    final p1 = back + Offset(perpX, perpY);
+    final p2 = back - Offset(perpX, perpY);
+
+    final path = Path()
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(p1.dx, p1.dy)
+      ..lineTo(p2.dx, p2.dy)
+      ..close();
+
+    final fillShadow = Paint()
+      ..color = _hudGreenShadow
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(path, fillShadow);
+
+    final fill = Paint()
+      ..color = _hudGreen
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(path, fill);
   }
 
   void _paintThirds(Canvas canvas, double w, double h) {

@@ -10,6 +10,7 @@ import 'preview_widget.dart';
 import 'sequencer_screen.dart';
 import 'widgets/collapsible_section.dart';
 import 'widgets/preset_options_sheet.dart';
+import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
 /// v1.4 W6 redesign - OBSBOT Center-inspired 3-tab shell:
@@ -68,10 +69,36 @@ class _TabShellState extends State<TabShell>
     super.dispose();
   }
 
+  // v1.5 W3 fix: forui's `FThemes.zinc.dark` defines `colors.primary`
+  // as near-white (#E4E4E7), which is shadcn's "inverted primary"
+  // convention - the primary surface on dark themes is light. The v1.2.1
+  // `_toggleBtn` / `ForSegmented` migration to `FButton.raw` with
+  // `variant: FButtonVariant.primary` assumed primary meant OBSBOT
+  // brand red (matching the Material `ColorScheme.primary` set in
+  // `main.dart`). It does NOT - the two theme systems are independent.
+  //
+  // Symptom: Image-tab Face exposure / Face focus toggles render as
+  // a white slab when ON, while HDR / Flip stay outlined when OFF.
+  // The white slab is correct forui rendering against the wrong
+  // primary color. Same applies to selected `ForSegmented` pills.
+  //
+  // Fix: build a customized `FThemeData` whose `colors.primary` is the
+  // OBSBOT brand red (matches Material `colorScheme.primary` from
+  // `main.dart`) and `primaryForeground` is white. All `variant:
+  // primary` call sites in this file inherit the correct brand color
+  // without touching individual buttons.
+  static final FThemeData _obsbotForTheme = FThemeData(
+    touch: true,
+    colors: FThemes.zinc.dark.touch.colors.copyWith(
+      primary: const Color(0xFFFF3B30),
+      primaryForeground: const Color(0xFFFFFFFF),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return FTheme(
-      data: FThemes.zinc.dark.touch,
+      data: _obsbotForTheme,
       child: LayoutBuilder(
         builder: (BuildContext ctx, BoxConstraints c) {
           final wide = c.maxWidth >= 600;
@@ -95,6 +122,7 @@ class _TabShellState extends State<TabShell>
           ),
         ),
         _tabBar(),
+        _seqStrip(),
         Expanded(child: _tabViews()),
       ],
     );
@@ -128,6 +156,26 @@ class _TabShellState extends State<TabShell>
           ),
         ),
       ],
+    );
+  }
+
+  /// Compact "sequence running" strip rendered between the tab bar and
+  /// the active tab body. Lives on Drive / Image / More so the operator
+  /// always sees the phase + remaining-time of the running sequence
+  /// regardless of which tab they're on. Hides itself when no sequence
+  /// is running.
+  Widget _seqStrip() {
+    return AnimatedBuilder(
+      animation: widget.client,
+      builder: (BuildContext ctx, _) {
+        final running = widget.client.state.sequence.running;
+        if (!running) return const SizedBox.shrink();
+        return SequenceProgressBar(
+          client: widget.client,
+          onStop: widget.client.sequenceStop,
+          margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        );
+      },
     );
   }
 
@@ -437,10 +485,13 @@ class _DurationChips extends StatelessWidget {
 //     scrolls so the operator's most-used emergency actions stay one
 //     tap away no matter how deep they scroll.
 //   - Presets (default open) - inline P1..P6 row.
-//   - View & Gimbal (default open) - fixed-height control area: PtzPad
-//     OR 8-way button pad (based on `client.driveControlStyle`)
-//     beside a vertical ZoomSlider, then FOV pills (moved from Image)
-//     + a "Switch to buttons / joystick" toggle.
+//   - View & Gimbal (default open) - fixed-height control area: 8-way
+//     button pad (v1.5 default) OR PtzPad joystick (based on
+//     `client.driveControlStyle`) beside a vertical ZoomSlider, then
+//     FOV pills (moved from Image) + a "Switch to joystick / buttons"
+//     toggle. Buttons are the default because the discrete 8 directions
+//     are unambiguous - operators new to the app land on the clearer
+//     surface; joystick stays a one-tap toggle away.
 //   - Move pacing (default open) - the existing duration chip strip.
 //   - AI tracking (default open) - mode segmented (Off / Person /
 //     Group) PLUS the v1.4 sub-mode picker (Normal / Upper-body /

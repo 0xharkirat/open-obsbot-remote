@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:forui/forui.dart';
 import 'package:obsbot_control/control_screen.dart';
 import 'package:obsbot_control/tab_shell.dart';
 import 'package:obsbot_control/ws_client.dart';
@@ -101,10 +102,15 @@ void main() {
       expect(find.text('More'), findsOneWidget);
     });
 
-    testWidgets('Drive tab is selected by default', (tester) async {
+    testWidgets('Drive tab is selected by default with 8-way button pad',
+        (tester) async {
       await _pumpShell(tester, size: const Size(400, 1100));
-      // Drive shows PtzPad by default (joystick style).
-      expect(find.byType(PtzPad), findsOneWidget);
+      // v1.5: Drive defaults to the 8-way button pad (driveControlStyle
+      // = 'buttons') so onboarding lands on the discrete, unambiguous
+      // surface. PtzPad joystick stays one toggle away in View & Gimbal.
+      expect(find.byType(PtzPad), findsNothing);
+      expect(find.text('Up'), findsOneWidget);
+      expect(find.text('Down'), findsOneWidget);
     });
 
     testWidgets('tapping Image tab swaps the content', (tester) async {
@@ -264,7 +270,7 @@ void main() {
       expect(find.text('Buttons'), findsOneWidget);
     });
 
-    testWidgets('switching control style swaps PtzPad for button pad',
+    testWidgets('switching control style swaps button pad for PtzPad',
         (tester) async {
       _initPrefs();
       await tester.binding.setSurfaceSize(const Size(400, 1400));
@@ -274,16 +280,15 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
-      expect(find.byType(PtzPad), findsOneWidget);
-      // Tap the Buttons pill - text 'Buttons' is also the tab title in
-      // v1.2, but in v1.4 the tab is Drive/Image/More so the only
-      // visible Buttons text is the pill.
-      await tester.tap(find.text('Buttons').first);
-      await tester.pumpAndSettle();
+      // v1.5 default: buttons. Joystick is one tap away.
       expect(find.byType(PtzPad), findsNothing);
-      // 8-way hold buttons surface their direction labels.
       expect(find.text('Up'), findsOneWidget);
-      expect(find.text('Down'), findsOneWidget);
+      // Tap the Joystick pill to switch.
+      await tester.tap(find.text('Joystick').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(PtzPad), findsOneWidget);
+      // 8-way hold buttons are no longer rendered.
+      expect(find.text('Up'), findsNothing);
     });
 
     testWidgets('chip reflects current move duration', (tester) async {
@@ -376,6 +381,64 @@ void main() {
       } finally {
         FlutterError.onError = prev;
       }
+    });
+
+    // v1.5 W3 regression: Image-tab Face exposure / Face focus toggles
+    // were rendering with a white background while OFF. Root cause was
+    // not state desync; both buttons WERE correctly rendering their
+    // bound state (`s.faceAe` / `s.faceFocus`) and the OFF branch was
+    // hitting `FButtonVariant.outline` as intended. The user's screenshot
+    // showed them ON (true), and `FButtonVariant.primary` resolved to
+    // shadcn's "inverted primary" (white-gray) under `FThemes.zinc.dark`
+    // because forui's primary on dark themes is light by convention.
+    // Fix re-themed forui's `colors.primary` to OBSBOT brand red.
+    //
+    // The test below asserts the OFF branch wires up `.outline` (not
+    // `.primary`) for both face toggles when the bridge reports false -
+    // a structural guard that the variant-to-state mapping doesn't
+    // regress.
+    testWidgets(
+        'Face exposure / Face focus render outline variant when OFF',
+        (tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 1600));
+      final client = _StubWsClient();
+      // Force-seed default off-state so the test is independent of
+      // CameraState.empty defaults drifting later.
+      _seedState(client, <String, dynamic>{
+        'image': <String, dynamic>{
+          'hdr': false,
+          'face_ae': false,
+          'face_focus': false,
+          'flip_h': false,
+        },
+      });
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Image'));
+      await tester.pumpAndSettle();
+
+      FButton faceAeBtn = tester.widget<FButton>(
+        find.ancestor(
+          of: find.text('Face exposure'),
+          matching: find.byType(FButton),
+        ),
+      );
+      FButton faceFocusBtn = tester.widget<FButton>(
+        find.ancestor(
+          of: find.text('Face focus'),
+          matching: find.byType(FButton),
+        ),
+      );
+      expect(faceAeBtn.variant, isNot(FButtonVariant.primary),
+          reason: 'Face exposure OFF must not render primary variant');
+      expect(faceFocusBtn.variant, isNot(FButtonVariant.primary),
+          reason: 'Face focus OFF must not render primary variant');
+      expect(faceAeBtn.variant, FButtonVariant.outline);
+      expect(faceFocusBtn.variant, FButtonVariant.outline);
     });
   });
 

@@ -1,0 +1,13 @@
+{
+  "name": "obsbot-playwright-mobile-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:list": "playwright test --list",
+    "install:browsers": "playwright install"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

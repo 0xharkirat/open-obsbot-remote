@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'widgets/sequence_progress_bar.dart';
 import 'ws_client.dart';
 
 /// Route wrapper around [SequencerEditor]. Used by Simple Mode and by the
@@ -53,6 +54,15 @@ class _SequencerEditorState extends State<SequencerEditor> {
   final List<_EditStep> _steps = <_EditStep>[];
   LoopMode _mode = LoopMode.forward;
   String _lastHydratedFrom = '__none__';   // signature of state we last hydrated
+
+  /// True while a recently added step is still inside its highlight
+  /// + debounce window. Disables the Add step button to prevent
+  /// double-fires (v1.5 W1 fix #4).
+  bool _addStepBusy = false;
+
+  /// The most-recently-added step. Used by the scroll-into-view +
+  /// highlight pulse logic in [_stepCard].
+  _EditStep? _justAdded;
 
   @override
   void initState() {
@@ -110,18 +120,54 @@ class _SequencerEditorState extends State<SequencerEditor> {
     if (mounted) setState(() {});
   }
 
+  /// v1.5 W1 fix #4: silent appends used to confuse users into double-
+  /// tapping (two cards added). Now:
+  ///   - debounce for 300 ms so the second tap is a no-op
+  ///   - track the new step so [_stepCard] can pulse a highlight border
+  ///   - schedule a `Scrollable.ensureVisible` on the new card's key
+  ///     after the next frame so the user actually sees it land at
+  ///     the bottom of the list.
   void _addStep() {
+    if (_addStepBusy) return;
+    final fresh = _EditStep(
+      presetId: _steps.isEmpty ? 0 : _steps.last.presetId,
+      seconds: 60,
+    );
     setState(() {
-      _steps.add(
-        _EditStep(
-          presetId: _steps.isEmpty ? 0 : _steps.last.presetId,
-          seconds: 60,
-        ),
-      );
+      _steps.add(fresh);
+      _justAdded = fresh;
+      _addStepBusy = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = fresh.cardKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          alignment: 0.9,
+        );
+      }
+    });
+    // 300 ms guard against accidental double-fires.
+    Future<void>.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() => _addStepBusy = false);
+    });
+    // Clear the highlight after the pulse animation completes.
+    Future<void>.delayed(const Duration(milliseconds: 650), () {
+      if (!mounted) return;
+      if (_justAdded == fresh) {
+        setState(() => _justAdded = null);
+      }
     });
   }
 
-  void _save() {
+  /// Push current in-memory steps to the bridge as the active scratch.
+  /// This is the editing scratch, NOT the named library. Used both by
+  /// the "Apply" button (while running) and by [_start] right before
+  /// telling the bridge to begin.
+  void _apply() {
     final list = _steps
         .map(
           (e) => SequenceStep(
@@ -134,8 +180,13 @@ class _SequencerEditorState extends State<SequencerEditor> {
     widget.client.sequenceSet(list, mode: _mode);
   }
 
+  /// Start the sequence from the current in-memory steps. v1.5 W1 fix
+  /// #3: the old "Save & start" implicitly wrote to the named library
+  /// too - users were accidentally persisting throwaway scratches.
+  /// Now Start only pushes to the bridge scratch; library saves go
+  /// through the explicit Bookmark button.
   void _start() {
-    _save();
+    _apply();
     widget.client.sequenceStart();
   }
 
@@ -191,7 +242,10 @@ class _SequencerEditorState extends State<SequencerEditor> {
         return Column(
           children: <Widget>[
             if (widget.showTopBar) _libraryBar(context, s),
-            if (running) _runningBar(context, s),
+            if (running)
+              SequenceProgressBar(
+                client: widget.client,
+              ),
             Expanded(
               child: _steps.isEmpty
                   ? const Center(
@@ -243,20 +297,20 @@ class _SequencerEditorState extends State<SequencerEditor> {
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.add),
                         label: const Text('Add step'),
-                        onPressed: _addStep,
+                        // Disabled briefly after a tap so a quick
+                        // double-tap can't append two cards before the
+                        // user sees the first one land.
+                        onPressed: _addStepBusy ? null : _addStep,
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Start / Stop is the primary action. Start no
+                    // longer implicitly saves to the named library -
+                    // library writes go through Bookmark below.
                     Expanded(
                       child: FilledButton.icon(
                         icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                        label: Text(
-                          running
-                              ? 'Stop'
-                              : (s.sequence.running
-                                    ? 'Apply changes'
-                                    : 'Save & start'),
-                        ),
+                        label: Text(running ? 'Stop' : 'Start'),
                         onPressed: running
                             ? _stop
                             : (_steps.isEmpty ? null : _start),
@@ -264,22 +318,24 @@ class _SequencerEditorState extends State<SequencerEditor> {
                     ),
                     if (running) ...<Widget>[
                       const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.save),
-                          label: const Text('Apply'),
-                          onPressed: _save,
-                        ),
-                      ),
-                    ],
-                    if (widget.showTopBar) ...<Widget>[
-                      const SizedBox(width: 8),
+                      // Apply pushes the edited scratch to the bridge
+                      // mid-run. The bridge picks up edits at the next
+                      // step boundary (see CLAUDE.md note 40).
                       IconButton.outlined(
-                        tooltip: 'Save sequence as…',
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                        onPressed: () => _saveAs(context),
+                        tooltip: 'Apply edits',
+                        icon: const Icon(Icons.save_outlined),
+                        onPressed: _apply,
                       ),
                     ],
+                    const SizedBox(width: 8),
+                    // Bookmark - explicit, icon-only. Always visible so
+                    // the user knows where to persist their work.
+                    IconButton.outlined(
+                      tooltip: 'Bookmark sequence...',
+                      icon: const Icon(Icons.bookmark_add_outlined),
+                      onPressed:
+                          _steps.isEmpty ? null : () => _saveAs(context),
+                    ),
                   ],
                 ),
               ),
@@ -322,6 +378,15 @@ class _SequencerEditorState extends State<SequencerEditor> {
         ),
       );
     }
+    // v1.5 W1 fix #2: pre-select the currently loaded sequence in the
+    // dropdown when one is set. DropdownButton throws if `value` is not
+    // present in `items`, so guard with an explicit membership check
+    // (covers the brief window after delete where `loaded` may still
+    // point at a vanished entry).
+    final loadedName = s.sequence.loaded;
+    final loadedInLib = loadedName.isNotEmpty && lib.contains(loadedName);
+    final selectedValue = loadedInLib ? loadedName : null;
+    final showRunningChip = s.sequence.running && loadedInLib;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -337,7 +402,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
             child: DropdownButton<String>(
               isExpanded: true,
               underline: const SizedBox.shrink(),
-              value: s.sequence.loaded.isEmpty ? null : s.sequence.loaded,
+              value: selectedValue,
               hint: const Text('Load saved sequence…'),
               items: <DropdownMenuItem<String>>[
                 for (final n in lib)
@@ -348,6 +413,10 @@ class _SequencerEditorState extends State<SequencerEditor> {
               },
             ),
           ),
+          if (showRunningChip) ...<Widget>[
+            const SizedBox(width: 6),
+            _RunningChip(),
+          ],
           if (s.sequence.loaded.isNotEmpty)
             IconButton(
               tooltip: 'Delete saved sequence',
@@ -389,64 +458,55 @@ class _SequencerEditorState extends State<SequencerEditor> {
   /// not the steps list per se  -  so we tolerate "load triggered" by
   /// listening for loaded_sequence change and pulling the current snapshot.
 
+  /// v1.5 W1 fix #4: replaced the 3-radio ListTile column with a single
+  /// segmented row. The verbose `(P1 -> P2 -> P3 -> P1 ...)` subtitles
+  /// were dropped - the step list above already shows the actual chain
+  /// so the parentheticals were redundant.
   Widget _modeSelector(BuildContext ctx) {
     final theme = Theme.of(ctx);
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
         children: <Widget>[
-          Text(
-            'When sequence reaches the end…',
-            style: theme.textTheme.labelMedium,
-          ),
-          const SizedBox(height: 4),
-          for (final m in LoopMode.values)
-            ListTile(
-              dense: true,
-              leading: Icon(
-                _mode == m
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_unchecked,
-                size: 20,
-              ),
-              title: Text(
-                loopModeLabel(m),
-                style: const TextStyle(fontSize: 13),
-              ),
-              contentPadding: EdgeInsets.zero,
-              onTap: () => setState(() => _mode = m),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Text(
+              'End:',
+              style: theme.textTheme.labelMedium,
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _runningBar(BuildContext ctx, CameraState s) {
-    final theme = Theme.of(ctx);
-    final pct = s.sequence.totalS == 0
-        ? 0.0
-        : (s.sequence.elapsedS / s.sequence.totalS).clamp(0.0, 1.0);
-    final remaining = (s.sequence.totalS - s.sequence.elapsedS).clamp(0, 9999);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      color: theme.colorScheme.primaryContainer,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Step ${s.sequence.stepIndex + 1} of ${_steps.length}  -  ${remaining}s left',
-            style: theme.textTheme.labelLarge,
           ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(value: pct, minHeight: 6),
+          Expanded(
+            child: SegmentedButton<LoopMode>(
+              showSelectedIcon: false,
+              style: SegmentedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                textStyle: const TextStyle(fontSize: 12),
+              ),
+              segments: const <ButtonSegment<LoopMode>>[
+                ButtonSegment<LoopMode>(
+                  value: LoopMode.once,
+                  label: Text('Once'),
+                ),
+                ButtonSegment<LoopMode>(
+                  value: LoopMode.forward,
+                  label: Text('Loop'),
+                ),
+                ButtonSegment<LoopMode>(
+                  value: LoopMode.pingPong,
+                  label: Text('Ping-pong'),
+                ),
+              ],
+              selected: <LoopMode>{_mode},
+              onSelectionChanged: (Set<LoopMode> sel) {
+                if (sel.isEmpty) return;
+                setState(() => _mode = sel.first);
+              },
+            ),
           ),
         ],
       ),
@@ -461,6 +521,10 @@ class _SequencerEditorState extends State<SequencerEditor> {
   /// move 30 s" as 40 s of wall-clock instead of 70 s. The trailing
   /// `≈ N s total` label gives the operator the wall-clock sum for
   /// the step (move + stay).
+  ///
+  /// v1.5 W1 fix #4: vertical paddings tightened so two steps fit on
+  /// a typical phone viewport. Freshly-added step gets a brief tinted
+  /// border via `_justAdded == step` so the user sees the append land.
   Widget _stepCard(
     BuildContext ctx,
     int idx,
@@ -471,18 +535,26 @@ class _SequencerEditorState extends State<SequencerEditor> {
     final theme = Theme.of(ctx);
     final cs = theme.colorScheme;
     final presetLabel = _presetLabel(step.presetId, presets);
+    final highlighted = _justAdded == step;
     return Padding(
       key: key,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Card(
-        elevation: 0,
-        color: cs.surfaceContainerLow,
-        shape: RoundedRectangleBorder(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: AnimatedContainer(
+        key: step.cardKey,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: highlighted
+              ? cs.primaryContainer.withValues(alpha: 0.4)
+              : cs.surfaceContainerLow,
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: cs.outlineVariant),
+          border: Border.all(
+            color: highlighted ? cs.primary : cs.outlineVariant,
+            width: highlighted ? 1.5 : 1,
+          ),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 8, 8, 12),
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -492,7 +564,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
                   ReorderableDragStartListener(
                     index: idx,
                     child: Padding(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(4),
                       child: Icon(Icons.drag_handle, color: cs.outline),
                     ),
                   ),
@@ -505,7 +577,13 @@ class _SequencerEditorState extends State<SequencerEditor> {
                   ),
                   IconButton(
                     tooltip: 'Delete step',
-                    icon: const Icon(Icons.delete_outline),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    icon: const Icon(Icons.delete_outline, size: 20),
                     onPressed: () {
                       setState(() {
                         _steps[idx].secondsCtrl.dispose();
@@ -513,15 +591,17 @@ class _SequencerEditorState extends State<SequencerEditor> {
                       });
                     },
                   ),
+                  const SizedBox(width: 4),
                 ],
               ),
               // Preset picker: lets the operator change which preset this
               // step targets. Kept separate from the header text so the
               // header always reflects the resolved label.
               Padding(
-                padding: const EdgeInsets.only(left: 8, right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: DropdownButton<int>(
                   isExpanded: true,
+                  isDense: true,
                   value: step.presetId,
                   underline: const SizedBox.shrink(),
                   items: <DropdownMenuItem<int>>[
@@ -536,7 +616,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
                   },
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 2),
               // Move row: "Move to P_X over [ duration ]"
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -574,23 +654,21 @@ class _SequencerEditorState extends State<SequencerEditor> {
                   ],
                 ),
               ),
-              const SizedBox(height: 6),
-              // Stay row: "Stay for [ N ] seconds"
+              const SizedBox(height: 4),
+              // Stay row: "Stay for [ N ] seconds" + trailing total.
+              // Trailing total goes after "seconds" with an Expanded
+              // gap and ellipsis so the row collapses gracefully at
+              // 320 px without overflowing.
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Row(
                   children: <Widget>[
                     Icon(Icons.timer_outlined, size: 14, color: cs.outline),
                     const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Stay for',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ),
+                    Text('Stay for', style: theme.textTheme.bodySmall),
                     const SizedBox(width: 6),
                     SizedBox(
-                      width: 72,
+                      width: 56,
                       child: TextField(
                         // KEY: stable controller per step, so cursor
                         // doesn't get wiped on every parent rebuild
@@ -604,8 +682,8 @@ class _SequencerEditorState extends State<SequencerEditor> {
                           isDense: true,
                           border: OutlineInputBorder(),
                           contentPadding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 8,
+                            horizontal: 6,
+                            vertical: 6,
                           ),
                         ),
                         onChanged: (v) {
@@ -621,24 +699,24 @@ class _SequencerEditorState extends State<SequencerEditor> {
                         },
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
                     Text('seconds', style: theme.textTheme.bodySmall),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              // Trailing total: "≈ N s total" (move + stay, wall-clock).
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    _formatStepTotal(step),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.outline,
-                      fontStyle: FontStyle.italic,
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 6),
+                        child: Text(
+                          _formatStepTotal(step),
+                          textAlign: TextAlign.right,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.outline,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ],
@@ -690,11 +768,46 @@ class _EditStep {
   int seconds;
   Duration transition;
   late TextEditingController secondsCtrl;
+  /// Per-step GlobalKey so [_addStep] can call
+  /// `Scrollable.ensureVisible` on the freshly appended card.
+  final GlobalKey cardKey = GlobalKey();
   _EditStep({
     required this.presetId,
     required this.seconds,
     this.transition = const Duration(milliseconds: 1000),
   }) {
     secondsCtrl = TextEditingController(text: '$seconds');
+  }
+}
+
+/// Small "Running" badge rendered to the right of the library dropdown
+/// when the loaded sequence is currently executing. Keeps the dropdown
+/// itself uncluttered while making the running state scannable.
+class _RunningChip extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: cs.primary,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.play_arrow, size: 12, color: cs.onPrimary),
+          const SizedBox(width: 2),
+          Text(
+            'Running',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: cs.onPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
