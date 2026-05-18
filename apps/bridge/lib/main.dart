@@ -1112,37 +1112,22 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         const SizedBox(height: 12),
+        // Single-line footer. Inline GitHub link replaces the trio of
+        // labelled link buttons (Source / Changelog / Report) which
+        // overflowed past the AlertDialog's Close button. The repo
+        // home page already has Changelog + Issues tabs one click in,
+        // so one link is enough.
         Wrap(
-          spacing: 12,
-          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
+            Text('by Hark Singh with OBSBOT SDK + Flutter  ', style: mutedStyle),
             _aboutLink(
               ctx,
-              icon: Icons.code,
-              label: 'Source code',
+              icon: Icons.open_in_new,
+              label: 'GitHub',
               url: 'https://github.com/0xharkirat/open-obsbot-remote',
             ),
-            _aboutLink(
-              ctx,
-              icon: Icons.history,
-              label: 'Changelog',
-              url:
-                  'https://github.com/0xharkirat/open-obsbot-remote/blob/main/CHANGELOG.md',
-            ),
-            _aboutLink(
-              ctx,
-              icon: Icons.bug_report_outlined,
-              label: 'Report an issue',
-              url:
-                  'https://github.com/0xharkirat/open-obsbot-remote/issues/new',
-            ),
           ],
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Open OBSBOT Bridge  -  by Hark Singh.\n'
-          'Not affiliated with OBSBOT.',
-          style: mutedStyle,
         ),
       ],
     );
