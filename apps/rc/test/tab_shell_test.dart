@@ -14,6 +14,39 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _StubWsClient extends WsClient {
   _StubWsClient() : super();
+
+  // v1.4 W4 - capture preset action calls so the long-press options
+  // sheet tests can assert which action fired without a live bridge.
+  final List<({String action, int id, String? name, Duration? duration})>
+      presetCalls =
+      <({String action, int id, String? name, Duration? duration})>[];
+
+  @override
+  void presetSave(int id, String name) {
+    presetCalls
+        .add((action: 'save', id: id, name: name, duration: null));
+  }
+
+  @override
+  void presetRecall(int id, {Duration? duration}) {
+    presetCalls
+        .add((action: 'recall', id: id, name: null, duration: duration));
+  }
+
+  @override
+  void presetDelete(int id) {
+    presetCalls.add((action: 'delete', id: id, name: null, duration: null));
+  }
+}
+
+/// Seed the inline preset row's `_saved` branch with a synthetic
+/// `CameraState` so the long-press handler hits the bottom-sheet path.
+void _seedPresets(_StubWsClient client, List<PresetEntry> presets) {
+  final json = <String, dynamic>{
+    'event': 'state',
+    'presets': presets.map((p) => p.toJson()).toList(),
+  };
+  client.debugSetState(CameraState.fromEvent(json));
 }
 
 void _initPrefs() {
@@ -281,6 +314,112 @@ void main() {
       } finally {
         FlutterError.onError = prev;
       }
+    });
+  });
+
+  // v1.4 W4 - preset bookmark long-press now opens a 4-action bottom
+  // sheet (Update with current pose / Recall instantly / Rename /
+  // Delete) on SAVED slots. EMPTY slots keep the original one-step
+  // tap-to-save flow. These tests cover both branches plus the two
+  // most-broken-by-mistake actions (Update + Delete).
+  group('Preset long-press options sheet (v1.4 W4)', () {
+    /// Render a TabShell pre-seeded with a saved P1 (id=0). The slot's
+    /// `Material` card sits on the Joystick tab inline preset row.
+    Future<_StubWsClient> pumpWithSavedP1(WidgetTester tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 900));
+      final client = _StubWsClient();
+      _seedPresets(client, <PresetEntry>[
+        const PresetEntry(
+          id: 0,
+          name: 'Vocalist',
+          yaw: 12,
+          pitch: -3,
+          roll: 0,
+          zoom: 1.4,
+        ),
+      ]);
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+      return client;
+    }
+
+    testWidgets('saved slot long-press opens sheet with 4 items',
+        (tester) async {
+      await pumpWithSavedP1(tester);
+      // Slot label is the preset name, not "P1".
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Update with current pose'), findsOneWidget);
+      expect(find.text('Recall instantly (no move)'), findsOneWidget);
+      expect(find.text('Rename'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('Preset Vocalist'), findsOneWidget);
+    });
+
+    testWidgets('empty slot long-press triggers one-step save (no sheet)',
+        (tester) async {
+      _initPrefs();
+      await tester.binding.setSurfaceSize(const Size(400, 900));
+      final client = _StubWsClient();
+      // No seed - every slot is empty.
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: TabShell(client: client))),
+      );
+      await tester.pump();
+
+      await tester.longPress(find.text('P1').first);
+      await tester.pumpAndSettle();
+      // Sheet must NOT appear; the empty-slot path saves directly.
+      expect(find.text('Update with current pose'), findsNothing);
+      expect(find.text('Recall instantly (no move)'), findsNothing);
+      // Save was called for id=0 (P1).
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'save');
+      expect(client.presetCalls.first.id, 0);
+    });
+
+    testWidgets('Update with current pose calls presetSave(id, name)',
+        (tester) async {
+      final client = await pumpWithSavedP1(tester);
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Update with current pose'));
+      await tester.pumpAndSettle();
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'save');
+      expect(client.presetCalls.first.id, 0);
+      expect(client.presetCalls.first.name, 'Vocalist');
+    });
+
+    testWidgets('Delete calls presetDelete(id)', (tester) async {
+      final client = await pumpWithSavedP1(tester);
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'delete');
+      expect(client.presetCalls.first.id, 0);
+    });
+
+    testWidgets('Recall instantly passes Duration.zero (bypasses default)',
+        (tester) async {
+      final client = await pumpWithSavedP1(tester);
+      // Set a non-zero default so we can verify the instant path
+      // bypasses it.
+      await client.setMoveDuration(const Duration(seconds: 30));
+      await tester.pump();
+      await tester.longPress(find.text('Vocalist').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Recall instantly (no move)'));
+      await tester.pumpAndSettle();
+      expect(client.presetCalls, hasLength(1));
+      expect(client.presetCalls.first.action, 'recall');
+      expect(client.presetCalls.first.id, 0);
+      expect(client.presetCalls.first.duration, Duration.zero);
     });
   });
 }
