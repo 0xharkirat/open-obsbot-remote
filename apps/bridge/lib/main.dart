@@ -353,8 +353,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _groupCard(context, <Widget>[
               _cameraPermissionRow(context),
               _divider(context),
-              _firewallRow(context),
-              _divider(context),
               _statusRow(
                 context,
                 title: 'Camera',
@@ -380,6 +378,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? CupertinoColors.systemGreen
                     : MacosColors.systemGrayColor,
               ),
+              // Firewall last (informational hint for users whose phones
+              // can't connect; not a measured state).
+              _divider(context),
+              _firewallRow(context),
             ]),
             const SizedBox(height: 18),
             _sectionHeader(context, 'Pairing'),
@@ -451,7 +453,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   controlSize: ControlSize.small,
                   secondary: true,
                   onPressed: supervisor.revealLogInFinder,
-                  child: const Text('Reveal'),
+                  child: const Text('Open'),
                 ),
               ],
             ],
