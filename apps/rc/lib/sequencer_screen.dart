@@ -326,6 +326,15 @@ class _SequencerEditorState extends State<SequencerEditor> {
         ),
       );
     }
+    // v1.5 W1 fix #2: pre-select the currently loaded sequence in the
+    // dropdown when one is set. DropdownButton throws if `value` is not
+    // present in `items`, so guard with an explicit membership check
+    // (covers the brief window after delete where `loaded` may still
+    // point at a vanished entry).
+    final loadedName = s.sequence.loaded;
+    final loadedInLib = loadedName.isNotEmpty && lib.contains(loadedName);
+    final selectedValue = loadedInLib ? loadedName : null;
+    final showRunningChip = s.sequence.running && loadedInLib;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -341,7 +350,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
             child: DropdownButton<String>(
               isExpanded: true,
               underline: const SizedBox.shrink(),
-              value: s.sequence.loaded.isEmpty ? null : s.sequence.loaded,
+              value: selectedValue,
               hint: const Text('Load saved sequence…'),
               items: <DropdownMenuItem<String>>[
                 for (final n in lib)
@@ -352,6 +361,10 @@ class _SequencerEditorState extends State<SequencerEditor> {
               },
             ),
           ),
+          if (showRunningChip) ...<Widget>[
+            const SizedBox(width: 6),
+            _RunningChip(),
+          ],
           if (s.sequence.loaded.isNotEmpty)
             IconButton(
               tooltip: 'Delete saved sequence',
@@ -674,5 +687,37 @@ class _EditStep {
     this.transition = const Duration(milliseconds: 1000),
   }) {
     secondsCtrl = TextEditingController(text: '$seconds');
+  }
+}
+
+/// Small "Running" badge rendered to the right of the library dropdown
+/// when the loaded sequence is currently executing. Keeps the dropdown
+/// itself uncluttered while making the running state scannable.
+class _RunningChip extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: cs.primary,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.play_arrow, size: 12, color: cs.onPrimary),
+          const SizedBox(width: 2),
+          Text(
+            'Running',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: cs.onPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
