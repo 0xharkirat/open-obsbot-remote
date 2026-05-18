@@ -124,11 +124,19 @@ See README.md "Features" and "Known Limits" sections. Tiny 2 Lite is the tested 
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
 - When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.
 
-## Current dev state (v1.2.1 shipped, 2026-05-13)
+## Current dev state (v1.4.1 shipped, 2026-05-18)
 
-**Last release:** v1.2.1 (tag `v1.2.1`, commit `7d020bf` on `main`). PR-styled workflow, squash-merge default. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`.
+**Last release:** v1.4.1 (tag `v1.4.1`, commit `c794ac2` on `main`). PR-styled workflow, squash-merge default. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`. Parallel worktree agents (`isolation: worktree` in the Agent tool) handle independent file-set work concurrently; their branches merge sequentially into a release branch.
 
-v1.2.0 shipped the UI redesign + smooth zoom + exposure controls + first
+### v1.4.x rolled up
+
+v1.4.0 (2026-05-18, PR #25, 6 worktree branches): phone-app advanced-mode redesigned around OBSBOT Center patterns (Drive / Image / More tabs, CollapsibleSection, AI sub-mode pills, preset long-press bottom sheet, sequencer split-fields). Plus 5 major bridge / sequencer / preview fixes - MJPEG silent-disconnect, sequencer move/stay race, pairing JSON leak, bridge text wrap, preset-overwrite UI discoverability.
+
+v1.4.1 (2026-05-18, PR #26 + main pushes): bridge UI polish. Native `macos_ui` widgets (MacosScaffold + ToolBar + MacosListTile-style rows), simpler tray menu (12 -> 6 items, clickable PIN, key equivalents), camera-connected falls back to AVFoundation when libdev misses a hot-replug, em-dashes stripped repo-wide, logo in toolbar, action-button padding bumped, firewall row uses info icon (informational not status) and deep-links to Network pane on Sonoma+, settings footer collapsed to one inline GitHub link.
+
+### v1.2 historic (left here for context)
+
+v1.2.0 shipped the original UI redesign + smooth zoom + exposure controls + first
 tray. v1.2.1 was the polish-after-real-use release that landed in a
 single consolidated PR (#23) on top of #17–#22:
 
@@ -158,15 +166,26 @@ $NODE tests/exposure.mjs           # 11 tests: exposure mode + EV bias + anti-fl
 $NODE tests/zoom_smoothness.mjs    # samples zoom over 5s and 30s plans; flags lens stalls
 ```
 
-Plus offline widget tests:
+Plus the v1.4 W3 sequencer-race regression:
+
+```bash
+$NODE tests/sequence_timing.mjs    # 4 tests:  stay-timer chain, phase transitions, stop-mid-move
+```
+
+Plus offline widget + protocol-package tests:
 
 ```bash
 cd apps/rc && flutter test
-# tab_shell_test.dart   - 20 tests for the 3-tab structure + 320px overflow regression
-# pin_entry_test.dart   - 1  test  for the forui pair screen
+# tab_shell_test.dart            - Drive / Image / More structure + preset long-press sheet + 320px overflow
+# sequencer_screen_test.dart     - move/stay split fields
+# collapsible_section_test.dart  - open/close persistence
+# pin_entry_test.dart            - forui pair screen
+
+cd packages/obsbot_protocol && dart test
+# obsbot_protocol_test.dart      - JSON round-trips + SequenceState.phase + CameraState.fromEvent
 ```
 
-Total: **81 / 81** (60 backend + 21 widget) with no log warnings on live camera.
+Total: **125 / 125** (64 backend + 45 widget + 16 protocol) on v1.4.1.
 
 ### MotionPlanner architecture (`apps/bridge_cpp/src/device_session.{h,cpp}`)
 
@@ -178,6 +197,12 @@ Total: **81 / 81** (60 backend + 21 widget) with no log warnings on live camera.
 - **Gimbal speed (v1.2.1 change):** rate-scaled per-axis. `pct = (deg_per_sec / 1.5) * 2.0`, clamped `[15, 100]`. Old v1.2.0 flat-90 raced/waited per tick → visible 100 ms-cadence shake on any duration_ms > 0.
 - **Zoom (v1.2.1 hybrid):** short plans (`duration_ms <= 1000`) call `cameraSetZoomAbsoluteR(target, -1)` ONCE; let the lens drive itself. Longer plans tick at `>= 600 ms` cadence  -  lens converges per waypoint before next arrives. Old v1.2.0 ticked every 100 ms which re-armed the lens's internal plan → `in/out/in/out` oscillation. The uint-API `cameraSetZoomWithSpeedAbsoluteR` is broken on Tiny 2 Lite (stuck at 1.33x); float-API is the only path.
 - Any direct gimbal/zoom command (instant jog, velocity, terminal zoom snap) calls `motion_cancel()` first to preempt the in-flight planner.
+
+### Protocol (v1.4 deltas vs v1.2.1)
+
+- **`sequence.phase`** state-event field: `"moving"` while MotionPlanner is in flight, `"holding"` while stay-timer counts. Default `"holding"`. Defensive backward compat - old clients ignore the field.
+- **`MotionPlanner.motion_wait_idle(timeout_ms)`** public method on the bridge - blocks until the planner is idle. Used by the sequencer to chain `trigger_step -> wait -> reset stay clock` so `seconds` no longer overlaps `transition_ms`.
+- AI `sub_mode` now respected from `ai.set_mode` (was always sent as `"normal"`) - 5 sub-modes wired: `normal` / `upper_body` / `close_up` / `headless` / `lower_body`.
 
 ### Protocol (v1.2.1 deltas vs v1.2.0)
 
@@ -207,7 +232,7 @@ Design + a11y work uses:
 - `docs/CONTRIBUTING.md` (PR workflow rules; smoke battery is 78/78).
 - `docs/TOUCH_FINDINGS_2026-05-10.md` (v1.1 touch-emulation reproduction; resolution footnote at the bottom).
 
-### Things that bit us during v1.2
+### Things that bit us during v1.2 - v1.4
 
 21. **`speed_str()` switch non-exhaustive.** When adding new MoveSpeed values pre-removal, sequencer save silently downgraded `ultra`/`cinema` to `medium` on disk. The MoveSpeed enum is now gone (v1.2 uses `duration_ms`) but `tests/sequencer_save.mjs` keeps a migration test so the same trap cannot reopen.
 22. **Zoom planner pre-stamped target.** `cmd_zoom_set` planner branch wrote `snap_.zoom = v` before the planner ran, so state events showed the target instantly instead of progressively. Removed the pre-stamp; planner ticks own `snap_.zoom` while running.
@@ -227,3 +252,12 @@ Design + a11y work uses:
 36. **`gimbalSetSpeedPositionR(.., 90, 90, 90)` per tick = motor races + waits.** v1.2.0 set the SDK speed to 90 (ceiling) on every 100 ms waypoint. With small deltas per tick, motor finished each waypoint in <10 ms then idled, producing visible 100 ms-cadence stutter. v1.2.1 scales speed per-axis to roughly match per-tick deg/s with 2.0× headroom + 15% floor; motor flows.
 37. **`cameraSetZoomAbsoluteR(value, -1)` ticked at 100 ms = lens oscillation.** Lens motor has its own internal motion plan; each call re-arms it. Tick every 100 ms and the lens never converges  -  visible in/out/in/out on any preset recall combining motion + zoom. v1.2.1 hybrid: one-shot for `duration_ms <= 1000`; else tick at ≥600 ms so the lens has time to settle between waypoints.
 38. **`_InlinePresetCard._saved` required non-empty `name`.** Unnamed saves are valid (the bridge stores the pose) but the UI's `_saved` check fell through to the empty-slot branch  -  tap-to-recall silently became tap-to-save. Now `_saved = entry != null`.
+39. **MJPEG `send()` blocks forever on a wedged TCP write.** Bridge accepted client sockets with only `SO_REUSEADDR`. When Wi-Fi roamed / phone backgrounded / NAT dropped state, the kernel send-queue filled, `send()` blocked the serving thread for ~15 min (macOS default retransmit) before noticing. Symptom: "preview stops mid-stream" with no browser error, no bridge crash. Evidence: 145 `client connected` vs 104 `client disconnected` log entries. Fix in v1.4 (W2): `SO_KEEPALIVE` + `SO_SNDTIMEO=5s` + `SO_NOSIGPIPE` per-socket in `mjpeg_server.cpp::serve_client`. Wedged writes now fail fast and the existing loop-exit path logs disconnect.
+40. **Sequencer stay-timer ran concurrently with move-timer.** v1.2's loop reset `step_started` immediately after dispatching `motion_start` and used `seconds` as the only budget. User-observed: `seconds=40, transition_ms=30000` -> only ~10 s of actual hold. Fix in v1.4 (W3): chain `trigger_step -> motion_wait_idle(transition_ms + 500) -> reset step_started`. New `MotionPlanner.motion_wait_idle` blocks until `motion_active_` atomic flips back to false. `cmd_sequence_stop` also calls `motion_cancel()` before joining so stops mid-move release the planner promptly. New `sequence.phase` state-event field surfaces `"moving"` / `"holding"` for UI affordances.
+41. **Pair screen leaked server developer-facing protocol hint as a red error.** On `auth_required` the bridge sends `msg: "send {action:'pair', pin:<6-digit>} or {action:'hello', token:<token>}"`. Dart side put that JSON-ish string into `_lastAuthError`, the pair screen rendered it under the PIN input. Entering the pair screen is a state transition not an error; `_lastAuthError = null` is correct. Same pattern likely applies anywhere we store server hints as user copy - audit before exposing.
+42. **macOS deep-link URL fragments dropped on Sonoma+.** `x-apple.systempreferences:com.apple.preference.security?Firewall` was the macOS 12 way to open Firewall; on Sonoma+ the `?Firewall` fragment is silently ignored and you land on Privacy & Security root. Firewall moved to Network. Use `com.apple.Network-Settings.extension` with a fallback to the legacy URL.
+43. **`MacosApp` provides CupertinoLocalizations, not MaterialLocalizations.** Wrapping the entire app in `MacosApp` breaks Scaffold/AlertDialog/SnackBar/SwitchListTile - they need Material context. Two-layer wrapper works: `MacosApp(home: MaterialApp(home: ...))`. macos_ui widgets render inside the Material subtree without complaint; Material widgets get the localizations they need.
+44. **`ControlSize.small` PushButtons look cramped at default text sizes.** macos_ui's small size matches the AppKit small-control density; if your label is more than ~6 chars or visually adjacent to body text, prefer `ControlSize.regular`. Save small for inline-with-text micro-affordances ("Reveal" next to a log path, "Copy URL" under a QR).
+45. **Em dashes (`—`) keep creeping in despite the project rule.** Repo policy since v1.1 is plain hyphen surrounded by spaces (` - `). Most agents emit em dashes when generating prose. v1.4.1 stripped ~80 from Dart/Swift/C++/Markdown/shell. Future PRs: grep for `—` before commit.
+46. **macOS Application Firewall keys by binary code-signature hash.** Stable codesign identifier (`com.harksingh.obsbotbridge.helper`) doesn't help - the firewall hashes the binary, not the identifier. Every rebuild = new entry in Firewall -> Options. Cosmetic mess on repeated rebuilds + every release update. `scripts/clean-firewall-entries.sh` enumerates + removes via `socketfilterfw` (requires sudo). True fix would need bit-reproducible C++ builds.
+47. **`cameraConnected` is independent of `video.running`.** libdev's USB plug callback can miss a hot-replug (camera unplugged + replugged); `snap_.connected` stays false even though AVFoundation grabs the camera and the preview works. v1.4.1 (W2) fix: bridge supervisor returns `_cameraConnected || _videoRunning`; the `_videoRunning` flag is parsed from the bridge log's `video: capture session started` line. `detectedModel` falls back to `using device '<name>'` for the same reason.

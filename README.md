@@ -71,7 +71,7 @@ OBSBOT camera
 
 ### Remote UI
 
-- Three-tab layout in advanced mode (Joystick / Buttons / Image), plus a Simple mode for one-handed preset operation.
+- Three-tab layout in advanced mode (Drive / Image / More) with collapsible sections per group, plus a Simple mode for one-handed preset operation. Drive merges joystick + 8-way pad + zoom slider + presets + AI tracking sub-modes. More carries the sequence library, grid overlay toggles, device info, connection info, and About.
 - Sleep and Wake quick actions on every tab (top of the control area, in the same place on Joystick and Buttons so muscle memory carries over).
 - OBSBOT-brand red accent on a near-black surface for low-light operation.
 
