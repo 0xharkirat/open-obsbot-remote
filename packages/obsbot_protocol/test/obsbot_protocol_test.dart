@@ -112,26 +112,21 @@ void main() {
     });
   });
 
-  group('CameraState', () {
-    test('empty has sane defaults', () {
-      const s = CameraState.empty;
-      expect(s.connected, isFalse);
-      expect(s.zoom, 1);
-      expect(s.fov, 86);
-      expect(s.exposureMode, 'auto');
-      expect(s.antiFlicker, 'off');
-      expect(s.wbAuto, isTrue);
-      expect(s.wbKelvin, 4700);
-    });
-
-    test('fromEvent parses a full v1.2 state snapshot', () {
-      final s = CameraState.fromEvent(<String, dynamic>{
+  // Reusable fixture: one fully-populated device entry. v2 wraps these
+  // in a `devices` array (see BridgeState tests).
+  Map<String, dynamic> fixtureDeviceJson({
+    String deviceId = 'RMOW1234',
+    String friendlyName = '',
+  }) =>
+      <String, dynamic>{
+        'device_id': deviceId,
         'device': <String, dynamic>{
-          'sn': 'ABC123',
+          'sn': deviceId,
           'model_display': 'Tiny 2 Lite',
           'firmware': '6.2.8.1',
           'connected': true,
           'run_status': 'run',
+          'friendly_name': friendlyName,
         },
         'ptz': <String, dynamic>{'yaw': 12.5, 'pitch': -3.0, 'roll': 0.0},
         'zoom': <String, dynamic>{'value': 1.4, 'min': 1.0, 'max': 2.0},
@@ -185,7 +180,26 @@ void main() {
             },
           ],
         },
-      });
+      };
+
+  group('DeviceState', () {
+    test('empty has sane defaults', () {
+      const s = DeviceState.empty;
+      expect(s.deviceId, '');
+      expect(s.connected, isFalse);
+      expect(s.zoom, 1);
+      expect(s.fov, 86);
+      expect(s.exposureMode, 'auto');
+      expect(s.antiFlicker, 'off');
+      expect(s.wbAuto, isTrue);
+      expect(s.wbKelvin, 4700);
+      expect(s.friendlyName, isEmpty);
+    });
+
+    test('fromEvent parses a full v2 device payload', () {
+      final s = DeviceState.fromEvent(fixtureDeviceJson());
+      expect(s.deviceId, 'RMOW1234');
+      expect(s.sn, 'RMOW1234');
       expect(s.connected, isTrue);
       expect(s.modelDisplay, 'Tiny 2 Lite');
       expect(s.yaw, 12.5);
@@ -203,11 +217,109 @@ void main() {
           const Duration(seconds: 5));
     });
 
+    test('fromEvent falls back to dev.sn when top-level device_id missing',
+        () {
+      // Transitional: bridges that haven't been bumped to v2 may omit
+      // the top-level device_id field.
+      final fixture = fixtureDeviceJson();
+      fixture.remove('device_id');
+      final s = DeviceState.fromEvent(fixture);
+      expect(s.deviceId, 'RMOW1234'); // pulled from device.sn
+    });
+
     test('fromEvent tolerates an empty payload', () {
-      final s = CameraState.fromEvent(const <String, dynamic>{});
+      final s = DeviceState.fromEvent(const <String, dynamic>{});
+      expect(s.deviceId, '');
       expect(s.connected, isFalse);
       expect(s.presets, isEmpty);
       expect(s.sequence.steps, isEmpty);
+    });
+
+    test('displayName uses friendlyName when set', () {
+      final s = DeviceState.fromEvent(
+          fixtureDeviceJson(friendlyName: 'Vocal'));
+      expect(s.displayName, 'Vocal');
+    });
+
+    test('displayName falls back to model + last-4 of SN', () {
+      final s = DeviceState.fromEvent(fixtureDeviceJson());
+      expect(s.displayName, 'Tiny 2 Lite (1234)');
+    });
+
+    test('copyWith only overrides given fields', () {
+      final original = DeviceState.fromEvent(fixtureDeviceJson());
+      final swapped = original.copyWith(hdr: true, fov: 65);
+      expect(swapped.hdr, isTrue);
+      expect(swapped.fov, 65);
+      // Untouched fields preserved.
+      expect(swapped.deviceId, 'RMOW1234');
+      expect(swapped.wbKelvin, 5500);
+    });
+  });
+
+  group('BridgeState', () {
+    test('empty has zero devices + no active', () {
+      const s = BridgeState.empty;
+      expect(s.devices, isEmpty);
+      expect(s.activeDeviceId, isEmpty);
+      expect(s.activeDevice, isNull);
+    });
+
+    test('fromEvent parses v2 multi-device payload', () {
+      final bs = BridgeState.fromEvent(<String, dynamic>{
+        'type': 'state',
+        'version': '2.0',
+        'active_device_id': 'RMOW1234',
+        'devices': <Map<String, dynamic>>[
+          fixtureDeviceJson(deviceId: 'RMOW1234', friendlyName: 'Vocal'),
+          fixtureDeviceJson(deviceId: 'RMOW5678', friendlyName: 'Audience'),
+        ],
+      });
+      expect(bs.protocolVersion, '2.0');
+      expect(bs.devices.length, 2);
+      expect(bs.activeDeviceId, 'RMOW1234');
+      expect(bs.activeDevice?.friendlyName, 'Vocal');
+      expect(bs.deviceById('RMOW5678')?.friendlyName, 'Audience');
+      expect(bs.deviceById('NOPE'), isNull);
+    });
+
+    test('fromEvent tolerates v1 single-device payload (no devices key)',
+        () {
+      // v1 bridges that haven't been upgraded send the device snapshot
+      // at the top level instead of inside a `devices` array. We wrap
+      // it into a one-element list so clients can still connect during
+      // the rollout window.
+      final bs = BridgeState.fromEvent(fixtureDeviceJson());
+      expect(bs.devices.length, 1);
+      expect(bs.devices.single.deviceId, 'RMOW1234');
+      expect(bs.activeDeviceId, 'RMOW1234');
+    });
+
+    test('withDevice replaces one entry without touching the others', () {
+      final bs = BridgeState.fromEvent(<String, dynamic>{
+        'version': '2.0',
+        'active_device_id': 'RMOW1234',
+        'devices': <Map<String, dynamic>>[
+          fixtureDeviceJson(deviceId: 'RMOW1234'),
+          fixtureDeviceJson(deviceId: 'RMOW5678'),
+        ],
+      });
+      final updated = bs.withDevice(
+        'RMOW5678',
+        bs.deviceById('RMOW5678')!.copyWith(hdr: true),
+      );
+      expect(updated.deviceById('RMOW1234')?.hdr, isFalse);
+      expect(updated.deviceById('RMOW5678')?.hdr, isTrue);
+      // Original is immutable.
+      expect(bs.deviceById('RMOW5678')?.hdr, isFalse);
+    });
+
+    test('withDevice throws StateError for unknown device id', () {
+      const bs = BridgeState.empty;
+      expect(
+        () => bs.withDevice('RMOW9999', DeviceState.empty),
+        throwsStateError,
+      );
     });
   });
 

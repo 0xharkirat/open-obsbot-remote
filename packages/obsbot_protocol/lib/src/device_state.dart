@@ -3,14 +3,25 @@ import 'package:meta/meta.dart';
 import 'preset_entry.dart';
 import 'sequence_state.dart';
 
-/// Decoded device snapshot pushed by the bridge in every `state`
-/// event. See `docs/PROTOCOL.md` for the full wire format.
+/// Decoded per-camera snapshot. One [DeviceState] per attached camera,
+/// addressed by [deviceId] (the camera's stable serial number).
 ///
-/// Default values match an un-connected camera; real values arrive
-/// in the state event broadcast after `subscribe`.
+/// v1.x called this `CameraState` and assumed a single camera per
+/// bridge. v2 splits multi-cam concerns out into [BridgeState] which
+/// owns the list of these.
+///
+/// Default values match an un-connected camera; real values arrive in
+/// the state event broadcast after `subscribe`.
 @immutable
-class CameraState {
+class DeviceState {
+  /// Stable identifier (the camera's serial number, e.g. "RMOW1234").
+  /// Used as the `device_id` field on every action + state event.
+  /// Survives unplug + replug to a different USB port.
+  final String deviceId;
+
   // ---- Device identity / lifecycle ----
+  /// Same value as [deviceId]. Kept as a separate field so the
+  /// existing UI code that reads `state.sn` keeps working.
   final String sn;
   final String modelDisplay;
   final String firmware;
@@ -18,6 +29,12 @@ class CameraState {
 
   /// `"run"` / `"sleep"` / `"privacy"` / `"unknown"`.
   final String runStatus;
+
+  /// Operator-assigned friendly name ("Vocal", "GGS"). Empty if the
+  /// user hasn't renamed - UI falls back to [modelDisplay] in that
+  /// case. Persisted bridge-side keyed by [deviceId] so it survives
+  /// reconnect.
+  final String friendlyName;
 
   // ---- PTZ ----
   /// Pan in degrees. Positive = camera pointed right in viewer frame.
@@ -64,7 +81,7 @@ class CameraState {
   final String exposureMode;
 
   /// -3.0..+3.0 EV (1/3 stops on the SDK wire). Best-effort on
-  /// Tiny 2 Lite per the same caveat as `exposureMode`.
+  /// Tiny 2 Lite per the same caveat as [exposureMode].
   final double evBias;
 
   /// `"off"` / `"50"` / `"60"` / `"auto"` (50/60 Hz line frequency).
@@ -72,24 +89,33 @@ class CameraState {
 
   final bool wbAuto;
 
-  /// 2800..6500 K (manual white balance temperature, when `wbAuto`
+  /// 2800..6500 K (manual white balance temperature, when [wbAuto]
   /// is false).
   final int wbKelvin;
 
-  // ---- Presets + sequence ----
+  // ---- Presets + sequence (per-device) ----
+  /// Presets are scoped to this device. v1.x stored a single flat
+  /// list on the bridge; v2 keys the file by [deviceId] so each cam
+  /// owns its P1..P6 independently.
   final List<PresetEntry> presets;
 
-  /// The preset id last recalled. `-1` after any manual PTZ command.
+  /// The preset id last recalled on THIS device. `-1` after any
+  /// manual PTZ command.
   final int activePresetId;
 
+  /// Sequence running on THIS device. v2.0 keeps sequences per-device;
+  /// cross-camera sequences are planned for v2.1+ and will live on
+  /// [BridgeState] instead.
   final SequenceState sequence;
 
-  const CameraState({
+  const DeviceState({
+    required this.deviceId,
     required this.sn,
     required this.modelDisplay,
     required this.firmware,
     required this.connected,
     required this.runStatus,
+    required this.friendlyName,
     required this.yaw,
     required this.pitch,
     required this.roll,
@@ -120,12 +146,17 @@ class CameraState {
     required this.sequence,
   });
 
-  static const empty = CameraState(
+  /// Placeholder for "no device yet" - used by [BridgeState.activeDevice]
+  /// when no camera is attached. UI code reading from this should
+  /// guard with `BridgeState.devices.isEmpty` first.
+  static const empty = DeviceState(
+    deviceId: '',
     sn: '',
     modelDisplay: '',
     firmware: '',
     connected: false,
     runStatus: 'unknown',
+    friendlyName: '',
     yaw: 0,
     pitch: 0,
     roll: 0,
@@ -156,7 +187,23 @@ class CameraState {
     sequence: SequenceState.empty,
   );
 
-  factory CameraState.fromEvent(Map<String, dynamic> j) {
+  /// Parses one device-entry from the v2 state event's `devices` array.
+  ///
+  /// Expected shape:
+  /// ```json
+  /// {
+  ///   "device_id": "RMOW1234",
+  ///   "device": {sn, model_display, firmware, connected, run_status, friendly_name},
+  ///   "ptz": {yaw, pitch, roll},
+  ///   "zoom": {value, min, max},
+  ///   "ai": {mode, sub_mode, enabled},
+  ///   "image": {hdr, fov, ...},
+  ///   "presets": [...],
+  ///   "active_preset_id": -1,
+  ///   "sequence": {...}
+  /// }
+  /// ```
+  factory DeviceState.fromEvent(Map<String, dynamic> j) {
     final dev =
         (j['device'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     final ptz =
@@ -180,12 +227,19 @@ class CameraState {
         .map(PresetEntry.fromJson)
         .toList(growable: false);
 
-    return CameraState(
-      sn: dev['sn'] as String? ?? '',
+    // device_id at the top level is canonical; fall back to dev.sn
+    // for bridges that omit it (transitional).
+    final sn = dev['sn'] as String? ?? '';
+    final deviceId = j['device_id'] as String? ?? sn;
+
+    return DeviceState(
+      deviceId: deviceId,
+      sn: sn,
       modelDisplay: dev['model_display'] as String? ?? '',
       firmware: dev['firmware'] as String? ?? '',
       connected: dev['connected'] as bool? ?? false,
       runStatus: dev['run_status'] as String? ?? 'unknown',
+      friendlyName: dev['friendly_name'] as String? ?? '',
       yaw: d(ptz['yaw']),
       pitch: d(ptz['pitch']),
       roll: d(ptz['roll']),
@@ -217,19 +271,30 @@ class CameraState {
     );
   }
 
+  /// The label shown in pickers / breadcrumbs. Friendly name when set,
+  /// model + last-4-of-SN otherwise. Never empty unless this is
+  /// [DeviceState.empty].
+  String get displayName {
+    if (friendlyName.isNotEmpty) return friendlyName;
+    if (modelDisplay.isEmpty) return deviceId;
+    final tail = sn.length >= 4 ? sn.substring(sn.length - 4) : sn;
+    return tail.isEmpty ? modelDisplay : '$modelDisplay ($tail)';
+  }
+
   /// Returns a copy of this state with the given fields overridden.
-  /// Used by [WsClient] for optimistic UI - we snap the chosen value
-  /// into local state the instant the user taps so the segmented /
-  /// toggle button shows its new selected state without waiting for
-  /// the bridge round-trip. The next real state event from the bridge
-  /// overwrites the optimistic value (and corrects it if the camera
-  /// clamped or rejected).
-  CameraState copyWith({
+  /// Used by `WsClient` for optimistic UI - the chosen value is snapped
+  /// into local state the instant the user taps so the button shows
+  /// its new selected state without waiting for the bridge round-trip.
+  /// The next real state event overwrites the optimistic value (and
+  /// corrects it if the camera clamped or rejected).
+  DeviceState copyWith({
+    String? deviceId,
     String? sn,
     String? modelDisplay,
     String? firmware,
     bool? connected,
     String? runStatus,
+    String? friendlyName,
     double? yaw,
     double? pitch,
     double? roll,
@@ -259,12 +324,14 @@ class CameraState {
     int? activePresetId,
     SequenceState? sequence,
   }) {
-    return CameraState(
+    return DeviceState(
+      deviceId: deviceId ?? this.deviceId,
       sn: sn ?? this.sn,
       modelDisplay: modelDisplay ?? this.modelDisplay,
       firmware: firmware ?? this.firmware,
       connected: connected ?? this.connected,
       runStatus: runStatus ?? this.runStatus,
+      friendlyName: friendlyName ?? this.friendlyName,
       yaw: yaw ?? this.yaw,
       pitch: pitch ?? this.pitch,
       roll: roll ?? this.roll,
