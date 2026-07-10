@@ -45,6 +45,9 @@ struct DeviceSnapshot {
     std::string sn;
     std::string model;
     std::string firmware;
+    // User-chosen label (device.rename). Empty = UI falls back to model +
+    // last-4 of SN. Persisted per-SN in device_names.json.
+    std::string friendly_name;
     bool connected = false;
     int run_status = 1;       // 1=run, 3=sleep, 4=privacy
 
@@ -60,7 +63,6 @@ struct DeviceSnapshot {
     // Active scratch sequence (steps + mode), mirrored to clients in
     // state event so the editor can hydrate on reopen.
     std::vector<SequenceStep> sequence_steps;
-    bool sequence_loop = true;          // legacy; mirrors mode != once
 
     // The preset id last recalled. -1 once any manual PTZ command lands.
     int active_preset_id = -1;
@@ -87,11 +89,10 @@ struct DeviceSnapshot {
     std::string ai_mode = "none";
     std::string ai_sub_mode = "normal";
     bool ai_enabled = false;
-    std::string tracking_mode = "standard";
 
     bool hdr = false;
     int fov = 86;
-    int brightness = 50, contrast = 50, saturation = 50, sharpness = 50, hue = 50;
+    int brightness = 50, contrast = 50, saturation = 50, sharpness = 50;
     bool face_ae = false;
     bool face_focus = false;
     bool auto_focus = true;
@@ -120,19 +121,45 @@ struct CmdResult {
 class DeviceSession {
 public:
     using StateCallback = std::function<void(const DeviceSnapshot&)>;
+    using ReplyFn = std::function<void(CmdResult)>;
 
-    DeviceSession();
+    // `sn` identifies the camera for its entire lifetime: the persistence
+    // key, the routing key, and the MJPEG path component. A fake session
+    // makes zero libdev calls and its MJPEG path 404s; it exists so CI and
+    // single-camera dev machines can exercise the multi-cam UI without a
+    // second physical camera (--fake-device <SN>).
+    explicit DeviceSession(std::string sn, bool fake = false);
     ~DeviceSession();
 
-    // Start watching for cameras over USB. Non-blocking. Calls onState() whenever the snapshot changes.
+    const std::string& sn() const { return sn_; }
+    bool is_fake() const { return fake_; }
+
+    // Launch the worker + motion threads. Non-blocking. on_state fires
+    // whenever this device's snapshot changes. The DeviceManager owns the
+    // libdev device-changed callback and drives attach() / removal.
     void start(StateCallback on_state);
     void stop();
+
+    // Bind a freshly-plugged libdev device and hydrate the snapshot
+    // (model / firmware / zoom range / presets / persisted sequences). The
+    // SDK work runs on this session's worker thread.
+    void attach(std::shared_ptr<Device> dev);
+
+    // Stamp a fake session's identity into its snapshot (fake devices only).
+    void init_fake();
+
+    // Update the friendly name (device.rename), stamp the snapshot, and
+    // trigger a state event. Persistence is handled by the caller.
+    void set_friendly_name(const std::string& name);
+
+    // Apply a WS action to a fake device as a snapshot-only no-op so the UI
+    // still reacts. Never touches libdev. `raw` is the original JSON message.
+    void cmd_fake(const std::string& action, const std::string& raw, ReplyFn reply);
 
     bool connected() const;
     DeviceSnapshot snapshot() const;
 
     // ---- commands (thread-safe; submit to internal queue) ----
-    using ReplyFn = std::function<void(CmdResult)>;
     void submit(std::function<CmdResult()> work, ReplyFn reply);
 
     // High-level helpers (compose work + reply for convenience)
@@ -150,10 +177,6 @@ public:
     void cmd_ai_set_enabled(bool enabled, ReplyFn reply);
     void cmd_image_set_hdr(bool enabled, ReplyFn reply);
     void cmd_image_set_fov(int fov, ReplyFn reply);
-    void cmd_image_set_brightness(int v, ReplyFn reply);
-    void cmd_image_set_contrast(int v, ReplyFn reply);
-    void cmd_image_set_saturation(int v, ReplyFn reply);
-    void cmd_image_set_sharpness(int v, ReplyFn reply);
     void cmd_image_set_color(bool has_brightness, int brightness,
                              bool has_contrast, int contrast,
                              bool has_saturation, int saturation,
@@ -195,9 +218,6 @@ public:
     void cmd_sequence_load(const std::string& name, ReplyFn reply);
     void cmd_sequence_delete(const std::string& name, ReplyFn reply);
 
-    // public so the C-style SDK trampoline can forward into us
-    void on_dev_changed(const std::string& sn, bool plugged);
-
 private:
     struct Item {
         std::function<CmdResult()> work;
@@ -222,6 +242,10 @@ private:
     std::mutex seq_mu_;
     int seq_step_index_ = 0;
     std::chrono::steady_clock::time_point seq_step_started_{};
+
+    // Stable identity for this session (persistence + routing + MJPEG key).
+    std::string sn_;
+    bool fake_ = false;
 
     // shared snapshot
     mutable std::mutex snap_mu_;

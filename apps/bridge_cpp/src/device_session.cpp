@@ -1,5 +1,6 @@
 #include "device_session.h"
 #include "log.h"
+#include "persist.h"
 
 #include <dev/devs.hpp>
 #include <json.hpp>
@@ -17,10 +18,6 @@
 using namespace std::chrono;
 
 namespace obs {
-
-// forward decls  -  used by on_dev_changed before their bodies appear lower
-static nlohmann::json read_lib();
-static void write_lib(const nlohmann::json& j);
 
 static std::string product_name(ObsbotProductType t) {
     switch (t) {
