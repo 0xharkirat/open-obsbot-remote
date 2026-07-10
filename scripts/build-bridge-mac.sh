@@ -16,10 +16,26 @@ cd "$ROOT"
 # 0) sanity: SDK present
 ./scripts/verify-sdk.sh
 
-# 1) build C++ bridge (uses libdev from third_party/obsbot-sdk/)
-echo "==> Building C++ bridge..."
+# 1) build C++ bridge as a universal binary (arm64 + x86_64) so one
+#    DMG covers both Apple Silicon and Intel Macs. SDK ships per-arch
+#    dylibs; `lipo -create` fuses them into a fat libdev, which the
+#    cmake config picks up ahead of the single-arch fallbacks.
+echo "==> Staging universal libdev.dylib..."
+UNI_DIR="$ROOT/third_party/obsbot-sdk/macos/universal-release"
+mkdir -p "$UNI_DIR"
+lipo -create \
+    "$ROOT/third_party/obsbot-sdk/macos/arm64-release/libdev.dylib" \
+    "$ROOT/third_party/obsbot-sdk/macos/x86_64-release/libdev.dylib" \
+    -output "$UNI_DIR/libdev.dylib"
+
+echo "==> Building C++ bridge (universal)..."
 export PATH="/opt/homebrew/bin:$PATH"
-cmake -S apps/bridge_cpp -B apps/bridge_cpp/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+# Wipe the cmake cache: a prior single-arch dev build would otherwise
+# reuse its per-arch link paths.
+rm -rf apps/bridge_cpp/build
+cmake -S apps/bridge_cpp -B apps/bridge_cpp/build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" >/dev/null
 cmake --build apps/bridge_cpp/build -j
 
 BRIDGE_BIN="$ROOT/apps/bridge_cpp/build/obsbot-bridge"
@@ -106,8 +122,40 @@ echo
 echo "==> Self-contained .app ready:"
 echo "    $APP"
 du -sh "$APP" 2>/dev/null || true
+
+# 6) pack a universal DMG. hdiutil ships with macOS so no external dep.
+#    UDZO = zlib-compressed read-only, the format brew casks pull.
+#    Verify all three binaries carry both slices before packing.
 echo
-echo "Drag the .app above to /Applications and double-click to launch."
-echo "First launch will prompt for camera + local-network access."
+echo "==> Verifying universal slices..."
+lipo -info "$APP/Contents/MacOS/obsbot-bridge"    | tail -1
+lipo -info "$APP/Contents/MacOS/libdev.dylib"     | tail -1
+lipo -info "$APP/Contents/MacOS/Open OBSBOT Bridge" | tail -1
+
+DIST="$ROOT/dist"
+DMG="$DIST/Open-OBSBOT-Bridge-universal.dmg"
+mkdir -p "$DIST"
+rm -f "$DMG"
 echo
-echo "Tip: 'open \"$APP\"' opens it without dragging to /Applications."
+echo "==> Building DMG..."
+hdiutil create \
+    -volname "Open OBSBOT Bridge" \
+    -srcfolder "$APP" \
+    -ov -format UDZO \
+    "$DMG" >/dev/null
+DMG_SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
+DMG_SIZE="$(du -sh "$DMG" | awk '{print $1}')"
+
+echo
+echo "==> Release artifact ready:"
+echo "    $DMG ($DMG_SIZE)"
+echo "    sha256: $DMG_SHA"
+echo
+echo "Drag the .app to /Applications, or install via:"
+echo "    brew install --cask 0xharkirat/tap/open-obsbot-bridge"
+echo
+echo "For a fresh release, paste this into the tap's cask formula:"
+echo "    version \"<v-without-leading-v>\""
+echo "    sha256 \"$DMG_SHA\""
+echo
+echo "Tip: 'open \"$DMG\"' mounts the DMG so you can drag the app out."
