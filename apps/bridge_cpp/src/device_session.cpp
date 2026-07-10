@@ -144,11 +144,12 @@ void DeviceSession::init_fake() {
 }
 
 void DeviceSession::set_friendly_name(const std::string& name) {
-    {
-        std::lock_guard<std::mutex> g(snap_mu_);
-        snap_.friendly_name = name;
-    }
-    if (on_state_) on_state_(snapshot());
+    // Stamp-only: the DeviceManager calls this while holding its own lock and
+    // then broadcasts a fresh envelope itself. Firing on_state_ here (which
+    // routes back into the manager's broadcast, re-locking that same lock)
+    // would deadlock. Persistence + broadcast are the caller's job.
+    std::lock_guard<std::mutex> g(snap_mu_);
+    snap_.friendly_name = name;
 }
 
 void DeviceSession::cmd_fake(const std::string& action, const std::string& /*raw*/, ReplyFn reply) {
@@ -593,8 +594,13 @@ static CmdResult ok() { return {true, "", ""}; }
 static CmdResult err(const char* code, const char* msg) { return {false, code, msg}; }
 static bool valid_percent(int v) { return v >= 0 && v <= 100; }
 
+// v2: "no_device" is the single "there is no camera here" error code across
+// the whole bridge (replaces v1's "not_connected"). Routing in protocol.cpp
+// normally guarantees a bound device before dispatch reaches a session, so
+// this is a safety net for the narrow window where a device detaches between
+// routing and execution.
 #define REQUIRE_DEV() \
-    if (!dev_) return err("not_connected", "no camera attached")
+    if (!dev_) return err("no_device", "no camera attached")
 
 void DeviceSession::clear_active_preset_locked() {
     snap_.active_preset_id = -1;
@@ -1428,20 +1434,9 @@ void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, Loo
 }
 
 // ----- saved sequence library -----
-
-static nlohmann::json read_lib() {
-    std::ifstream f(sequences_lib_path());
-    if (!f) return nlohmann::json::object();
-    try {
-        nlohmann::json j; f >> j;
-        if (j.is_object()) return j;
-    } catch (...) {}
-    return nlohmann::json::object();
-}
-static void write_lib(const nlohmann::json& j) {
-    std::ofstream f(sequences_lib_path());
-    if (f) f << j.dump(2);
-}
+// (v1's single-file read_lib/write_lib helpers are gone: the library is now
+//  per-SN through the persist layer - persist::load_sequence_library /
+//  store_sequence_library, keyed by this session's sn_.)
 
 static nlohmann::json sequence_to_json(const std::vector<SequenceStep>& steps,
                                        LoopMode mode) {

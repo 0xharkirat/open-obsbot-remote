@@ -159,8 +159,9 @@ public:
     // Stamp a fake session's identity into its snapshot (fake devices only).
     void init_fake();
 
-    // Update the friendly name (device.rename), stamp the snapshot, and
-    // trigger a state event. Persistence is handled by the caller.
+    // Stamp the friendly name (device.rename) into the snapshot. Does NOT
+    // broadcast or persist - the DeviceManager owns both (it calls this under
+    // its own lock, so broadcasting from here would deadlock).
     void set_friendly_name(const std::string& name);
 
     // Apply a WS action to a fake device as a snapshot-only no-op so the UI
