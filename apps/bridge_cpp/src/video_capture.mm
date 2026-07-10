@@ -183,7 +183,15 @@ static bool ensure_camera_permission() {
             granted = g;
             dispatch_semaphore_signal(sem);
         }];
-        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+        // Bounded: this runs on capture-start paths (hotplug thread, MJPEG
+        // serving threads). An unanswered TCC prompt must degrade to
+        // "preview unavailable", never wedge a thread forever - the v2
+        // bring-up deadlocked exactly here with DISPATCH_TIME_FOREVER.
+        if (dispatch_semaphore_wait(
+                sem, dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC)) != 0) {
+            LOGW("video: camera permission prompt unanswered after 60s");
+            return false;
+        }
         if (!granted) { LOGW("video: camera permission denied"); return false; }
         return true;
     }
@@ -195,8 +203,25 @@ static bool ensure_camera_permission() {
 VideoCapture::VideoCapture() : impl_(new Impl) {}
 VideoCapture::~VideoCapture() { stop(); }
 
+// Fire-and-forget: nudges the TCC prompt at startup WITHOUT blocking.
+// Called from main() before the servers bind; the v2 refactor briefly
+// made this synchronous (semaphore wait on the completion handler),
+// which deadlocked the whole bridge when the status was NotDetermined -
+// WS + MJPEG never bound, and the bridge UI that would have told the
+// user "camera permission missing" needs that very WS to exist. The
+// capture-start paths keep their own blocking ensure_camera_permission
+// gate; by the time a client asks for frames the prompt has resolved.
 void VideoCapture::request_camera_permission() {
-    @autoreleasepool { (void)ensure_camera_permission(); }
+    @autoreleasepool {
+        AVAuthorizationStatus auth =
+            [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+        if (auth == AVAuthorizationStatusNotDetermined) {
+            [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
+                                     completionHandler:^(BOOL g) {
+                LOGI("video: camera permission %s", g ? "granted" : "denied");
+            }];
+        }
+    }
 }
 
 // Configure + start a capture session bound to `d`. Fills impl_ and flips

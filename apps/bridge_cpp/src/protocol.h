@@ -26,7 +26,7 @@ void dispatch_message(DeviceManager& mgr,
                       const std::string& raw,
                       std::function<void(std::string)> reply_send);
 
-nlohmann::json ack_ok(const std::string& id);
-nlohmann::json ack_err(const std::string& id, const std::string& code, const std::string& msg);
+nlohmann::json ack_ok(const nlohmann::json& id);
+nlohmann::json ack_err(const nlohmann::json& id, const std::string& code, const std::string& msg);
 
 }  // namespace obs

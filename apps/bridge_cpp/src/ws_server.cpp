@@ -99,12 +99,12 @@ void run_ws_server(uint16_t port,
             // Auth gate: parse minimally to extract action + token.
             std::string action;
             std::string token;
-            std::string id = "?";
+            nlohmann::json id = "?";
             try {
                 auto msg = nlohmann::json::parse(data);
                 action = msg.value("action", "");
                 token  = msg.value("token", "");
-                id     = msg.value("id", "?");
+                if (msg.contains("id")) id = msg["id"];
             } catch (...) {}
 
             bool authed;

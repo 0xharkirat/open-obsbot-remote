@@ -78,6 +78,7 @@ void DeviceManager::attach(const std::string& sn) {
     // copy is hydrated asynchronously by attach() below.
     std::string uid = dev->videoDevPath();
 
+    VideoCapture* cap = nullptr;
     {
         std::lock_guard<std::mutex> g(mu_);
         std::shared_ptr<DeviceSession> s;
@@ -93,8 +94,40 @@ void DeviceManager::attach(const std::string& sn) {
             s = it->second;   // re-attach (spurious replug / port change)
         }
         s->attach(dev);
-        start_capture_locked(sn, uid);
+        // Create or rebind the capture SLOT under the lock, but do NOT
+        // start it here. Starting touches AVFoundation - the TCC prompt
+        // plus device open can take seconds (an unanswered prompt:
+        // forever), and holding mu_ across that starves every WS
+        // handler; hello needs this lock for the devices summary, so
+        // the whole bridge looked dead. Found live on the first
+        // two-camera run.
+        if (uid.empty()) {
+            LOGW("capture: device %s has no video dev path; preview disabled",
+                 sn.c_str());
+        } else {
+            auto cit = captures_.find(sn);
+            if (cit == captures_.end()) {
+                captures_[sn] = std::make_unique<VideoCapture>();
+                cit = captures_.find(sn);
+            } else {
+                // Camera may have moved USB ports, which changes its
+                // AVFoundation uniqueID; stop before rebinding below.
+                cit->second->stop();
+            }
+            cap = cit->second.get();
+        }
         recompute_active_locked();
+    }
+    // Slow I/O outside the lock. Safe: attach/detach serialize on the
+    // libdev hotplug thread, so this capture slot cannot be erased
+    // underneath us; MJPEG threads only resolve the pointer under mu_.
+    if (cap != nullptr) {
+        if (cap->start_unique_id(uid)) {
+            LOGI("capture: %s streaming from uid=%s", sn.c_str(), uid.c_str());
+        } else {
+            LOGW("capture: %s failed to start (uid=%s); preview unavailable until replug",
+                 sn.c_str(), uid.c_str());
+        }
     }
     broadcast();
 }
@@ -134,28 +167,6 @@ void DeviceManager::recompute_active_locked() {
     active_sn_ = order_.empty() ? std::string{} : order_.front();
 }
 
-void DeviceManager::start_capture_locked(const std::string& sn,
-                                         const std::string& unique_id) {
-    if (unique_id.empty()) {
-        LOGW("capture: device %s has no video dev path; preview disabled", sn.c_str());
-        return;
-    }
-    auto it = captures_.find(sn);
-    if (it == captures_.end()) {
-        captures_[sn] = std::make_unique<VideoCapture>();
-        it = captures_.find(sn);
-    } else {
-        // Rebind: the camera may have moved to a different USB port, which
-        // changes its AVFoundation uniqueID.
-        it->second->stop();
-    }
-    if (it->second->start_unique_id(unique_id)) {
-        LOGI("capture: %s streaming from uid=%s", sn.c_str(), unique_id.c_str());
-    } else {
-        LOGW("capture: %s failed to start (uid=%s); preview unavailable until replug",
-             sn.c_str(), unique_id.c_str());
-    }
-}
 
 void DeviceManager::broadcast() {
     if (!broadcaster_) return;
