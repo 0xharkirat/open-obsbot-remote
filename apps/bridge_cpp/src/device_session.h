@@ -48,6 +48,11 @@ struct DeviceSnapshot {
     // User-chosen label (device.rename). Empty = UI falls back to model +
     // last-4 of SN. Persisted per-SN in device_names.json.
     std::string friendly_name;
+    // AVFoundation uniqueID for this camera (== Device::videoDevPath()).
+    // The SN -> capture-device join the per-device MJPEG path needs. Not
+    // emitted in the state event; surfaced for the MJPEG agent via
+    // DeviceSession::video_dev_path().
+    std::string video_dev_path;
     bool connected = false;
     int run_status = 1;       // 1=run, 3=sleep, 4=privacy
 
@@ -134,6 +139,12 @@ public:
     const std::string& sn() const { return sn_; }
     bool is_fake() const { return fake_; }
 
+    // AVFoundation uniqueID (== Device::videoDevPath()), captured on
+    // attach. Empty until a real device is bound (and always empty for
+    // fake sessions). The next agent's per-device MJPEG path joins on
+    // this. Reads a copy under the snapshot mutex.
+    std::string video_dev_path() const;
+
     // Launch the worker + motion threads. Non-blocking. on_state fires
     // whenever this device's snapshot changes. The DeviceManager owns the
     // libdev device-changed callback and drives attach() / removal.
@@ -177,6 +188,13 @@ public:
     void cmd_ai_set_enabled(bool enabled, ReplyFn reply);
     void cmd_image_set_hdr(bool enabled, ReplyFn reply);
     void cmd_image_set_fov(int fov, ReplyFn reply);
+    // Single-channel setters. Superseded by cmd_image_set_color (which sets
+    // any subset atomically) but kept live: the dead-code cut is deferred to
+    // a later PR, not this one.
+    void cmd_image_set_brightness(int v, ReplyFn reply);
+    void cmd_image_set_contrast(int v, ReplyFn reply);
+    void cmd_image_set_saturation(int v, ReplyFn reply);
+    void cmd_image_set_sharpness(int v, ReplyFn reply);
     void cmd_image_set_color(bool has_brightness, int brightness,
                              bool has_contrast, int contrast,
                              bool has_saturation, int saturation,

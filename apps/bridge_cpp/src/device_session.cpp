@@ -38,81 +38,91 @@ static std::string product_name(ObsbotProductType t) {
     }
 }
 
-static DeviceSession* g_session = nullptr;
+DeviceSession::DeviceSession(std::string sn, bool fake)
+    : sn_(std::move(sn)), fake_(fake) {
+    std::lock_guard<std::mutex> g(snap_mu_);
+    snap_.sn = sn_;
+}
+DeviceSession::~DeviceSession() { stop(); }
 
-static void s_dev_changed_trampoline(std::string sn, bool plugged, void* /*ud*/) {
-    if (g_session) g_session->on_dev_changed(sn, plugged);
+std::string DeviceSession::video_dev_path() const {
+    std::lock_guard<std::mutex> g(snap_mu_);
+    return snap_.video_dev_path;
 }
 
-void DeviceSession::on_dev_changed(const std::string& sn, bool plugged) {
-    LOGI("device %s sn=%s", plugged ? "plugged" : "unplugged", sn.c_str());
+void DeviceSession::attach(std::shared_ptr<Device> dev) {
+    // Bind a freshly-plugged libdev device and hydrate the snapshot. The
+    // SDK calls run on this session's worker thread (dev_ is worker-owned),
+    // so we submit rather than touch dev_ from the DeviceManager thread.
     submit(
-        [this, sn, plugged]() -> CmdResult {
-            auto& devs = Devices::get();
-            if (plugged) {
-                auto d = devs.getDevBySn(sn);
-                if (!d) return {false, "internal", "device not in list"};
-                dev_ = d;
-                {
-                    std::lock_guard<std::mutex> g(snap_mu_);
-                    snap_.sn = d->devSn();
-                    snap_.model = product_name(d->productType());
-                    snap_.firmware = d->devVersion();
-                    snap_.connected = true;
-                }
-                LOGI("active device: %s (%s) fw=%s",
-                     snap_.sn.c_str(), snap_.model.c_str(), snap_.firmware.c_str());
+        [this, dev]() -> CmdResult {
+            if (!dev) return {false, "internal", "null device"};
+            dev_ = dev;
 
-                // Set zoom_max per product. Tiny 2 Lite digital zoom = 2.0×;
-                // larger models reach 4.0×. Tail2 family goes higher.
-                auto pt = d->productType();
-                float zmax = 2.0f;
-                if (pt == ObsbotProdTiny2 || pt == ObsbotProdTailAir ||
-                    pt == ObsbotProdTinySE || pt == ObsbotProdTiny3 ||
-                    pt == ObsbotProdTiny3Lite || pt == ObsbotProdTail2 ||
-                    pt == ObsbotProdTail2S) {
-                    zmax = 4.0f;
-                }
-                {
-                    std::lock_guard<std::mutex> g(snap_mu_);
-                    snap_.zoom_min = 1.0f;
-                    snap_.zoom_max = zmax;
-                }
-                LOGI("zoom range set to %.1f..%.1fx", 1.0f, zmax);
+            // First attach for this SN migrates any v1-shaped persistence
+            // (bare presets/sequence files) to the per-SN v2 layout. Idempotent.
+            persist::migrate_v1_if_needed(sn_);
 
-                // Force HDR off on connect. Tiny 2 Lite ships HDR DOL2TO1
-                // raw frames over UVC; OBSBOT Center applies a tone-map
-                // before display. Our AVFoundation passthrough doesn't,
-                // so HDR ON in our pipeline produces a dark, low-contrast
-                // preview. Better to stream SDR until we add a tone-map
-                // CIFilter. cameraSetWdrR is cheap; this only fires on
-                // device-plugged so users can re-enable HDR mid-session
-                // if they want to experiment.
-                if (dev_->cameraSetWdrR(Device::DevWdrModeNone) == 0) {
-                    std::lock_guard<std::mutex> g(snap_mu_);
-                    snap_.hdr = false;
-                    LOGI("forced HDR off on connect (raw HDR not supported in MJPEG path)");
-                }
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                snap_.sn = dev->devSn();
+                snap_.model = product_name(dev->productType());
+                snap_.firmware = dev->devVersion();
+                snap_.video_dev_path = dev->videoDevPath();
+                snap_.connected = true;
+                // Friendly name is persisted per-SN; hydrate it so the first
+                // state push already carries the operator's label.
+                auto names = persist::load_device_names();
+                auto it = names.find(sn_);
+                snap_.friendly_name = (it != names.end()) ? it->second : "";
+            }
+            LOGI("attached device: %s (%s) fw=%s vdev=%s",
+                 snap_.sn.c_str(), snap_.model.c_str(), snap_.firmware.c_str(),
+                 snap_.video_dev_path.c_str());
 
-                // Pull the camera's saved preset list so the UI can show names.
-                refresh_presets_locked();
+            // Set zoom_max per product. Tiny 2 Lite digital zoom = 2.0×;
+            // larger models reach 4.0×. Tail2 family goes higher.
+            auto pt = dev->productType();
+            float zmax = 2.0f;
+            if (pt == ObsbotProdTiny2 || pt == ObsbotProdTailAir ||
+                pt == ObsbotProdTinySE || pt == ObsbotProdTiny3 ||
+                pt == ObsbotProdTiny3Lite || pt == ObsbotProdTail2 ||
+                pt == ObsbotProdTail2S) {
+                zmax = 4.0f;
+            }
+            {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                snap_.zoom_min = 1.0f;
+                snap_.zoom_max = zmax;
+            }
+            LOGI("zoom range set to %.1f..%.1fx", 1.0f, zmax);
 
-                // Hydrate sequence library list so the UI can populate the
-                // dropdown immediately on first state push.
-                {
-                    nlohmann::json lib = read_lib();
-                    std::vector<std::string> names;
-                    for (auto& it : lib.items()) names.push_back(it.key());
-                    std::sort(names.begin(), names.end());
-                    std::lock_guard<std::mutex> sg(snap_mu_);
-                    snap_.available_sequences = names;
-                }
-            } else {
-                if (dev_ && dev_->devSn() == sn) {
-                    dev_.reset();
-                    std::lock_guard<std::mutex> g(snap_mu_);
-                    snap_.connected = false;
-                }
+            // Force HDR off on connect. Tiny 2 Lite ships HDR DOL2TO1
+            // raw frames over UVC; OBSBOT Center applies a tone-map
+            // before display. Our AVFoundation passthrough doesn't,
+            // so HDR ON in our pipeline produces a dark, low-contrast
+            // preview. Better to stream SDR until we add a tone-map
+            // CIFilter. cameraSetWdrR is cheap; this only fires on
+            // device-plugged so users can re-enable HDR mid-session
+            // if they want to experiment.
+            if (dev_->cameraSetWdrR(Device::DevWdrModeNone) == 0) {
+                std::lock_guard<std::mutex> g(snap_mu_);
+                snap_.hdr = false;
+                LOGI("forced HDR off on connect (raw HDR not supported in MJPEG path)");
+            }
+
+            // Pull the camera's saved preset list so the UI can show names.
+            refresh_presets_locked();
+
+            // Hydrate sequence library list (per-SN) so the UI can populate
+            // the dropdown immediately on first state push.
+            {
+                nlohmann::json lib = persist::load_sequence_library(sn_);
+                std::vector<std::string> names;
+                for (auto& it : lib.items()) names.push_back(it.key());
+                std::sort(names.begin(), names.end());
+                std::lock_guard<std::mutex> sg(snap_mu_);
+                snap_.available_sequences = names;
             }
             return {true, "", ""};
         },
@@ -121,20 +131,42 @@ void DeviceSession::on_dev_changed(const std::string& sn, bool plugged) {
         });
 }
 
-DeviceSession::DeviceSession() {}
-DeviceSession::~DeviceSession() { stop(); }
+void DeviceSession::init_fake() {
+    // Fake sessions make zero libdev calls; stamp a plausible identity so
+    // the multi-cam UI has something to render. Wiring --fake-device into
+    // dispatch is the next agent's job; this keeps the seam honest.
+    std::lock_guard<std::mutex> g(snap_mu_);
+    snap_.sn = sn_;
+    snap_.model = "Tiny 2 Lite (fake)";
+    snap_.firmware = "0.0.0";
+    snap_.connected = true;
+    snap_.run_status = 1;
+}
+
+void DeviceSession::set_friendly_name(const std::string& name) {
+    {
+        std::lock_guard<std::mutex> g(snap_mu_);
+        snap_.friendly_name = name;
+    }
+    if (on_state_) on_state_(snapshot());
+}
+
+void DeviceSession::cmd_fake(const std::string& action, const std::string& /*raw*/, ReplyFn reply) {
+    // Snapshot-only no-op. The per-field mutation that makes the fake UI
+    // react to each action is deferred with the rest of --fake-device.
+    (void)action;
+    if (reply) reply({true, "", ""});
+    if (on_state_) on_state_(snapshot());
+}
 
 void DeviceSession::start(StateCallback on_state) {
     on_state_ = std::move(on_state);
-    g_session = this;
     running_ = true;
     thr_ = std::thread([this]{ worker_loop(); });
     motion_thr_ = std::thread([this]{ motion_loop(); });
-
-    Devices::get().setDevChangedCallback(s_dev_changed_trampoline, nullptr);
-    Devices::get().setEnableMdnsScan(false);
-
-    LOGI("device session started; waiting for camera plug-in...");
+    // NOTE: the libdev device-changed callback + mDNS toggle now live in
+    // DeviceManager, which owns the Devices singleton and drives attach().
+    LOGI("device session %s started", sn_.c_str());
 }
 
 void DeviceSession::stop() {
@@ -150,8 +182,9 @@ void DeviceSession::stop() {
     if (motion_thr_.joinable()) motion_thr_.join();
     q_cv_.notify_all();
     if (thr_.joinable()) thr_.join();
-    Devices::get().close();
-    g_session = nullptr;
+    // NOTE: does NOT call Devices::get().close(). One camera detaching must
+    // not tear down the shared libdev singleton and kill every other camera.
+    // DeviceManager::stop() closes Devices once, at process shutdown.
 }
 
 // ============================================================
@@ -1309,14 +1342,6 @@ void DeviceSession::refresh_presets_locked() {
 // ----------------------------------------------------------------------------
 // Sequencer
 
-static std::string sequence_file_path() {
-    const char* home = std::getenv("HOME");
-    if (!home) return "";
-    std::string dir = std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
-    ::mkdir(dir.c_str(), 0755);
-    return dir + "/sequence.json";
-}
-
 // Backward-compat: read old "speed" string entries from a sequences.json
 // produced by v1.0 / v1.1 of the bridge. We translate the old tier name
 // to a duration_ms so the planner can drive the same move. Roughly:
@@ -1339,14 +1364,6 @@ static int legacy_speed_to_ms(const std::string& s) {
     return 2000;        // default to medium-ish
 }
 
-static std::string sequences_lib_path() {
-    const char* home = std::getenv("HOME");
-    if (!home) return "";
-    std::string dir = std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
-    ::mkdir(dir.c_str(), 0755);
-    return dir + "/sequences.json";
-}
-
 static const char* loop_mode_str(LoopMode m) {
     switch (m) {
         case LoopMode::once:      return "once";
@@ -1364,12 +1381,13 @@ static LoopMode parse_loop_mode(const std::string& s, bool legacy_loop = true) {
     return legacy_loop ? LoopMode::forward : LoopMode::once;
 }
 
-static void persist_sequence(const std::vector<SequenceStep>& steps, LoopMode mode) {
-    std::string path = sequence_file_path();
-    if (path.empty()) return;
+// Persist the active scratch sequence for one camera. v2 keys sequence.json
+// by SN via the persist layer; the legacy top-level "loop" bool is dropped
+// (superseded by "mode").
+static void persist_sequence(const std::string& sn,
+                             const std::vector<SequenceStep>& steps, LoopMode mode) {
     nlohmann::json j;
     j["mode"] = loop_mode_str(mode);
-    j["loop"] = (mode != LoopMode::once);  // legacy field
     j["steps"] = nlohmann::json::array();
     for (auto& s : steps) {
         j["steps"].push_back({
@@ -1378,8 +1396,7 @@ static void persist_sequence(const std::vector<SequenceStep>& steps, LoopMode mo
             {"transition_ms", s.transition_ms},
         });
     }
-    std::ofstream f(path);
-    if (f) f << j.dump(2);
+    persist::store_active_sequence(sn, j);
 }
 
 void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, LoopMode mode, ReplyFn reply) {
@@ -1397,13 +1414,12 @@ void DeviceSession::cmd_sequence_set(const std::vector<SequenceStep>& steps, Loo
                     seq_step_index_ = (int)seq_steps_.size() - 1;
                 }
             }
-            persist_sequence(seq_steps_, seq_mode_);
+            persist_sequence(sn_, seq_steps_, seq_mode_);
             // Mirror to snapshot so clients see the new steps immediately
             // (sequencer editor hydrates from state.sequence.steps on
             // open / when 'loaded' changes).
             std::lock_guard<std::mutex> sg(snap_mu_);
             snap_.sequence_steps = steps;
-            snap_.sequence_loop = (mode != LoopMode::once);
             snap_.loaded_sequence = "";   // editing scratch
         }
         seq_cv_.notify_all();
@@ -1447,9 +1463,9 @@ void DeviceSession::cmd_sequence_save_as(const std::string& name,
                                          LoopMode mode, ReplyFn reply) {
     submit([this, name, steps, mode]() -> CmdResult {
         if (name.empty()) return err("invalid_param", "name required");
-        nlohmann::json lib = read_lib();
+        nlohmann::json lib = persist::load_sequence_library(sn_);
         lib[name] = sequence_to_json(steps, mode);
-        write_lib(lib);
+        persist::store_sequence_library(sn_, lib);
         // also update active scratch + name
         std::vector<std::string> names;
         for (auto& it : lib.items()) names.push_back(it.key());
@@ -1458,7 +1474,7 @@ void DeviceSession::cmd_sequence_save_as(const std::string& name,
             std::lock_guard<std::mutex> g(seq_mu_);
             seq_steps_ = steps;
             seq_mode_  = mode;
-            persist_sequence(seq_steps_, seq_mode_);
+            persist_sequence(sn_, seq_steps_, seq_mode_);
         }
         {
             std::lock_guard<std::mutex> sg(snap_mu_);
@@ -1466,7 +1482,6 @@ void DeviceSession::cmd_sequence_save_as(const std::string& name,
             snap_.loaded_sequence = name;
             snap_.sequence_steps = steps;
             snap_.sequence_mode = loop_mode_str(mode);
-            snap_.sequence_loop = (mode != LoopMode::once);
         }
         LOGI("sequence: saved as '%s' (%zu in library)", name.c_str(), names.size());
         return ok();
@@ -1475,7 +1490,7 @@ void DeviceSession::cmd_sequence_save_as(const std::string& name,
 
 void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
     submit([this, name]() -> CmdResult {
-        nlohmann::json lib = read_lib();
+        nlohmann::json lib = persist::load_sequence_library(sn_);
         if (!lib.contains(name)) {
             std::string m = "no sequence named '" + name + "'";
             return CmdResult{false, "not_found", m};
@@ -1509,14 +1524,13 @@ void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
                     seq_step_index_ = (int)seq_steps_.size() - 1;
                 }
             }
-            persist_sequence(seq_steps_, seq_mode_);
+            persist_sequence(sn_, seq_steps_, seq_mode_);
         }
         {
             std::lock_guard<std::mutex> sg(snap_mu_);
             snap_.loaded_sequence = name;
             snap_.sequence_steps = steps;
             snap_.sequence_mode = loop_mode_str(mode);
-            snap_.sequence_loop = (mode != LoopMode::once);
         }
         seq_cv_.notify_all();
         LOGI("sequence: loaded '%s' (%zu steps)", name.c_str(), steps.size());
@@ -1526,13 +1540,13 @@ void DeviceSession::cmd_sequence_load(const std::string& name, ReplyFn reply) {
 
 void DeviceSession::cmd_sequence_delete(const std::string& name, ReplyFn reply) {
     submit([this, name]() -> CmdResult {
-        nlohmann::json lib = read_lib();
+        nlohmann::json lib = persist::load_sequence_library(sn_);
         if (!lib.contains(name)) {
             std::string m = "no sequence named '" + name + "'";
             return CmdResult{false, "not_found", m};
         }
         lib.erase(name);
-        write_lib(lib);
+        persist::store_sequence_library(sn_, lib);
         std::vector<std::string> names;
         for (auto& it : lib.items()) names.push_back(it.key());
         std::sort(names.begin(), names.end());
