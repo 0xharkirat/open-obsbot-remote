@@ -40,8 +40,18 @@ dependencies:
   web: ^1.1.1
   url_launcher: ^6.3.2
   forui: ^0.21.3
+  # v2 layers: transport / auth / bridge state / per-device actions.
+  # ws_client.dart is now a thin presentation facade over these.
   obsbot_protocol:
     path: ../../packages/obsbot_protocol
+  obsbot_api_client:
+    path: ../../packages/obsbot_api_client
+  auth_repository:
+    path: ../../packages/auth_repository
+  bridge_repository:
+    path: ../../packages/bridge_repository
+  device_repository:
+    path: ../../packages/device_repository
 
 dev_dependencies:
   flutter_test:

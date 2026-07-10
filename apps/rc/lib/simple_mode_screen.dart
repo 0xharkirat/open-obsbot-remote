@@ -41,20 +41,22 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             // top-bar real estate and was redundant with the live
             // preview).
             title: const AppBarTitle(),
-            // Standard 4 icons + overflow: mesh / sequencer / mode / speed.
+            // Standard icons + overflow: cameras (multi-cam only) /
+            // mesh / sequencer / mode / speed.
             actions: <Widget>[
+              DevicePickerMenu(client: client),
               GridOverlayMenu(client: client),
               IconButton(
                 tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
                 icon: Icon(
-                  s.sequence.running
-                      ? Icons.multiline_chart
-                      : Icons.timeline,
+                  s.sequence.running ? Icons.multiline_chart : Icons.timeline,
                 ),
                 onPressed: () {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => SequencerScreen(client: client),
-                  ));
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SequencerScreen(client: client),
+                    ),
+                  );
                 },
               ),
               IconButton(
@@ -70,7 +72,9 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
             child: LayoutBuilder(
               builder: (BuildContext c, BoxConstraints cc) {
                 final landscape = cc.maxWidth > cc.maxHeight;
-                return landscape ? _landscape(context, s) : _portrait(context, s);
+                return landscape
+                    ? _landscape(context, s)
+                    : _portrait(context, s);
               },
             ),
           ),
@@ -79,7 +83,7 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
     );
   }
 
-  Widget _portrait(BuildContext ctx, CameraState s) {
+  Widget _portrait(BuildContext ctx, DeviceState s) {
     return Column(
       children: <Widget>[
         Padding(
@@ -99,43 +103,44 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
     );
   }
 
-  Widget _landscape(BuildContext ctx, CameraState s) {
-    return Column(children: <Widget>[
-      Expanded(child: _landscapeRow(ctx, s)),
-      const AppFooter(),
-    ]);
+  Widget _landscape(BuildContext ctx, DeviceState s) {
+    return Column(
+      children: <Widget>[
+        Expanded(child: _landscapeRow(ctx, s)),
+        const AppFooter(),
+      ],
+    );
   }
 
-  Widget _landscapeRow(BuildContext ctx, CameraState s) {
+  Widget _landscapeRow(BuildContext ctx, DeviceState s) {
     return Row(
       children: <Widget>[
         Expanded(
           flex: 5,
           child: Padding(
             padding: const EdgeInsets.all(8),
-            child: Column(children: <Widget>[
-              Expanded(
-                child: PreviewWidget(
-                  client: client,
-                  showCrosshair: client.gridCrosshair,
-                  showCenterLines: client.gridCenterLines,
-                  showThirds: client.gridThirds,
-                  showReadout: client.gridReadout,
+            child: Column(
+              children: <Widget>[
+                Expanded(
+                  child: PreviewWidget(
+                    client: client,
+                    showCrosshair: client.gridCrosshair,
+                    showCenterLines: client.gridCenterLines,
+                    showThirds: client.gridThirds,
+                    showReadout: client.gridReadout,
+                  ),
                 ),
-              ),
-              if (s.sequence.running) _seqBar(ctx, s),
-            ]),
+                if (s.sequence.running) _seqBar(ctx, s),
+              ],
+            ),
           ),
         ),
-        Expanded(
-          flex: 4,
-          child: _presetGrid(ctx, s, columns: 2),
-        ),
+        Expanded(flex: 4, child: _presetGrid(ctx, s, columns: 2)),
       ],
     );
   }
 
-  Widget _seqBar(BuildContext ctx, CameraState s) {
+  Widget _seqBar(BuildContext ctx, DeviceState s) {
     final theme = Theme.of(ctx);
     final pct = s.sequence.totalS == 0
         ? 0.0
@@ -150,46 +155,50 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         color: theme.colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(children: <Widget>[
-        const Icon(Icons.timer, size: 18),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                'Sequence — step ${s.sequence.stepIndex + 1}',
-                style: theme.textTheme.labelSmall,
-              ),
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(value: pct, minHeight: 6),
-              ),
-            ],
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.timer, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  'Sequence — step ${s.sequence.stepIndex + 1}',
+                  style: theme.textTheme.labelSmall,
+                ),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(value: pct, minHeight: 6),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Text('$mm:$ss',
+          const SizedBox(width: 12),
+          Text(
+            '$mm:$ss',
             style: const TextStyle(
-                fontFamily: 'Menlo', fontWeight: FontWeight.w700)),
-        const SizedBox(width: 12),
-        IconButton(
-          tooltip: 'Stop',
-          icon: const Icon(Icons.stop_circle),
-          onPressed: client.sequenceStop,
-        ),
-      ]),
+              fontFamily: 'Menlo',
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 12),
+          IconButton(
+            tooltip: 'Stop',
+            icon: const Icon(Icons.stop_circle),
+            onPressed: client.sequenceStop,
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _presetGrid(BuildContext ctx, CameraState s, {required int columns}) {
+  Widget _presetGrid(BuildContext ctx, DeviceState s, {required int columns}) {
     // Build 6 tiles regardless: existing presets fill first, empty slots after.
     const slots = 6;
-    final byId = <int, PresetEntry>{
-      for (final p in s.presets) p.id: p,
-    };
+    final byId = <int, PresetEntry>{for (final p in s.presets) p.id: p};
     final tiles = <Widget>[];
     for (int i = 0; i < slots; i++) {
       final entry = byId[i];
@@ -207,7 +216,12 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
     );
   }
 
-  Widget _presetTile(BuildContext ctx, int id, PresetEntry? entry, bool active) {
+  Widget _presetTile(
+    BuildContext ctx,
+    int id,
+    PresetEntry? entry,
+    bool active,
+  ) {
     final theme = Theme.of(ctx);
     final hasPreset = entry != null;
     final label = hasPreset && entry.name.isNotEmpty
@@ -216,8 +230,8 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
     final bg = active
         ? theme.colorScheme.primary
         : (hasPreset
-            ? theme.colorScheme.surfaceContainerHigh
-            : theme.colorScheme.surfaceContainerLowest);
+              ? theme.colorScheme.surfaceContainerHigh
+              : theme.colorScheme.surfaceContainerLowest);
     final fg = active
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface;
@@ -226,12 +240,15 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
       onTap: hasPreset
           ? () {
               HapticFeedback.lightImpact();
-              client.presetRecall(id);  // uses client.moveDuration default
+              client.presetRecall(id); // uses client.moveDuration default
             }
           : null,
       onLongPress: () async {
         HapticFeedback.heavyImpact();
-        final name = await _promptName(ctx, initial: entry?.name ?? 'P${id + 1}');
+        final name = await _promptName(
+          ctx,
+          initial: entry?.name ?? 'P${id + 1}',
+        );
         if (name == null) return;
         client.presetSave(id, name);
       },
@@ -240,45 +257,51 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           color: bg,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: active ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
+            color: active
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outlineVariant,
             width: active ? 0 : 1,
           ),
         ),
-        child: Stack(children: <Widget>[
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: hasPreset ? 22 : 18,
-                  fontWeight: FontWeight.w700,
-                  color: hasPreset ? fg : theme.colorScheme.outline,
+        child: Stack(
+          children: <Widget>[
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: hasPreset ? 22 : 18,
+                    fontWeight: FontWeight.w700,
+                    color: hasPreset ? fg : theme.colorScheme.outline,
+                  ),
                 ),
               ),
             ),
-          ),
-          if (active)
+            if (active)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Icon(Icons.check_circle, size: 16, color: fg),
+              ),
             Positioned(
-              top: 6,
-              right: 6,
-              child: Icon(Icons.check_circle, size: 16, color: fg),
-            ),
-          Positioned(
-            bottom: 4,
-            left: 8,
-            child: Text(
-              hasPreset ? 'P${id + 1} • hold to rename' : 'hold to save here',
-              style: TextStyle(
-                fontSize: 10,
-                color: (active ? fg : theme.colorScheme.outline).withValues(alpha: 0.7),
+              bottom: 4,
+              left: 8,
+              child: Text(
+                hasPreset ? 'P${id + 1} • hold to rename' : 'hold to save here',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: (active ? fg : theme.colorScheme.outline).withValues(
+                    alpha: 0.7,
+                  ),
+                ),
               ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -294,18 +317,22 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
           CheckedPopupMenuItem<Duration>(
             value: p.duration,
             checked: p.duration == cur,
-            child: Row(children: <Widget>[
-              Icon(iconForMoveDuration(p.duration), size: 16),
-              const SizedBox(width: 8),
-              Text(p.label),
-            ]),
+            child: Row(
+              children: <Widget>[
+                Icon(iconForMoveDuration(p.duration), size: 16),
+                const SizedBox(width: 8),
+                Text(p.label),
+              ],
+            ),
           ),
       ],
     );
   }
 
-  Future<String?> _promptName(BuildContext ctx,
-      {required String initial}) async {
+  Future<String?> _promptName(
+    BuildContext ctx, {
+    required String initial,
+  }) async {
     final ctrl = TextEditingController(text: initial);
     return showDialog<String>(
       context: ctx,
@@ -321,11 +348,13 @@ class _SimpleModeScreenState extends State<SimpleModeScreen> {
         ),
         actions: <Widget>[
           TextButton(
-              onPressed: () => Navigator.of(c).pop(null),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(c).pop(null),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.of(c).pop(ctrl.text.trim()),
-              child: const Text('Save current pose')),
+            onPressed: () => Navigator.of(c).pop(ctrl.text.trim()),
+            child: const Text('Save current pose'),
+          ),
         ],
       ),
     );

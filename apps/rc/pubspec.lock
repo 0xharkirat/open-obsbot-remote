@@ -41,6 +41,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  auth_repository:
+    dependency: "direct main"
+    description:
+      path: "../../packages/auth_repository"
+      relative: true
+    source: path
+    version: "1.0.0"
   boolean_selector:
     dependency: transitive
     description:
@@ -49,6 +56,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  bridge_repository:
+    dependency: "direct main"
+    description:
+      path: "../../packages/bridge_repository"
+      relative: true
+    source: path
+    version: "1.0.0"
   characters:
     dependency: transitive
     description:
@@ -121,6 +135,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.7"
+  device_repository:
+    dependency: "direct main"
+    description:
+      path: "../../packages/device_repository"
+      relative: true
+    source: path
+    version: "1.0.0"
   fake_async:
     dependency: transitive
     description:
@@ -325,6 +346,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.4.0+1"
+  obsbot_api_client:
+    dependency: "direct main"
+    description:
+      path: "../../packages/obsbot_api_client"
+      relative: true
+    source: path
+    version: "1.0.0"
   obsbot_protocol:
     dependency: "direct main"
     description:

@@ -15,12 +15,16 @@ import 'web_mjpeg_stub.dart' if (dart.library.js_interop) 'web_mjpeg_web.dart';
 ///                             Image widget on mobile doesn't grok multipart).
 class PreviewWidget extends StatelessWidget {
   final WsClient client;
+
   /// Show small `+` reticle at frame center.
   final bool showCrosshair;
+
   /// Show solid horizontal + vertical lines through dead center.
   final bool showCenterLines;
+
   /// Show rule-of-thirds dashed grid.
   final bool showThirds;
+
   /// Show top-left Pan / Tilt degrees readout.
   final bool showReadout;
 
@@ -35,18 +39,14 @@ class PreviewWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final host = client.serverUri; // e.g. "10.250.1.51:8765"
-    if (!client.connected || host.isEmpty) {
+    // v2: the URL is per-device (`/preview/<sn>.mjpg`), built by the
+    // bridge repository from the SELECTED camera - switching cameras
+    // in the picker switches this stream on the same frame.
+    final uri = client.previewUri();
+    if (!client.connected || uri == null) {
       return _placeholder(context, 'Connecting...');
     }
-    // MJPEG runs on ws-port + 1 (8766 by default).
-    final colon = host.lastIndexOf(':');
-    final hostOnly = colon >= 0 ? host.substring(0, colon) : host;
-    final wsPort = colon >= 0
-        ? int.tryParse(host.substring(colon + 1)) ?? 8765
-        : 8765;
-    final tok = client.token ?? '';
-    final url = 'http://$hostOnly:${wsPort + 1}/preview.mjpeg?t=$tok';
+    final url = uri.toString();
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),

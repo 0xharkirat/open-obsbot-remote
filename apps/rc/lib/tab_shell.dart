@@ -793,7 +793,7 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _aiSegmented(BuildContext ctx, CameraState s) {
+  Widget _aiSegmented(BuildContext ctx, DeviceState s) {
     return SegmentedButton<String>(
       style: _segStyle(ctx),
       segments: const <ButtonSegment<String>>[
@@ -811,7 +811,7 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _fovSegmented(BuildContext ctx, CameraState s) {
+  Widget _fovSegmented(BuildContext ctx, DeviceState s) {
     return SegmentedButton<int>(
       style: _segStyle(ctx),
       segments: const <ButtonSegment<int>>[
@@ -824,7 +824,7 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _exposureSegmented(BuildContext ctx, CameraState s) {
+  Widget _exposureSegmented(BuildContext ctx, DeviceState s) {
     return SegmentedButton<String>(
       style: _segStyle(ctx),
       segments: const <ButtonSegment<String>>[
@@ -837,7 +837,7 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _evBiasSlider(BuildContext ctx, CameraState s) {
+  Widget _evBiasSlider(BuildContext ctx, DeviceState s) {
     final theme = Theme.of(ctx);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -872,7 +872,7 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _flickerSegmented(BuildContext ctx, CameraState s) {
+  Widget _flickerSegmented(BuildContext ctx, DeviceState s) {
     return SegmentedButton<String>(
       style: _segStyle(ctx),
       segments: const <ButtonSegment<String>>[
@@ -886,7 +886,7 @@ class _ImageTab extends StatelessWidget {
     );
   }
 
-  Widget _wbTempSlider(BuildContext ctx, CameraState s) {
+  Widget _wbTempSlider(BuildContext ctx, DeviceState s) {
     final theme = Theme.of(ctx);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),

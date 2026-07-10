@@ -47,13 +47,12 @@ class _ControlScreenState extends State<ControlScreen> {
             // need to mirror in the AppBar. Disconnect + Clear cache
             // live in the 3-dot overflow.
             actions: <Widget>[
+              DevicePickerMenu(client: widget.client),
               GridOverlayMenu(client: widget.client),
               IconButton(
                 tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
                 icon: Icon(
-                  s.sequence.running
-                      ? Icons.multiline_chart
-                      : Icons.timeline,
+                  s.sequence.running ? Icons.multiline_chart : Icons.timeline,
                 ),
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -177,9 +176,7 @@ class HoldDirBtnState extends State<HoldDirBtn> {
       onPointerCancel: (_) => _end(),
       child: Material(
         color: _down ? cs.primary : cs.surfaceContainerHighest,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -358,7 +355,7 @@ class _PadPainter extends CustomPainter {
 
 class ZoomSlider extends StatefulWidget {
   final WsClient client;
-  final CameraState state;
+  final DeviceState state;
   const ZoomSlider({super.key, required this.client, required this.state});
 
   @override
@@ -376,8 +373,10 @@ class _ZoomSliderState extends State<ZoomSlider> {
     final v = _dragValue ?? s.zoom;
     return Column(
       children: <Widget>[
-        Text('${v.toStringAsFixed(2)}×',
-            style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text(
+          '${v.toStringAsFixed(2)}×',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 8),
         Expanded(
           child: RotatedBox(
@@ -412,16 +411,20 @@ class _ZoomSliderState extends State<ZoomSlider> {
                 // coalesce so the lens always lands exactly on nv.
                 widget.client.zoomSet(nv, terminal: true);
                 _lastSent = DateTime.now();
-                Future<void>.delayed(const Duration(milliseconds: 200),
-                    () => mounted ? setState(() => _dragValue = null) : null);
+                Future<void>.delayed(
+                  const Duration(milliseconds: 200),
+                  () => mounted ? setState(() => _dragValue = null) : null,
+                );
                 HapticFeedback.lightImpact();
               },
             ),
           ),
         ),
         const SizedBox(height: 4),
-        Text('${s.zoomMin.toInt()}×',
-            style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          '${s.zoomMin.toInt()}×',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     );
   }

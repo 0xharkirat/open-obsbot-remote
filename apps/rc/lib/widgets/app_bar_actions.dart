@@ -35,6 +35,114 @@ class AppBarTitle extends StatelessWidget {
   }
 }
 
+/// Camera picker (v2 multi-cam). Hidden entirely with 0-1 cameras so
+/// the single-camera gurdwara setup sees a pixel-identical v1 AppBar.
+///
+/// Two separate verbs, deliberately:
+///  - tapping a camera row SELECTS it - this phone's controls (PTZ,
+///    presets, image, sequencer, preview) point at it. Local only.
+///  - "Make ... live" routes the SELECTED camera to OBS. Bridge-global.
+/// The operator lines up a shot on the off-air camera, then cuts.
+class DevicePickerMenu extends StatelessWidget {
+  const DevicePickerMenu({super.key, required this.client});
+
+  final WsClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    final devices = client.devices;
+    if (devices.length < 2) return const SizedBox.shrink();
+    final selectedId = client.selectedDeviceId;
+    final selected = client.state;
+    final selectedIsLive = selectedId == client.activeDeviceId;
+
+    return PopupMenuButton<String>(
+      tooltip: 'Cameras',
+      icon: Icon(
+        Icons.cameraswitch,
+        // Amber hint when controlling an off-air camera: reminds the
+        // operator their tweaks are NOT what OBS is showing right now.
+        color: selectedIsLive ? null : const Color(0xFFFFB300),
+      ),
+      itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+        for (final d in devices)
+          CheckedPopupMenuItem<String>(
+            value: 'select:${d.deviceId}',
+            checked: d.deviceId == selectedId,
+            child: Row(
+              children: <Widget>[
+                Flexible(
+                  child: Text(d.displayName, overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 8),
+                if (d.runStatus == 'sleep')
+                  Icon(
+                    Icons.bedtime,
+                    size: 14,
+                    color: Theme.of(c).colorScheme.outline,
+                  ),
+                if (d.deviceId == client.activeDeviceId) ...<Widget>[
+                  const SizedBox(width: 6),
+                  const _LiveChip(),
+                ],
+              ],
+            ),
+          ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'live',
+          enabled: !selectedIsLive,
+          child: Row(
+            children: <Widget>[
+              const Icon(Icons.cast, size: 18),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  selectedIsLive
+                      ? '${selected.displayName} is live'
+                      : "Make '${selected.displayName}' live",
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      onSelected: (String v) {
+        if (v == 'live') {
+          client.makeLive(client.selectedDeviceId);
+        } else if (v.startsWith('select:')) {
+          client.selectDevice(v.substring('select:'.length));
+        }
+      },
+    );
+  }
+}
+
+class _LiveChip extends StatelessWidget {
+  const _LiveChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF3B30),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        'LIVE',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
 /// Grid-overlay popup menu (mesh icon). Shared between simple + advanced
 /// AppBars so the toggles read identically across both modes.
 class GridOverlayMenu extends StatelessWidget {
@@ -113,9 +221,9 @@ class AppBarOverflowMenu extends StatelessWidget {
             children: <Widget>[
               Text(
                 statusLine,
-                style: Theme.of(c).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  c,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               if (subStatus != null)
                 Padding(
@@ -135,11 +243,13 @@ class AppBarOverflowMenu extends StatelessWidget {
         const PopupMenuDivider(),
         const PopupMenuItem<String>(
           value: 'disconnect',
-          child: Row(children: <Widget>[
-            Icon(Icons.logout, size: 18),
-            SizedBox(width: 12),
-            Text('Disconnect'),
-          ]),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.logout, size: 18),
+              SizedBox(width: 12),
+              Text('Disconnect'),
+            ],
+          ),
         ),
       ],
       onSelected: (v) {
