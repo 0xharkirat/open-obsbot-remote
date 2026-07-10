@@ -122,14 +122,12 @@ class NativeTray: NSObject {
       let disabled = item["disabled"] as? Bool ?? false
       let key = item["key"] as? String ?? "__item_\(i)"
       // Optional macOS key equivalent (Cmd-Q, Cmd-O, etc). Dart side
-      // sends a 1-char string + an NSEventModifierFlags raw mask. Empty
-      // string = no shortcut (renders without a glyph on the right).
+      // sends a 1-char string; empty = no shortcut (renders without a
+      // glyph on the right). NSMenuItem's own default modifier mask is
+      // command (⌘), which is what every item in this tray wants, so
+      // we never override it.
       let keyEquiv = item["keyEquivalent"] as? String ?? ""
-      let modMask = item["keyEquivalentModifierMask"] as? Int ?? 0
       let mi = NSMenuItem(title: label, action: #selector(menuItemClicked(_:)), keyEquivalent: keyEquiv)
-      if !keyEquiv.isEmpty && modMask != 0 {
-        mi.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: UInt(modMask))
-      }
       mi.target = self
       mi.isEnabled = !disabled
       // representedObject carries the Dart-supplied key back to us.
