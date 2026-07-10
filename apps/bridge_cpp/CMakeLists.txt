@@ -39,7 +39,9 @@ find_path(ASIO_INCLUDE_DIR asio.hpp HINTS /opt/homebrew/include /usr/local/inclu
 
 add_executable(obsbot-bridge
     src/main.cpp
+    src/device_manager.cpp
     src/device_session.cpp
+    src/persist.cpp
     src/ws_server.cpp
     src/protocol.cpp
     src/log.cpp

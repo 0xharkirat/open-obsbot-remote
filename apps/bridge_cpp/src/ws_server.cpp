@@ -1,8 +1,7 @@
 #include "ws_server.h"
-#include "device_session.h"
+#include "device_manager.h"
 #include "protocol.h"
 #include "log.h"
-#include "video_capture.h"
 #include "auth.h"
 #include <json.hpp>
 
@@ -60,8 +59,7 @@ static bool path_is_safe(const std::string& rel) {
 }
 
 void run_ws_server(uint16_t port,
-                   DeviceSession& session,
-                   VideoCapture* video,
+                   DeviceManager& mgr,
                    const std::string& web_root,
                    AuthStore& auth) {
     crow::SimpleApp app;
@@ -77,12 +75,12 @@ void run_ws_server(uint16_t port,
         for (auto* c : authed_conns) c->send_text(payload);
     };
 
-    // hook session state pushes into broadcaster
-    session.start([&](const DeviceSnapshot& s) {
-        try {
-            auto j = build_state_event(s);
-            broadcast(j.dump());
-        } catch (...) {}
+    // Install the manager's state broadcaster: any camera attach/detach, active
+    // switch, or per-device snapshot push fans out one assembled v2 envelope to
+    // every subscribed client. This also starts the libdev attach/detach
+    // callback, so cameras begin populating as their plug-in events fire.
+    mgr.start([&broadcast](const std::string& event_json) {
+        broadcast(event_json);
     });
 
     CROW_WEBSOCKET_ROUTE(app, "/v1")
@@ -148,7 +146,7 @@ void run_ws_server(uint16_t port,
                 return;
             }
 
-            dispatch_message(session, data, [&conn](std::string out){
+            dispatch_message(mgr, data, [&conn](std::string out){
                 try { conn.send_text(out); } catch (...) {}
             });
         });

@@ -127,12 +127,7 @@ struct VideoCapture::Impl {
 
 namespace obs {
 
-static AVCaptureDevice* find_device(const std::string& substr) {
-    NSString* needle = nil;
-    if (!substr.empty()) {
-        needle = [[NSString stringWithUTF8String:substr.c_str()] lowercaseString];
-    }
-
+static NSArray<AVCaptureDevice*>* discover_devices() {
     AVCaptureDeviceDiscoverySession* disc = nil;
     if (@available(macOS 14.0, *)) {
         disc = [AVCaptureDeviceDiscoverySession
@@ -146,8 +141,16 @@ static AVCaptureDevice* find_device(const std::string& substr) {
                                   mediaType:AVMediaTypeVideo
                                    position:AVCaptureDevicePositionUnspecified];
     }
+    return disc.devices;
+}
 
-    NSArray<AVCaptureDevice*>* devices = disc.devices;
+static AVCaptureDevice* find_device(const std::string& substr) {
+    NSString* needle = nil;
+    if (!substr.empty()) {
+        needle = [[NSString stringWithUTF8String:substr.c_str()] lowercaseString];
+    }
+
+    NSArray<AVCaptureDevice*>* devices = discover_devices();
     LOGI("video: %lu capture devices visible", (unsigned long)devices.count);
     for (AVCaptureDevice* d in devices) {
         LOGI("video: candidate '%s' (id=%s)",
@@ -166,90 +169,137 @@ static AVCaptureDevice* find_device(const std::string& substr) {
     return nil;
 }
 
+// Ensure camera (TCC) permission. Prompts on first run; returns true only when
+// authorized. Blocks until the prompt is answered.
+static bool ensure_camera_permission() {
+    AVAuthorizationStatus auth =
+        [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+    if (auth == AVAuthorizationStatusAuthorized) return true;
+    if (auth == AVAuthorizationStatusNotDetermined) {
+        __block BOOL granted = NO;
+        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
+                                 completionHandler:^(BOOL g) {
+            granted = g;
+            dispatch_semaphore_signal(sem);
+        }];
+        dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+        if (!granted) { LOGW("video: camera permission denied"); return false; }
+        return true;
+    }
+    LOGW("video: camera not authorized (status=%ld); enable in System Settings → Privacy & Security → Camera",
+         (long)auth);
+    return false;
+}
+
 VideoCapture::VideoCapture() : impl_(new Impl) {}
 VideoCapture::~VideoCapture() { stop(); }
+
+void VideoCapture::request_camera_permission() {
+    @autoreleasepool { (void)ensure_camera_permission(); }
+}
+
+// Configure + start a capture session bound to `d`. Fills impl_ and flips
+// running. Assumes permission is already granted and impl_->running is false.
+bool VideoCapture::start_with_device(void* device_ptr) {
+    AVCaptureDevice* d = (__bridge AVCaptureDevice*)device_ptr;
+    impl_->device = d;
+    LOGI("video: using device '%s' (id=%s)",
+         d.localizedName.UTF8String, d.uniqueID.UTF8String);
+
+    NSError* err = nil;
+    impl_->input = [AVCaptureDeviceInput deviceInputWithDevice:d error:&err];
+    if (!impl_->input) {
+        LOGE("video: input error: %s", err.localizedDescription.UTF8String);
+        return false;
+    }
+
+    impl_->session = [[AVCaptureSession alloc] init];
+    // Tiny 2 Lite native is 1080p; capturing at 720p forces a firmware
+    // downsample path that looks dimmer + less sharp than what OBSBOT
+    // Center shows. Use 1080p and let our own downscale (1280px long
+    // side) handle final preview size.
+    if ([impl_->session canSetSessionPreset:AVCaptureSessionPreset1920x1080]) {
+        impl_->session.sessionPreset = AVCaptureSessionPreset1920x1080;
+    } else {
+        impl_->session.sessionPreset = AVCaptureSessionPreset1280x720;
+    }
+
+    if (![impl_->session canAddInput:impl_->input]) {
+        LOGE("video: cannot add input");
+        return false;
+    }
+    [impl_->session addInput:impl_->input];
+
+    impl_->output = [[AVCaptureVideoDataOutput alloc] init];
+    impl_->output.alwaysDiscardsLateVideoFrames = YES;
+    impl_->output.videoSettings = @{
+        (id)kCVPixelBufferPixelFormatTypeKey:
+            @(kCVPixelFormatType_32BGRA)
+    };
+
+    impl_->delegate = [[ObsCaptureDelegate alloc] init];
+    impl_->delegate->impl = impl_.get();
+
+    // Per-device serial queue so N simultaneous captures don't share one.
+    std::string qname = std::string("com.obsbot.bridge.capture.") +
+                        d.uniqueID.UTF8String;
+    impl_->queue = dispatch_queue_create(qname.c_str(), DISPATCH_QUEUE_SERIAL);
+    [impl_->output setSampleBufferDelegate:impl_->delegate queue:impl_->queue];
+
+    if (![impl_->session canAddOutput:impl_->output]) {
+        LOGE("video: cannot add output");
+        return false;
+    }
+    [impl_->session addOutput:impl_->output];
+
+    [impl_->session startRunning];
+    impl_->running = impl_->session.isRunning;
+    if (impl_->running) {
+        LOGI("video: capture session started");
+    } else {
+        LOGW("video: session.isRunning is false");
+    }
+    return impl_->running;
+}
 
 bool VideoCapture::start(const std::string& name_substr) {
     @autoreleasepool {
         if (impl_->running) return true;
-
-        // Request authorization (will prompt the user the first time)
-        AVAuthorizationStatus auth = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
-        if (auth == AVAuthorizationStatusNotDetermined) {
-            __block BOOL granted = NO;
-            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
-                                     completionHandler:^(BOOL g) {
-                granted = g;
-                dispatch_semaphore_signal(sem);
-            }];
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            if (!granted) {
-                LOGW("video: camera permission denied");
-                return false;
-            }
-        } else if (auth != AVAuthorizationStatusAuthorized) {
-            LOGW("video: camera not authorized (status=%ld); enable in System Settings → Privacy & Security → Camera", (long)auth);
-            return false;
-        }
-
+        if (!ensure_camera_permission()) return false;
         AVCaptureDevice* d = find_device(name_substr);
         if (!d) { LOGW("video: no matching capture device"); return false; }
-        impl_->device = d;
-        LOGI("video: using device '%s'", d.localizedName.UTF8String);
+        return start_with_device((__bridge void*)d);
+    }
+}
 
-        NSError* err = nil;
-        impl_->input = [AVCaptureDeviceInput deviceInputWithDevice:d error:&err];
-        if (!impl_->input) {
-            LOGE("video: input error: %s", err.localizedDescription.UTF8String);
+bool VideoCapture::start_unique_id(const std::string& unique_id) {
+    @autoreleasepool {
+        if (impl_->running) return true;
+        if (unique_id.empty()) return false;
+        if (!ensure_camera_permission()) return false;
+
+        NSString* uid = [NSString stringWithUTF8String:unique_id.c_str()];
+        // A camera can be visible to libdev slightly before AVFoundation
+        // enumerates it, and (freshly woken) can lag a bit more. Retry for a
+        // few seconds rather than failing the first attach.
+        AVCaptureDevice* d = nil;
+        for (int i = 0; i < 20 && !d; ++i) {
+            d = [AVCaptureDevice deviceWithUniqueID:uid];
+            if (!d) {
+                // deviceWithUniqueID can miss external cams on some macOS
+                // versions; fall back to scanning the discovery list.
+                for (AVCaptureDevice* c in discover_devices()) {
+                    if ([c.uniqueID isEqualToString:uid]) { d = c; break; }
+                }
+            }
+            if (!d) [NSThread sleepForTimeInterval:0.15];
+        }
+        if (!d) {
+            LOGW("video: no capture device with uniqueID=%s", unique_id.c_str());
             return false;
         }
-
-        impl_->session = [[AVCaptureSession alloc] init];
-        // Tiny 2 Lite native is 1080p; capturing at 720p forces a firmware
-        // downsample path that looks dimmer + less sharp than what OBSBOT
-        // Center shows. Use 1080p and let our own downscale (1280px long
-        // side) handle final preview size.
-        if ([impl_->session canSetSessionPreset:AVCaptureSessionPreset1920x1080]) {
-            impl_->session.sessionPreset = AVCaptureSessionPreset1920x1080;
-        } else {
-            impl_->session.sessionPreset = AVCaptureSessionPreset1280x720;
-        }
-
-        if (![impl_->session canAddInput:impl_->input]) {
-            LOGE("video: cannot add input");
-            return false;
-        }
-        [impl_->session addInput:impl_->input];
-
-        impl_->output = [[AVCaptureVideoDataOutput alloc] init];
-        impl_->output.alwaysDiscardsLateVideoFrames = YES;
-        impl_->output.videoSettings = @{
-            (id)kCVPixelBufferPixelFormatTypeKey:
-                @(kCVPixelFormatType_32BGRA)
-        };
-
-        impl_->delegate = [[ObsCaptureDelegate alloc] init];
-        impl_->delegate->impl = impl_.get();
-
-        impl_->queue = dispatch_queue_create("com.obsbot.bridge.capture",
-                                             DISPATCH_QUEUE_SERIAL);
-        [impl_->output setSampleBufferDelegate:impl_->delegate queue:impl_->queue];
-
-        if (![impl_->session canAddOutput:impl_->output]) {
-            LOGE("video: cannot add output");
-            return false;
-        }
-        [impl_->session addOutput:impl_->output];
-
-        [impl_->session startRunning];
-        impl_->running = impl_->session.isRunning;
-        if (impl_->running) {
-            LOGI("video: capture session started");
-        } else {
-            LOGW("video: session.isRunning is false");
-        }
-        return impl_->running;
+        return start_with_device((__bridge void*)d);
     }
 }
 

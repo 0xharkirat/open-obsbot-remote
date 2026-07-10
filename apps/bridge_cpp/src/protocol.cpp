@@ -1,8 +1,10 @@
 #include "protocol.h"
 #include "device_session.h"
+#include "device_manager.h"
 #include "log.h"
 
 #include <chrono>
+#include <memory>
 #include <utility>
 
 using nlohmann::json;
@@ -10,13 +12,16 @@ using std::string;
 
 namespace obs {
 
-static int64_t now_ms() {
-    using namespace std::chrono;
-    return duration_cast<milliseconds>(
-        system_clock::now().time_since_epoch()).count();
+static const char* run_status_str(int ds) {
+    switch (ds) {
+        case 1: return "run";
+        case 3: return "sleep";
+        case 4: return "privacy";
+        default: return "unknown";
+    }
 }
 
-json build_state_event(const DeviceSnapshot& s) {
+json build_device_entry(const DeviceSnapshot& s) {
     json presets = json::array();
     for (auto& p : s.presets) {
         presets.push_back({
@@ -25,17 +30,17 @@ json build_state_event(const DeviceSnapshot& s) {
         });
     }
     return json{
-        {"event", "state"},
-        {"ts", now_ms()},
+        // Top-level canonical id (== SN). device_state.dart reads this first.
+        {"device_id", s.sn},
         {"device", {
             {"sn", s.sn},
-            {"model", "tiny2lite"},
             {"model_display", s.model},
             {"firmware", s.firmware},
+            // A sleeping camera is connected:true with run_status:"sleep" -
+            // sleep is a run state, never an omission from devices[].
             {"connected", s.connected},
-            {"run_status", s.run_status == 1 ? "run" :
-                          s.run_status == 3 ? "sleep" :
-                          s.run_status == 4 ? "privacy" : "unknown"}
+            {"run_status", run_status_str(s.run_status)},
+            {"friendly_name", s.friendly_name},
         }},
         {"ptz", {
             {"yaw", s.yaw}, {"pitch", s.pitch}, {"roll", s.roll}
@@ -45,9 +50,9 @@ json build_state_event(const DeviceSnapshot& s) {
         }},
         {"ai", {
             {"mode", s.ai_mode},
-            {"sub_mode", s.ai_sub_mode},
+            {"sub_mode", s.ai_sub_mode},   // wire value for head-hide is "head_hide"
             {"enabled", s.ai_enabled},
-            {"tracking_mode", s.tracking_mode}
+            // v2 drops the dead ai.tracking_mode field.
         }},
         {"image", {
             {"hdr", s.hdr},
@@ -56,13 +61,12 @@ json build_state_event(const DeviceSnapshot& s) {
             {"contrast", s.contrast},
             {"saturation", s.saturation},
             {"sharpness", s.sharpness},
-            {"hue", s.hue},
+            // v2 drops the dead image.hue field.
             {"face_ae", s.face_ae},
             {"face_focus", s.face_focus},
             {"auto_focus", s.auto_focus},
             {"manual_focus", s.manual_focus},
             {"flip_h", s.flip_h},
-            // v1.2 PR G additions.
             {"exposure_mode", s.exposure_mode},
             {"ev_bias", s.ev_bias},
             {"anti_flicker", s.anti_flicker},
@@ -77,10 +81,8 @@ json build_state_event(const DeviceSnapshot& s) {
             {"elapsed_s", s.sequence_elapsed_s},
             {"total_s", s.sequence_total_s},
             {"mode", s.sequence_mode},
-            // "moving" while MotionPlanner is in flight; "holding" while
-            // the stay-timer is counting. Default "holding" (idle / instant
-            // transition). Surfaced for client UI affordances (progress
-            // ring, "moving..." chip).
+            // "moving" while MotionPlanner is in flight; "holding" while the
+            // stay-timer counts. v2 drops the dead legacy sequence.loop bool.
             {"phase", s.sequence_phase},
             {"available", s.available_sequences},
             {"loaded", s.loaded_sequence},
@@ -99,6 +101,19 @@ json build_state_event(const DeviceSnapshot& s) {
     };
 }
 
+json device_summary(const DeviceSnapshot& s, bool active) {
+    return json{
+        {"device_id", s.sn},
+        {"sn", s.sn},
+        {"model_display", s.model},
+        {"firmware", s.firmware},
+        {"friendly_name", s.friendly_name},
+        {"connected", s.connected},
+        {"run_status", run_status_str(s.run_status)},
+        {"active", active},
+    };
+}
+
 json ack_ok(const string& id) {
     return json{{"type", "ack"}, {"id", id}, {"ok", true}};
 }
@@ -107,7 +122,36 @@ json ack_err(const string& id, const string& code, const string& msg) {
     return json{{"type", "ack"}, {"id", id}, {"ok", false}, {"err", code}, {"msg", msg}};
 }
 
-void dispatch_message(DeviceSession& session,
+// Resolve the target session per the v2 routing table:
+//   0 cameras                       -> err "no_device"
+//   1 camera,  no device_id         -> that camera (v1 single-cam clients work)
+//   2+ cameras, no device_id        -> err "device_required"
+//   device_id present, no match     -> err "not_found"
+// Returns nullptr (and sends the error ack) when there is no route.
+static std::shared_ptr<DeviceSession> route_target(
+        DeviceManager& mgr, const json& msg, const string& id,
+        const std::function<void(std::string)>& reply_send) {
+    size_t n = mgr.device_count();
+    if (n == 0) {
+        reply_send(ack_err(id, "no_device", "no camera attached").dump());
+        return nullptr;
+    }
+    string did = msg.value("device_id", string{});
+    if (did.empty()) {
+        if (n == 1) return mgr.sole_session();
+        reply_send(ack_err(id, "device_required",
+            "multiple cameras attached; specify device_id").dump());
+        return nullptr;
+    }
+    auto s = mgr.session_by_sn(did);
+    if (!s) {
+        reply_send(ack_err(id, "not_found", "no camera with device_id " + did).dump());
+        return nullptr;
+    }
+    return s;
+}
+
+void dispatch_message(DeviceManager& mgr,
                       const string& raw,
                       std::function<void(std::string)> reply_send) {
     json msg;
@@ -127,25 +171,17 @@ void dispatch_message(DeviceSession& session,
     };
 
     try {
+    // ---- bridge-scoped actions (not tied to a single camera) ----
+
     if (action == "hello") {
-        json devices = json::array();
-        auto s = session.snapshot();
-        if (s.connected) {
-            devices.push_back({
-                {"sn", s.sn},
-                {"model", "tiny2lite"},
-                {"model_display", s.model},
-                {"firmware", s.firmware},
-                {"connected", true}
-            });
-        }
         json resp = ack_ok(id);
         resp["server"] = {
-            {"version", "1.0.0"},
-            {"protocol", 1},
+            {"version", "2.0.0"},
+            {"protocol", "2.0"},
             {"host", "obsbot-bridge"}
         };
-        resp["devices"] = devices;
+        resp["devices"] = mgr.device_summaries();
+        resp["active_device_id"] = mgr.active_sn();
         reply_send(resp.dump());
         return;
     }
@@ -154,17 +190,50 @@ void dispatch_message(DeviceSession& session,
         // subscription is implicit per-connection; just ack
         reply_send(ack_ok(id).dump());
         if (action == "subscribe") {
-            reply_send(build_state_event(session.snapshot()).dump());
+            reply_send(mgr.build_state_event().dump());
         }
         return;
     }
 
     if (action == "ping") {
-        reply_send(json{{"type", "pong"}, {"id", id}, {"ts", now_ms()}}.dump());
+        reply_send(json{{"type", "pong"}, {"id", id}, {"ts",
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()}}.dump());
         return;
     }
 
-    // ---- camera commands ----
+    if (action == "device.list") {
+        json resp = ack_ok(id);
+        resp["devices"] = mgr.device_summaries();
+        resp["active_device_id"] = mgr.active_sn();
+        reply_send(resp.dump());
+        return;
+    }
+
+    if (action == "device.set_active") {
+        string sn = msg.value("device_id", string{});
+        if (sn.empty()) sn = msg.value("sn", string{});
+        string ec;
+        if (mgr.set_active(sn, ec)) reply_send(ack_ok(id).dump());
+        else reply_send(ack_err(id, ec, "no camera with device_id " + sn).dump());
+        return;
+    }
+
+    if (action == "device.rename") {
+        string sn = msg.value("device_id", string{});
+        if (sn.empty()) sn = msg.value("sn", string{});
+        string name = msg.value("name", string{});
+        string ec;
+        if (mgr.rename(sn, name, ec)) reply_send(ack_ok(id).dump());
+        else reply_send(ack_err(id, ec, "no camera with device_id " + sn).dump());
+        return;
+    }
+
+    // ---- device-scoped actions: resolve the target camera first ----
+
+    auto sess = route_target(mgr, msg, id, reply_send);
+    if (!sess) return;
+    DeviceSession& session = *sess;
 
     if (action == "ptz.angle") {
         float yaw = msg.value("yaw", 0.0f);
@@ -236,7 +305,7 @@ void dispatch_message(DeviceSession& session,
     if (action == "image.set_face_focus") { session.cmd_image_set_face_focus(msg.value("enabled", false), reply_cb); return; }
     if (action == "image.set_flip_h")     { session.cmd_image_set_flip_h(msg.value("enabled", false), reply_cb); return; }
 
-    // v1.2 PR G  -  exposure / anti-flicker / white balance.
+    // exposure / anti-flicker / white balance.
     if (action == "image.set_exposure_mode") {
         session.cmd_image_set_exposure_mode(msg.value("mode", std::string("auto")), reply_cb);
         return;
@@ -257,11 +326,6 @@ void dispatch_message(DeviceSession& session,
         session.cmd_image_set_wb_temp(msg.value("kelvin", 4700), reply_cb);
         return;
     }
-    // v1.2.1 PR P  -  re-read live exposure / anti-flicker / WB state
-    // from the camera. Defensive against firmware drift or other
-    // apps (OBSBOT Center, etc.) that may have changed values while
-    // we were disconnected. UI binds to a "Refresh from camera"
-    // button on the Image tab.
     if (action == "image.refresh") {
         session.cmd_image_refresh(reply_cb);
         return;
@@ -275,9 +339,6 @@ void dispatch_message(DeviceSession& session,
 
     if (action == "preset.recall") {
         int pid = msg.value("preset_id", 0);
-        // Protocol contract: `duration_ms` is the move time. 0 = instant.
-        // No defaults  -  callers should pass it explicitly. Older clients
-        // that omit the field get instant.
         int dur = msg.value("duration_ms", 0);
         session.cmd_preset_recall(pid, dur, reply_cb);
         return;

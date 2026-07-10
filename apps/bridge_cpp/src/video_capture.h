@@ -3,14 +3,16 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace obs {
 
-// Captures the Tiny 2 Lite as a regular UVC webcam via AVFoundation,
+// Captures one OBSBOT camera as a regular UVC webcam via AVFoundation,
 // JPEG-encodes the latest frame in software, and exposes it to the HTTP
 // route. libdev is unaffected  -  control + video go to the same USB device
-// over independent endpoints.
+// over independent endpoints. macOS can run N of these simultaneously (one per
+// physical camera) at 1080p MJPEG.
 class VideoCapture {
 public:
     VideoCapture();
@@ -19,7 +21,24 @@ public:
     // Pick the first AVCaptureDevice whose name contains `name_substr`
     // (case-insensitive). Empty = pick the first device whose name starts
     // with "OBSBOT". Returns false if no match or session fails to start.
+    //
+    // NOTE: name matching cannot tell two identical cameras apart - every
+    // Tiny 2 Lite reports the SAME localizedName. Multi-cam MUST use
+    // start_unique_id() instead.
     bool start(const std::string& name_substr = "");
+
+    // Bind to the exact AVCaptureDevice whose uniqueID equals `unique_id`
+    // (== Device::videoDevPath() on macOS - the SN -> capture-device join).
+    // Retries briefly because a camera can appear in libdev before
+    // AVFoundation enumerates it. Returns false if the device never appears or
+    // the session fails to start.
+    bool start_unique_id(const std::string& unique_id);
+
+    // Trigger the macOS camera-permission (TCC) prompt without binding a
+    // device. Called once at boot so the prompt fires even before any camera
+    // has enumerated (the bridge UI keys "Granted" off the resulting log line).
+    static void request_camera_permission();
+
     void stop();
 
     bool running() const;
@@ -36,6 +55,11 @@ public:
     struct Impl;
 
 private:
+    // Configure + start a session bound to an AVCaptureDevice (passed as an
+    // opaque bridged pointer so this stays in the C++ header). Shared by
+    // start() and start_unique_id().
+    bool start_with_device(void* device_ptr);
+
     std::unique_ptr<Impl> impl_;
 };
 
