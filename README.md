@@ -104,7 +104,7 @@ brew trust 0xharkirat/tap
 
 ### Manual: DMG download
 
-If you would rather grab the release yourself, download `Open-OBSBOT-Bridge-arm64.dmg` from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest), open it, and drag `Open OBSBOT Bridge.app` to your **Applications** folder.
+If you would rather grab the release yourself, download `Open-OBSBOT-Bridge-universal.dmg` (works on both Apple Silicon and Intel Macs) from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest), open it, and drag `Open OBSBOT Bridge.app` to your **Applications** folder.
 
 The app is ad-hoc signed rather than notarized, so Gatekeeper blocks first launch. Follow steps 1 - 3 below, or clear the quarantine flag by hand once you have moved the app:
 
