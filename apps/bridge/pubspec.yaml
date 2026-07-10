@@ -47,6 +47,12 @@ dependencies:
   # SnackBar / AlertDialog / SwitchListTile still work via the
   # Material wrapping in main.dart.
   macos_ui: ^2.1.6
+  # v2: the bridge window is itself a WS client of the C++ subprocess,
+  # consuming the same transport + domain types as the phone remote.
+  obsbot_api_client:
+    path: ../../packages/obsbot_api_client
+  obsbot_protocol:
+    path: ../../packages/obsbot_protocol
 
 dev_dependencies:
   flutter_test:
