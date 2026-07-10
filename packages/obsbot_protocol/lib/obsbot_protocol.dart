@@ -7,11 +7,18 @@
 ///
 /// Versioning: the package version (in pubspec.yaml) tracks the wire
 /// protocol version. The bridge advertises its supported protocol in
-/// the `hello` ack's `server.protocol` field; clients should accept
-/// any version they were built against.
+/// the state event's `version` field; clients should accept any
+/// version they were built against.
+///
+/// **v2 multi-cam break**: [CameraState] was renamed to [DeviceState]
+/// and wrapped in [BridgeState] which owns the per-camera list. State
+/// events now ship as `{devices: [...], active_device_id: "..."}`
+/// instead of a single device snapshot. v1 clients that connect to v2
+/// bridges get an error from the handshake (and vice-versa).
 library;
 
-export 'src/camera_state.dart';
+export 'src/bridge_state.dart';
+export 'src/device_state.dart';
 export 'src/loop_mode.dart';
 export 'src/move_duration_preset.dart';
 export 'src/preset_entry.dart';
