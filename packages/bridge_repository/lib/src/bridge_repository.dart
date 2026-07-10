@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:obsbot_api_client/obsbot_api_client.dart';
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 
-import 'device_summary.dart';
-
 /// Bridge-scoped state and device management.
 ///
 /// Sits directly on [ObsbotApiClient]. Two jobs:
@@ -13,9 +11,11 @@ import 'device_summary.dart';
 ///    frames, decodes each into a [BridgeState], and republishes them
 ///    on [state] with the latest value replayed to every new listener
 ///    (a hand-rolled BehaviorSubject; no rxdart).
-/// 2. **Device management.** Wraps the three bridge-scoped device
-///    actions (`device.list`, `device.set_active`, `device.rename`)
-///    and builds the MJPEG preview URL.
+/// 2. **Device management.** Wraps the bridge-scoped device actions
+///    (`device.set_active`, `device.rename`) and builds the MJPEG
+///    preview URL. There is deliberately no `device.list` wrapper -
+///    both apps read the device list off [BridgeState.devices], which
+///    a `subscribe` immediately populates.
 ///
 /// Per-device optimistic UI and gimbal/image commands live one layer
 /// up in `device_repository`. This layer never mutates state
@@ -73,18 +73,6 @@ class BridgeRepository {
     await _api.send(<String, dynamic>{'action': 'subscribe'});
   }
 
-  /// Returns the picker-row summary for every attached camera. Cheaper
-  /// than waiting for a full state event when only the device list is
-  /// needed.
-  Future<List<DeviceSummary>> listDevices() async {
-    final ack = await _api.send(<String, dynamic>{'action': 'device.list'});
-    final raw = ack['devices'] as List<dynamic>? ?? const <dynamic>[];
-    return raw
-        .whereType<Map<String, dynamic>>()
-        .map(DeviceSummary.fromJson)
-        .toList(growable: false);
-  }
-
   /// Marks [deviceId] the live camera (the one `active.mjpg` follows and
   /// that OBS sees). The bridge broadcasts a fresh state event on
   /// success, which flows out through [state].
@@ -95,19 +83,15 @@ class BridgeRepository {
     });
   }
 
-  /// Sets the operator-facing friendly name for [deviceId].
-  ///
-  /// The name is trimmed and capped at 60 characters. An empty result
-  /// clears the name (the UI then falls back to model + last-4 of SN).
-  /// The bridge applies the same trim/cap; doing it here keeps the
-  /// optimistic path and any local echo consistent with what persists.
+  /// Sets the operator-facing friendly name for [deviceId]. An empty
+  /// name clears it (the UI falls back to model + last-4 of SN). The
+  /// bridge owns validation (trim + 60-char cap) - one authority, no
+  /// drifting duplicate here.
   Future<void> renameDevice(String deviceId, String name) async {
-    var trimmed = name.trim();
-    if (trimmed.length > 60) trimmed = trimmed.substring(0, 60);
     await _api.send(<String, dynamic>{
       'action': 'device.rename',
       'device_id': deviceId,
-      'name': trimmed,
+      'name': name,
     });
   }
 

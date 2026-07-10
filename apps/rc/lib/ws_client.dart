@@ -63,9 +63,15 @@ class WsClient extends ChangeNotifier {
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
       _driveControlStyle =
           p.getString('drive_control_style') ?? _driveControlStyle;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     });
   }
+
+  /// Guards every notify that can fire from an async continuation
+  /// (prefs load, teardown, fire-and-forget action errors) - calling
+  /// notifyListeners() after dispose() trips ChangeNotifier's debug
+  /// assert and crashes hot-restart + tests.
+  bool _disposed = false;
 
   // ---- layers (built per-connection) ----
   ObsbotApiClient? _api;
@@ -344,7 +350,7 @@ class WsClient extends ChangeNotifier {
     _api = null;
     _connected = false;
     _connecting = false;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   // ------------------------------------------------------------- actions
@@ -364,6 +370,7 @@ class WsClient extends ChangeNotifier {
   }
 
   void _fail(ApiException e) {
+    if (_disposed) return;
     if (e is ApiActionException && e.code == 'auth_required') {
       _needsPairing = true;
     } else {
@@ -481,6 +488,11 @@ class WsClient extends ChangeNotifier {
 
   @override
   void dispose() {
+    // Flag FIRST: _teardown() completes asynchronously after
+    // super.dispose(), and its trailing notify (plus any in-flight
+    // _fire error or the constructor's prefs callback) must become a
+    // no-op rather than trip ChangeNotifier's disposed assert.
+    _disposed = true;
     _teardown();
     super.dispose();
   }

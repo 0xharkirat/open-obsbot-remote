@@ -104,9 +104,9 @@ class BridgeState {
     );
   }
 
-  /// Returns a copy with one device replaced. Used by `WsClient._snap`
-  /// for optimistic per-device mutations: replace `_state` with
-  /// `_state.withDevice(deviceId, currentDev.copyWith(...))`.
+  /// Returns a copy with one device replaced. Used by the optimistic
+  /// overlay in `device_repository` for per-device mutations:
+  /// `current.withDevice(deviceId, dev.copyWith(...))`.
   /// Throws StateError if no device with that id exists.
   BridgeState withDevice(String deviceId, DeviceState next) {
     final idx = devices.indexWhere((d) => d.deviceId == deviceId);
