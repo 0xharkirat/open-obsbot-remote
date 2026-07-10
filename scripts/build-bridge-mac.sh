@@ -106,8 +106,36 @@ echo
 echo "==> Self-contained .app ready:"
 echo "    $APP"
 du -sh "$APP" 2>/dev/null || true
+
+# 6) pack a DMG for release. hdiutil ships with macOS so no external
+#    dep. UDZO = zlib-compressed read-only, the format brew casks pull.
+#    Arch tagged from `uname -m` (`arm64` on Apple Silicon, `x86_64` on
+#    Intel) so the tap's cask formula can pick the right download.
+DIST="$ROOT/dist"
+ARCH="$(uname -m)"
+DMG="$DIST/Open-OBSBOT-Bridge-$ARCH.dmg"
+mkdir -p "$DIST"
+rm -f "$DMG"
 echo
-echo "Drag the .app above to /Applications and double-click to launch."
-echo "First launch will prompt for camera + local-network access."
+echo "==> Building DMG ($ARCH)..."
+hdiutil create \
+    -volname "Open OBSBOT Bridge" \
+    -srcfolder "$APP" \
+    -ov -format UDZO \
+    "$DMG" >/dev/null
+DMG_SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
+DMG_SIZE="$(du -sh "$DMG" | awk '{print $1}')"
+
 echo
-echo "Tip: 'open \"$APP\"' opens it without dragging to /Applications."
+echo "==> Release artifact ready:"
+echo "    $DMG ($DMG_SIZE)"
+echo "    sha256: $DMG_SHA"
+echo
+echo "Drag the .app to /Applications, or install via:"
+echo "    brew install --cask 0xharkirat/tap/open-obsbot-bridge"
+echo
+echo "For a fresh release, paste this into the tap's cask formula:"
+echo "    version \"<v-without-leading-v>\""
+echo "    sha256 $ARCH: \"$DMG_SHA\""
+echo
+echo "Tip: 'open \"$DMG\"' mounts the DMG so you can drag the app out."
