@@ -49,17 +49,11 @@ import 'native_tray.dart';
 ///     `.regular`. Pattern lifted from Handy.
 class TrayController with WindowListener implements NativeTrayListener {
   final BridgeSupervisor supervisor;
-  /// App version label (e.g. "1.4.1"). No longer shown in the tray
-  /// menu after the v1.4.1 simplification  -  kept on the constructor
-  /// to avoid touching the call-site in main.dart and so callers can
-  /// still pass it through if they later want a tooltip variant.
-  final String version;
   Timer? _refresh;
   bool _disposed = false;
 
   TrayController({
     required this.supervisor,
-    this.version = '',
   });
 
   Future<void> init() async {
