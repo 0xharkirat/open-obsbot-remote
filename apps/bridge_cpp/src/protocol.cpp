@@ -114,11 +114,16 @@ json device_summary(const DeviceSnapshot& s, bool active) {
     };
 }
 
-json ack_ok(const string& id) {
+// `id` is OPAQUE: clients choose its type (the v1 phone + mjs harness
+// send strings, the v2 Dart transport sends ints) and the bridge echoes
+// it back verbatim. Typing it as std::string crashed the WS worker with
+// json.type_error.302 the moment a v2 client connected - found live on
+// the first two-camera run.
+json ack_ok(const json& id) {
     return json{{"type", "ack"}, {"id", id}, {"ok", true}};
 }
 
-json ack_err(const string& id, const string& code, const string& msg) {
+json ack_err(const json& id, const string& code, const string& msg) {
     return json{{"type", "ack"}, {"id", id}, {"ok", false}, {"err", code}, {"msg", msg}};
 }
 
@@ -129,7 +134,7 @@ json ack_err(const string& id, const string& code, const string& msg) {
 //   device_id present, no match     -> err "not_found"
 // Returns nullptr (and sends the error ack) when there is no route.
 static std::shared_ptr<DeviceSession> route_target(
-        DeviceManager& mgr, const json& msg, const string& id,
+        DeviceManager& mgr, const json& msg, const json& id,
         const std::function<void(std::string)>& reply_send) {
     size_t n = mgr.device_count();
     if (n == 0) {
@@ -162,7 +167,7 @@ void dispatch_message(DeviceManager& mgr,
         return;
     }
 
-    string id = msg.value("id", "?");
+    json id = msg.contains("id") ? msg["id"] : json("?");
     string action = msg.value("action", "");
 
     auto reply_cb = [id, reply_send](CmdResult r) {

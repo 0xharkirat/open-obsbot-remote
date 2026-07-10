@@ -100,7 +100,6 @@ private:
     void recompute_active_locked();
     // Start (or restart) the per-SN capture bound to the given AVFoundation
     // uniqueID. Caller holds mu_.
-    void start_capture_locked(const std::string& sn, const std::string& unique_id);
 
     std::mutex mu_;
     std::map<std::string, std::shared_ptr<DeviceSession>> sessions_;
