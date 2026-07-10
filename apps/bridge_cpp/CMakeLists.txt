@@ -19,7 +19,13 @@ if (NOT EXISTS "${SDK_ROOT}/include/dev/dev.hpp")
 endif()
 set(SDK_INCLUDE "${SDK_ROOT}/include")
 if (APPLE)
-    if (CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+    # Prefer a hand-lipo'd universal libdev when the release build has
+    # staged one (see scripts/build-bridge-mac.sh). Falls back to the
+    # single-arch slices shipped by the SDK for dev builds where a
+    # specific arch is targeted.
+    if (EXISTS "${SDK_ROOT}/macos/universal-release/libdev.dylib")
+        set(SDK_LIB_DIR "${SDK_ROOT}/macos/universal-release")
+    elseif (CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" AND NOT CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
         set(SDK_LIB_DIR "${SDK_ROOT}/macos/x86_64-release")
     else()
         set(SDK_LIB_DIR "${SDK_ROOT}/macos/arm64-release")

@@ -86,14 +86,39 @@ OBSBOT camera
 
 ## Install The macOS Release
 
-### Step 1 - Download & open the app
+### Recommended: Homebrew
 
-1. Download `Open-OBSBOT-Bridge-macOS-arm64-v<version>.zip` from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest).
-2. Double-click the ZIP to unzip it.
-3. Drag `Open OBSBOT Bridge.app` to your **Applications** folder.
-4. (Optional) Quit **OBSBOT Center** if it is running - both apps compete for the same camera endpoint.
-5. Plug the OBSBOT camera into the Mac over USB.
-6. Double-click **Open OBSBOT Bridge** in Applications.
+```bash
+brew install --cask 0xharkirat/tap/open-obsbot-bridge
+```
+
+That taps [0xharkirat/homebrew-tap](https://github.com/0xharkirat/homebrew-tap) and installs the app in one step. Update later with `brew upgrade --cask open-obsbot-bridge`.
+
+The cask clears the download quarantine on install so Gatekeeper does not block first launch - skip straight to **Step 4** (Camera access).
+
+If Homebrew 6+ refuses the tap, trust it once:
+
+```bash
+brew trust 0xharkirat/tap
+```
+
+### Manual: DMG download
+
+If you would rather grab the release yourself, download `Open-OBSBOT-Bridge-universal.dmg` (works on both Apple Silicon and Intel Macs) from the [latest release page](https://github.com/0xharkirat/open-obsbot-remote/releases/latest), open it, and drag `Open OBSBOT Bridge.app` to your **Applications** folder.
+
+The app is ad-hoc signed rather than notarized, so Gatekeeper blocks first launch. Follow steps 1 - 3 below, or clear the quarantine flag by hand once you have moved the app:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Open OBSBOT Bridge.app"
+```
+
+Then skip to **Step 4**.
+
+### Step 1 - Open the app
+
+1. (Optional) Quit **OBSBOT Center** if it is running - both apps compete for the same camera endpoint.
+2. Plug the OBSBOT camera into the Mac over USB.
+3. Double-click **Open OBSBOT Bridge** in Applications.
 
 macOS will block it with the message _"Open OBSBOT Bridge.app" Not Opened_. This happens because the app is not notarized through Apple's paid developer programme. **Click Done - do not click Move to Bin.**
 
