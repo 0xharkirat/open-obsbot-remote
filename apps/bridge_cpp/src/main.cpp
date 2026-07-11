@@ -61,7 +61,16 @@ int main(int argc, char** argv) {
     // Trigger the macOS camera-permission (TCC) prompt up front so it fires
     // even before a camera enumerates. Per-camera capture then starts on
     // attach. libdev + AVFoundation can hold the same USB device at once.
-    obs::VideoCapture::request_camera_permission();
+    //
+    // If the operator answers the prompt AFTER a camera's attach-time capture
+    // already gave up at its 60s timeout, retry those captures on grant -
+    // otherwise preview stays black until a manual restart (hit live during
+    // two-camera bring-up: prompt ignored for minutes, then Allow -> no video).
+    // `mgr` outlives the process (run_ws_server blocks below), so capturing it
+    // by reference in this AVFoundation callback is safe.
+    obs::VideoCapture::request_camera_permission([&mgr](bool granted) {
+        if (granted) mgr.retry_pending_captures();
+    });
 
     // MJPEG preview server runs on the next port up (default 8766). It resolves
     // captures from the manager per request (/preview/<sn>.mjpg,

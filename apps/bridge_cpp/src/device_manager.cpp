@@ -218,6 +218,7 @@ void DeviceManager::attach(const std::string& sn) {
                 cit->second->stop();
             }
             cap = cit->second.get();
+            capture_uid_[sn] = uid;   // remembered for late-grant retry
         }
         recompute_active_locked();
     }
@@ -375,6 +376,34 @@ VideoCapture* DeviceManager::capture_for(const std::string& sn) {
     std::lock_guard<std::mutex> g(mu_);
     auto it = captures_.find(sn);
     return it == captures_.end() ? nullptr : it->second.get();
+}
+
+void DeviceManager::retry_pending_captures() {
+    // Snapshot the not-yet-running captures + their uids under the lock, then
+    // do the slow AVFoundation start OUTSIDE it (same rule as attach(): never
+    // hold mu_ across a capture start - it starves every WS handler).
+    std::vector<std::pair<VideoCapture*, std::string>> pending;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        for (auto& kv : captures_) {
+            VideoCapture* cap = kv.second.get();
+            if (cap == nullptr || cap->running()) continue;
+            auto uit = capture_uid_.find(kv.first);
+            if (uit == capture_uid_.end() || uit->second.empty()) continue;
+            pending.emplace_back(cap, uit->second);
+        }
+    }
+    if (pending.empty()) return;
+    LOGI("capture: retrying %zu pending capture(s) after permission grant",
+         pending.size());
+    for (auto& [cap, uid] : pending) {
+        if (cap->start_unique_id(uid)) {
+            LOGI("capture: retry started streaming from uid=%s", uid.c_str());
+        } else {
+            LOGW("capture: retry still failed for uid=%s", uid.c_str());
+        }
+    }
+    broadcast();
 }
 
 // ---------------------------------------------------------------------------

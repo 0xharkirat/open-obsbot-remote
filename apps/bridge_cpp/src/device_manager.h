@@ -120,6 +120,13 @@ public:
     // manager lock is released.
     VideoCapture* capture_for(const std::string& sn);
 
+    // Retry starting every attached camera's capture that is not already
+    // running. Idempotent (a running capture is a no-op). Called when the
+    // macOS camera permission is granted AFTER the attach-time capture starts
+    // already timed out on an unanswered prompt - otherwise preview stays dead
+    // until a manual restart. Does its AVFoundation I/O with mu_ released.
+    void retry_pending_captures();
+
     // ---- mix.* actions (cross-camera sequencer) ----
     // The mix engine lives here (not on a session) because a cue spans cameras:
     // it switches the program (set_active) and drives preset recalls on any
@@ -149,6 +156,10 @@ private:
     std::map<std::string, std::shared_ptr<DeviceSession>> sessions_;
     std::vector<std::string> order_;   // SNs in attach order (drives devices[])
     std::map<std::string, std::unique_ptr<VideoCapture>> captures_;
+    // sn -> AVFoundation uniqueID last bound for that camera's capture, so
+    // retry_pending_captures() can re-issue start_unique_id after a late
+    // permission grant.
+    std::map<std::string, std::string> capture_uid_;
     std::string active_sn_;
     std::string desired_active_;       // persisted preference, loaded at start()
     Broadcaster broadcaster_;

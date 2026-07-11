@@ -213,7 +213,8 @@ VideoCapture::~VideoCapture() { stop(); }
 // user "camera permission missing" needs that very WS to exist. The
 // capture-start paths keep their own blocking ensure_camera_permission
 // gate; by the time a client asks for frames the prompt has resolved.
-void VideoCapture::request_camera_permission() {
+void VideoCapture::request_camera_permission(
+        std::function<void(bool)> on_result) {
     @autoreleasepool {
         AVAuthorizationStatus auth =
             [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
@@ -221,6 +222,7 @@ void VideoCapture::request_camera_permission() {
             [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
                                      completionHandler:^(BOOL g) {
                 LOGI("video: camera permission %s", g ? "granted" : "denied");
+                if (on_result) on_result(g);
             }];
         }
     }
