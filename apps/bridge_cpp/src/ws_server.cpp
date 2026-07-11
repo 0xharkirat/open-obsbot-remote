@@ -72,7 +72,12 @@ void run_ws_server(uint16_t port,
 
     auto broadcast = [&](const std::string& payload) {
         std::lock_guard<std::mutex> g(conn_mu);
-        for (auto* c : authed_conns) c->send_text(payload);
+        // Per-connection catch: one client dying mid-send must not abort
+        // the fan-out to everyone else (the reply path already wraps its
+        // send the same way).
+        for (auto* c : authed_conns) {
+            try { c->send_text(payload); } catch (...) {}
+        }
     };
 
     // Install the manager's state broadcaster: any camera attach/detach, active

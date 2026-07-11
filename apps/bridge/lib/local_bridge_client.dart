@@ -82,6 +82,13 @@ class LocalBridgeClient extends ChangeNotifier {
       }
       await api.send(<String, dynamic>{'action': 'subscribe'});
 
+      // Disposed while the handshake awaits were in flight (app quit
+      // mid-connect): tear down our orphan instead of notifying a dead
+      // listener - the same bug class 3ca8eca fixed in apps/rc.
+      if (_disposed) {
+        await _teardown();
+        return;
+      }
       _connected = true;
       notifyListeners();
     } on Object {

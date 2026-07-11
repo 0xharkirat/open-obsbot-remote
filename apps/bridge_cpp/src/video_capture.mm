@@ -26,7 +26,9 @@ struct VideoCapture::Impl {
     std::vector<uint8_t> latest;
     std::atomic<uint64_t> seq{0};
 
-    bool running = false;
+    // Written on the hotplug thread (start/stop), read lock-free by the
+    // MJPEG serving threads via VideoCapture::running().
+    std::atomic<bool> running{false};
 };
 
 }  // namespace obs

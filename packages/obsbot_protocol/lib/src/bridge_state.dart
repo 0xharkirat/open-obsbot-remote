@@ -12,7 +12,7 @@ import 'device_state.dart';
 /// Wire shape:
 /// ```json
 /// {
-///   "type": "state",
+///   "event": "state",
 ///   "version": "2.0",
 ///   "active_device_id": "RMOW1234",
 ///   "devices": [ {device_state_1}, {device_state_2}, ... ]

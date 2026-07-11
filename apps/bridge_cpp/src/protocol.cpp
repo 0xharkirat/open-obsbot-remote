@@ -143,7 +143,17 @@ static std::shared_ptr<DeviceSession> route_target(
     }
     string did = msg.value("device_id", string{});
     if (did.empty()) {
-        if (n == 1) return mgr.sole_session();
+        if (n == 1) {
+            // TOCTOU: device_count() and sole_session() lock separately;
+            // the camera can detach between them. Ack no_device rather
+            // than returning bare - a missing ack strands the client in
+            // its send timeout.
+            auto sole = mgr.sole_session();
+            if (!sole) {
+                reply_send(ack_err(id, "no_device", "no camera attached").dump());
+            }
+            return sole;
+        }
         reply_send(ack_err(id, "device_required",
             "multiple cameras attached; specify device_id").dump());
         return nullptr;
