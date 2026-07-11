@@ -50,9 +50,12 @@ dependencies:
     path: ../../packages/bridge_repository
   device_repository:
     path: ../../packages/device_repository
+  marionette_flutter: ^0.6.0
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
@@ -62,7 +65,6 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
-
 flutter_launcher_icons:
   image_path: "assets/icon-1024.png"
   android: "ic_launcher"
