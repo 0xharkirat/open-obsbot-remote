@@ -150,6 +150,15 @@ void DeviceSession::stop() {
     seq_quit_ = true;
     seq_running_ = false;
     seq_cv_.notify_all();
+    // Same trap as cmd_sequence_stop's B2 fix: if the sequencer thread
+    // is blocked in motion_wait_idle() mid-transition, only the planner
+    // thread can wake it - cancel the in-flight move BEFORE joining
+    // seq_thr_. Without this, stop() blocks for the remaining move
+    // duration (client-controlled, unbounded), and stop() runs on the
+    // libdev hotplug thread via DeviceManager::detach - so unplugging
+    // one camera mid-slow-move would stall attach/detach for every
+    // other camera.
+    motion_cancel();
     if (seq_thr_.joinable()) seq_thr_.join();
     motion_quit_ = true;
     motion_cancel_ = true;

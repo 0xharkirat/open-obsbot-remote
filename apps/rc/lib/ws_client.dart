@@ -245,8 +245,16 @@ class WsClient extends ChangeNotifier {
 
   // ---------------------------------------------------------- connection
 
+  /// Bumped by every connect() and by close(). A connect attempt that
+  /// is no longer the newest must not touch shared fields from its
+  /// continuations - without this, a double-tap on Connect (or
+  /// auto-connect racing a manual entry) let the FIRST attempt's error
+  /// path tear down the SECOND attempt's freshly-built layers.
+  int _connectGen = 0;
+
   Future<void> connect(String hostPort) async {
     await close();
+    final gen = ++_connectGen;
     _serverUri = hostPort;
     _connecting = true;
     _lastError = null;
@@ -259,6 +267,12 @@ class WsClient extends ChangeNotifier {
         uri: Uri.parse('ws://$hostPort/v1'),
         timeout: const Duration(seconds: 6),
       );
+      if (gen != _connectGen) {
+        // Superseded while constructing: close our own orphan, leave
+        // the newer attempt's fields alone.
+        await api.close();
+        return;
+      }
       _api = api;
       final auth = AuthRepository(
         api: api,
@@ -282,6 +296,7 @@ class WsClient extends ChangeNotifier {
       });
 
       await auth.authenticate();
+      if (gen != _connectGen) return; // superseded mid-handshake
       _connected = true;
       _connecting = false;
       if (auth.current == AuthStatus.authenticated) {
@@ -291,12 +306,15 @@ class WsClient extends ChangeNotifier {
       await p.setString('last_server', hostPort);
       notifyListeners();
     } on ApiConnectionException catch (e) {
+      if (gen != _connectGen) return;
       _lastError = 'could not reach $hostPort  -  ${e.message}';
       await _teardown();
     } on ApiTimeoutException {
+      if (gen != _connectGen) return;
       _lastError = 'timed out  -  could not reach $hostPort.';
       await _teardown();
     } on ApiException catch (e) {
+      if (gen != _connectGen) return;
       _lastError = 'connect failed: ${e.message}';
       await _teardown();
     }
@@ -332,6 +350,7 @@ class WsClient extends ChangeNotifier {
   }
 
   Future<void> close() async {
+    _connectGen++; // supersede any in-flight connect attempt
     await _teardown();
   }
 
