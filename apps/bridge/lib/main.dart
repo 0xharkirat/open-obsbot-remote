@@ -392,6 +392,13 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 6),
             _groupCard(context, <Widget>[CameraDeck(client: _bridgeClient)]),
             const SizedBox(height: 18),
+            // One Browser Source pointed at active.mjpg replaces OBS
+            // scene switching; the URL carries a token, so the row
+            // masks it and copies the real thing on demand.
+            _sectionHeader(context, 'OBS output'),
+            const SizedBox(height: 6),
+            _groupCard(context, <Widget>[ObsOutputRow(client: _bridgeClient)]),
+            const SizedBox(height: 18),
             _sectionHeader(context, 'Pairing'),
             const SizedBox(height: 6),
             _revealCard(context),

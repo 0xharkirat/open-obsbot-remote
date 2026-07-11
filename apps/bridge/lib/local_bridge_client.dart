@@ -26,12 +26,18 @@ class LocalBridgeClient extends ChangeNotifier {
   BridgeState _state = BridgeState.empty;
   bool _connected = false;
   bool _disposed = false;
+  String? _token;
   ObsbotApiClient? _api;
   StreamSubscription<Map<String, dynamic>>? _sub;
   Timer? _retry;
 
   BridgeState get state => _state;
   bool get connected => _connected;
+
+  /// The bearer token this window authenticated with. Also valid for
+  /// the MJPEG endpoints - the OBS output row builds its copyable
+  /// Browser Source URL from it. Null until the first connect lands.
+  String? get token => _token;
 
   static String get _authPath {
     final home = Platform.environment['HOME'] ?? '';
@@ -70,17 +76,20 @@ class LocalBridgeClient extends ChangeNotifier {
       _sub = api.events.listen(_onFrame, onDone: _onDrop, onError: (_) {});
 
       final auth = _readAuth();
+      var tok = auth.token;
       try {
-        await api.send(<String, dynamic>{
-          'action': 'hello',
-          if (auth.token != null) 'token': auth.token,
-        });
+        await api.send(<String, dynamic>{'action': 'hello', 'token': ?tok});
       } on ApiActionException catch (e) {
         // Token missing or revoked: pair with our own PIN.
         if (e.code != 'auth_required' || auth.pin == null) rethrow;
-        await api.send(<String, dynamic>{'action': 'pair', 'pin': auth.pin});
+        final ack = await api.send(<String, dynamic>{
+          'action': 'pair',
+          'pin': auth.pin,
+        });
+        tok = ack['token'] as String? ?? tok;
       }
       await api.send(<String, dynamic>{'action': 'subscribe'});
+      _token = tok;
 
       // Disposed while the handshake awaits were in flight (app quit
       // mid-connect): tear down our orphan instead of notifying a dead

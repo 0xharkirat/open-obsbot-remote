@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart'
     show
@@ -7,10 +9,123 @@ import 'package:flutter/material.dart'
         TextButton,
         TextField,
         showDialog;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:macos_ui/macos_ui.dart';
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 
 import 'local_bridge_client.dart';
+
+/// The copyable OBS Browser Source URL row.
+///
+/// `/preview/active.mjpg` follows whatever camera is ON AIR, so one OBS
+/// Browser Source pointed here replaces scene switching entirely. The
+/// URL carries a bearer token; we show it masked and put the real thing
+/// on the clipboard only when the user asks - the same discipline as
+/// the PIN row. Before v2 the token lived only in auth.json and setting
+/// this up meant a terminal; that was a product gap, not a design
+/// choice.
+class ObsOutputRow extends StatefulWidget {
+  const ObsOutputRow({super.key, required this.client, this.mjpegPort = 8766});
+
+  final LocalBridgeClient client;
+  final int mjpegPort;
+
+  @override
+  State<ObsOutputRow> createState() => _ObsOutputRowState();
+}
+
+class _ObsOutputRowState extends State<ObsOutputRow> {
+  bool _copied = false;
+  Timer? _revert;
+
+  @override
+  void dispose() {
+    _revert?.cancel();
+    super.dispose();
+  }
+
+  String? _url(String? token) => token == null
+      ? null
+      : 'http://localhost:${widget.mjpegPort}/preview/active.mjpg?t=$token';
+
+  Future<void> _copy(String url) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    _revert?.cancel();
+    _revert = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = MacosTheme.of(context);
+    final isDark = MacosTheme.brightnessOf(context).isDark;
+    return AnimatedBuilder(
+      animation: widget.client,
+      builder: (BuildContext ctx, _) {
+        final url = _url(widget.client.token);
+        final masked = url == null
+            ? 'Waiting for the bridge...'
+            : 'http://localhost:${widget.mjpegPort}/preview/active.mjpg?t=••••••••';
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: <Widget>[
+              const MacosIcon(CupertinoIcons.tv, size: 16),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      'OBS Browser Source URL',
+                      style: theme.typography.body.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      masked,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.subheadline.copyWith(
+                        fontFamily: 'Menlo',
+                        fontSize: 11,
+                        color: isDark
+                            ? MacosColors.systemGrayColor
+                            : const MacosColor(0xff6E6E73),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Add this as a Browser Source in OBS - it always '
+                      'shows the ON AIR camera, so cuts from the phone '
+                      'switch OBS with no scene change.',
+                      style: theme.typography.subheadline.copyWith(
+                        color: isDark
+                            ? MacosColors.systemGrayColor
+                            : const MacosColor(0xff6E6E73),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              PushButton(
+                controlSize: ControlSize.regular,
+                secondary: true,
+                onPressed: url == null ? null : () => _copy(url),
+                child: Text(_copied ? 'Copied' : 'Copy URL'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
 /// Per-camera rows for the bridge window: one row per attached camera
 /// with status dot, friendly name, ON AIR badge, a "Put on air" action, and
