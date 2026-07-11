@@ -201,6 +201,21 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
             std::this_thread::sleep_for(period);
             continue;
         }
+        // A specific-SN stream whose camera detached must END, not freeze:
+        // detach() stops the capture but keeps the object (pointer
+        // stability for these threads), so frame_seq() goes quiet and this
+        // loop would otherwise spin silently until the 2h deadline -
+        // holding the thread + socket while the phone shows a frozen frame
+        // with no error. Ending the stream fires the client's error /
+        // reconnect path instead. The follow-active stream keeps its
+        // freeze-and-swap behaviour: OBS holds that connection across cuts
+        // by design. (Cross-review finding, corroborated by both external
+        // reviewers.)
+        if (!follow_active && !cap->running()) {
+            LOGI("mjpeg: camera for %s detached; ending stream fd=%d",
+                 key.c_str(), fd);
+            break;
+        }
         if (cap != last_cap) {
             // Source swapped (active camera changed, or first pull). Reset the
             // seq tracker so the new source's current frame is sent right away.
