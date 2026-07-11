@@ -5,8 +5,9 @@ import 'package:meta/meta.dart';
 /// A cue names which camera goes on air ([cameraSn] -> program) and what shot
 /// it takes ([presetId]). There is deliberately NO on-air movement lock: when
 /// a cue recalls a preset on the program camera, that camera moves LIVE on air
-/// - a real-cameraman push/pan is the whole point of a PTZ. [presetId] <= 0
-/// means "hold the current shot" (cut to the camera without moving it).
+/// - a real-cameraman push/pan is the whole point of a PTZ. [presetId] < 0
+/// means "hold the current shot" (cut to the camera without moving it); slots
+/// 0..5 are real presets P1..P6.
 ///
 /// [meanwhile] (via [mwSn]) optionally pre-positions a SECOND camera to a
 /// preset while this cue holds, so it is framed before a later cue cuts to it.

@@ -70,6 +70,7 @@ static MixCue cue_from_json(const nlohmann::json& j) {
         c.mw_sn        = m.value("camera_sn", std::string{});
         c.mw_preset_id = m.value("preset_id", 0);
         c.mw_move_ms   = m.value("move_ms", 0);
+        if (c.mw_move_ms < 0) c.mw_move_ms = 0;
         if (c.mw_sn.empty()) c.has_meanwhile = false;
     }
     return c;
@@ -101,8 +102,11 @@ void DeviceManager::start(Broadcaster broadcaster) {
     desired_active_ = persist::load_active_device();
     active_sn_.clear();
     // Rehydrate the active mix scratch so the editor shows the last-authored
-    // cross-camera sequence on reopen (mirrors the per-camera scratch).
-    {
+    // cross-camera sequence on reopen (mirrors the per-camera scratch). Wrapped
+    // in try/catch: a hand-edited mix.json with a wrong-typed field would throw
+    // nlohmann::type_error, and a bricked launch mid-service is unacceptable -
+    // fall back to an empty scratch instead.
+    try {
         nlohmann::json m = persist::load_active_mix();
         nlohmann::json lib = persist::load_mix_library();
         std::lock_guard<std::mutex> g(mix_mu_);
@@ -110,6 +114,12 @@ void DeviceManager::start(Broadcaster broadcaster) {
         mix_mode_ = parse_loop_mode(m.value("mode", std::string("forward")));
         for (auto& it : lib.items()) mix_available_.push_back(it.key());
         std::sort(mix_available_.begin(), mix_available_.end());
+    } catch (const std::exception& e) {
+        LOGW("mix: failed to rehydrate scratch/library (%s); starting empty",
+             e.what());
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cues_.clear();
+        mix_mode_ = LoopMode::forward;
     }
     started_ = true;
 
@@ -132,10 +142,15 @@ void DeviceManager::stop() {
     Devices::get().setDevChangedCallback(nullptr, nullptr);
 
     // Stop the mix engine before sessions die: mix_loop touches sessions.
-    mix_running_ = false;
-    mix_quit_ = true;
-    mix_cv_.notify_all();
-    if (mix_thr_.joinable()) mix_thr_.join();
+    // Under mix_ctl_mu_ so a concurrent mix_start on a WS worker cannot
+    // relaunch the thread after this join and before sessions_ is cleared.
+    {
+        std::lock_guard<std::mutex> ctl(mix_ctl_mu_);
+        mix_running_ = false;
+        mix_quit_ = true;
+        mix_cv_.notify_all();
+        if (mix_thr_.joinable()) mix_thr_.join();
+    }
 
     std::vector<std::shared_ptr<DeviceSession>> dead;
     {
@@ -420,6 +435,14 @@ void DeviceManager::mix_set(const std::vector<MixCue>& cues, LoopMode mode) {
 }
 
 CmdResult DeviceManager::mix_start() {
+    // Whole transition under mix_ctl_mu_: the running-check, the join of a
+    // finished thread, and the relaunch must be atomic vs. a concurrent
+    // start/stop on another WS worker thread.
+    std::lock_guard<std::mutex> ctl(mix_ctl_mu_);
+    // Never (re)launch during/after teardown: stop() clears started_ before it
+    // joins under the same ctl mutex, so this prevents a start racing shutdown
+    // from relaunching the thread onto sessions that are about to be freed.
+    if (!started_) return mok();
     if (mix_running_) return mok();
     {
         std::lock_guard<std::mutex> g(mix_mu_);
@@ -435,10 +458,13 @@ CmdResult DeviceManager::mix_start() {
 }
 
 CmdResult DeviceManager::mix_stop() {
-    mix_running_ = false;
-    mix_quit_ = true;
-    mix_cv_.notify_all();
-    if (mix_thr_.joinable()) mix_thr_.join();
+    {
+        std::lock_guard<std::mutex> ctl(mix_ctl_mu_);
+        mix_running_ = false;
+        mix_quit_ = true;
+        mix_cv_.notify_all();
+        if (mix_thr_.joinable()) mix_thr_.join();
+    }
     {
         std::lock_guard<std::mutex> g(mix_mu_);
         mix_cue_index_ = -1;

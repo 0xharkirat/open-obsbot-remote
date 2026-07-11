@@ -160,6 +160,13 @@ private:
     void mix_loop();
     nlohmann::json mix_state_locked();      // caller holds mix_mu_
     nlohmann::json mix_state();             // takes mix_mu_
+    // Serialises the ENTIRE mix_start / mix_stop / teardown transition
+    // (running-check + signal + join + relaunch of mix_thr_). Unlike the
+    // per-camera sequencer, mix commands run directly on Crow worker threads,
+    // so two concurrent WS clients could otherwise race the std::thread object
+    // (double-join, or move-assign onto a joinable thread -> std::terminate).
+    // The mix loop NEVER takes this mutex, so holding it across join() is safe.
+    std::mutex mix_ctl_mu_;
     std::mutex mix_mu_;
     std::condition_variable mix_cv_;
     std::vector<MixCue> mix_cues_;
