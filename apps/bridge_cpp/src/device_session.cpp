@@ -38,17 +38,12 @@ static std::string product_name(ObsbotProductType t) {
     }
 }
 
-DeviceSession::DeviceSession(std::string sn, bool fake)
-    : sn_(std::move(sn)), fake_(fake) {
+DeviceSession::DeviceSession(std::string sn)
+    : sn_(std::move(sn)) {
     std::lock_guard<std::mutex> g(snap_mu_);
     snap_.sn = sn_;
 }
 DeviceSession::~DeviceSession() { stop(); }
-
-std::string DeviceSession::video_dev_path() const {
-    std::lock_guard<std::mutex> g(snap_mu_);
-    return snap_.video_dev_path;
-}
 
 void DeviceSession::attach(std::shared_ptr<Device> dev) {
     // Bind a freshly-plugged libdev device and hydrate the snapshot. The
@@ -68,7 +63,6 @@ void DeviceSession::attach(std::shared_ptr<Device> dev) {
                 snap_.sn = dev->devSn();
                 snap_.model = product_name(dev->productType());
                 snap_.firmware = dev->devVersion();
-                snap_.video_dev_path = dev->videoDevPath();
                 snap_.connected = true;
                 // Friendly name is persisted per-SN; hydrate it so the first
                 // state push already carries the operator's label.
@@ -78,7 +72,7 @@ void DeviceSession::attach(std::shared_ptr<Device> dev) {
             }
             LOGI("attached device: %s (%s) fw=%s vdev=%s",
                  snap_.sn.c_str(), snap_.model.c_str(), snap_.firmware.c_str(),
-                 snap_.video_dev_path.c_str());
+                 dev->videoDevPath().c_str());
 
             // Set zoom_max per product. Tiny 2 Lite digital zoom = 2.0×;
             // larger models reach 4.0×. Tail2 family goes higher.
@@ -131,18 +125,6 @@ void DeviceSession::attach(std::shared_ptr<Device> dev) {
         });
 }
 
-void DeviceSession::init_fake() {
-    // Fake sessions make zero libdev calls; stamp a plausible identity so
-    // the multi-cam UI has something to render. Wiring --fake-device into
-    // dispatch is the next agent's job; this keeps the seam honest.
-    std::lock_guard<std::mutex> g(snap_mu_);
-    snap_.sn = sn_;
-    snap_.model = "Tiny 2 Lite (fake)";
-    snap_.firmware = "0.0.0";
-    snap_.connected = true;
-    snap_.run_status = 1;
-}
-
 void DeviceSession::set_friendly_name(const std::string& name) {
     // Stamp-only: the DeviceManager calls this while holding its own lock and
     // then broadcasts a fresh envelope itself. Firing on_state_ here (which
@@ -150,14 +132,6 @@ void DeviceSession::set_friendly_name(const std::string& name) {
     // would deadlock. Persistence + broadcast are the caller's job.
     std::lock_guard<std::mutex> g(snap_mu_);
     snap_.friendly_name = name;
-}
-
-void DeviceSession::cmd_fake(const std::string& action, const std::string& /*raw*/, ReplyFn reply) {
-    // Snapshot-only no-op. The per-field mutation that makes the fake UI
-    // react to each action is deferred with the rest of --fake-device.
-    (void)action;
-    if (reply) reply({true, "", ""});
-    if (on_state_) on_state_(snapshot());
 }
 
 void DeviceSession::start(StateCallback on_state) {
@@ -898,39 +872,6 @@ void DeviceSession::cmd_image_set_fov(int fov, ReplyFn reply) {
             snap_.fov = fov;
         }
         return r == 0 ? ok() : err("device_busy", "fov failed");
-    }, std::move(reply));
-}
-
-void DeviceSession::cmd_image_set_brightness(int v, ReplyFn reply) {
-    submit([this, v]() -> CmdResult {
-        REQUIRE_DEV();
-        if (!valid_percent(v)) return err("invalid_param", "brightness must be 0..100");
-        int32_t r = dev_->cameraSetImageBrightnessR(v);
-        return r == 0 ? ok() : err("device_busy", "brightness failed");
-    }, std::move(reply));
-}
-void DeviceSession::cmd_image_set_contrast(int v, ReplyFn reply) {
-    submit([this, v]() -> CmdResult {
-        REQUIRE_DEV();
-        if (!valid_percent(v)) return err("invalid_param", "contrast must be 0..100");
-        int32_t r = dev_->cameraSetImageContrastR(v);
-        return r == 0 ? ok() : err("device_busy", "contrast failed");
-    }, std::move(reply));
-}
-void DeviceSession::cmd_image_set_saturation(int v, ReplyFn reply) {
-    submit([this, v]() -> CmdResult {
-        REQUIRE_DEV();
-        if (!valid_percent(v)) return err("invalid_param", "saturation must be 0..100");
-        int32_t r = dev_->cameraSetImageSaturationR(v);
-        return r == 0 ? ok() : err("device_busy", "saturation failed");
-    }, std::move(reply));
-}
-void DeviceSession::cmd_image_set_sharpness(int v, ReplyFn reply) {
-    submit([this, v]() -> CmdResult {
-        REQUIRE_DEV();
-        if (!valid_percent(v)) return err("invalid_param", "sharpness must be 0..100");
-        int32_t r = dev_->cameraSetImageSharpR(v);
-        return r == 0 ? ok() : err("device_busy", "sharpness failed");
     }, std::move(reply));
 }
 

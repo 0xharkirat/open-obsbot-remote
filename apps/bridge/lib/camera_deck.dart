@@ -13,7 +13,7 @@ import 'package:obsbot_protocol/obsbot_protocol.dart';
 import 'local_bridge_client.dart';
 
 /// Per-camera rows for the bridge window: one row per attached camera
-/// with status dot, friendly name, LIVE badge, a "Set live" action, and
+/// with status dot, friendly name, ON AIR badge, a "Set live" action, and
 /// rename. Rendered inside the home screen's group card.
 ///
 /// The deck is a monitor + coarse control. Fine control (PTZ, presets,
@@ -210,7 +210,7 @@ class _LiveBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
       ),
       child: const Text(
-        'LIVE',
+        'ON AIR',
         style: TextStyle(
           color: Color(0xFFFFFFFF),
           fontSize: 10,

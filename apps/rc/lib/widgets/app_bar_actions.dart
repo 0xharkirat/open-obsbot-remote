@@ -41,8 +41,14 @@ class AppBarTitle extends StatelessWidget {
 /// Two separate verbs, deliberately:
 ///  - tapping a camera row SELECTS it - this phone's controls (PTZ,
 ///    presets, image, sequencer, preview) point at it. Local only.
-///  - "Make ... live" routes the SELECTED camera to OBS. Bridge-global.
+///  - "Put ... on air" routes the SELECTED camera to OBS. Bridge-global.
 /// The operator lines up a shot on the off-air camera, then cuts.
+///
+/// Vocabulary: the chip says ON AIR, not LIVE. Users read "live" as
+/// "the camera is on", so with both cameras running the old LIVE badge
+/// looked wrong on the one that lacked it. Each row also carries a
+/// status dot (green running / amber asleep / grey gone) so on/off and
+/// on-air are visibly different facts. Field report from the gurdwara.
 class DevicePickerMenu extends StatelessWidget {
   const DevicePickerMenu({super.key, required this.client});
 
@@ -71,19 +77,14 @@ class DevicePickerMenu extends StatelessWidget {
             checked: d.deviceId == selectedId,
             child: Row(
               children: <Widget>[
+                _StatusDot(device: d),
+                const SizedBox(width: 8),
                 Flexible(
                   child: Text(d.displayName, overflow: TextOverflow.ellipsis),
                 ),
-                const SizedBox(width: 8),
-                if (d.runStatus == 'sleep')
-                  Icon(
-                    Icons.bedtime,
-                    size: 14,
-                    color: Theme.of(c).colorScheme.outline,
-                  ),
                 if (d.deviceId == client.activeDeviceId) ...<Widget>[
-                  const SizedBox(width: 6),
-                  const _LiveChip(),
+                  const SizedBox(width: 8),
+                  const _OnAirChip(),
                 ],
               ],
             ),
@@ -99,8 +100,8 @@ class DevicePickerMenu extends StatelessWidget {
               Flexible(
                 child: Text(
                   selectedIsLive
-                      ? '${selected.displayName} is live'
-                      : "Make '${selected.displayName}' live",
+                      ? "'${selected.displayName}' is on air"
+                      : "Put '${selected.displayName}' on air",
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -119,8 +120,33 @@ class DevicePickerMenu extends StatelessWidget {
   }
 }
 
-class _LiveChip extends StatelessWidget {
-  const _LiveChip();
+/// Green = running, amber = asleep (still attached, wakes on cut),
+/// grey = not reachable. Mirrors the Mac window's camera deck dots.
+class _StatusDot extends StatelessWidget {
+  const _StatusDot({required this.device});
+
+  final DeviceState device;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = !device.connected
+        ? const Color(0xFF8E8E93)
+        : switch (device.runStatus) {
+            'run' => const Color(0xFF34C759),
+            'sleep' => const Color(0xFFFFB300),
+            'privacy' => const Color(0xFFFF3B30),
+            _ => const Color(0xFF8E8E93),
+          };
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+class _OnAirChip extends StatelessWidget {
+  const _OnAirChip();
 
   @override
   Widget build(BuildContext context) {
@@ -131,7 +157,7 @@ class _LiveChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
       ),
       child: const Text(
-        'LIVE',
+        'ON AIR',
         style: TextStyle(
           color: Colors.white,
           fontSize: 9,
