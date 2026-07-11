@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:forui/forui.dart';
 
 import 'cache_menu.dart';
 import 'ws_client.dart';
 
-/// Pair-with-bridge screen (v1.2 PR I  -  first forui migration).
+/// Pair-with-bridge screen. Enter the 6-digit PIN shown in the Mac
+/// bridge window; the bridge issues a token the app reuses on every
+/// reconnect.
 ///
-/// Replaces Material `Scaffold` + `AppBar` + `FilledButton` with the
-/// forui equivalents (`FScaffold` / `FHeader.nested` / `FButton`)
-/// wrapped in an `FTheme` block. The Material `TextField` stays  - 
-/// forui's `FTextField` uses a different controller pattern; PR J
-/// migrates it together with the tab content as a unit.
-///
-/// The rest of the app keeps Material widgets; forui coexists by
-/// wrapping the subtree that wants forui styling.
+/// Pure Material as of v3 (forui retired app-wide). The inline error
+/// under the field carries a wrong-PIN message - deliberately friendly
+/// copy, never the bridge's raw protocol hint (see CLAUDE.md #41).
 class PinEntryScreen extends StatefulWidget {
   final WsClient client;
   const PinEntryScreen({super.key, required this.client});
@@ -41,9 +37,8 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
     setState(() => _busy = false);
     if (!ok) {
       // Clear + re-focus so the keyboard pops again ready for retry.
-      // No SnackBar: the inline destructive label below the field
-      // (driven by `widget.client.lastAuthError`) already communicates
-      // the failure - a SnackBar on top would be double signalling.
+      // The inline error below the field already communicates failure;
+      // a SnackBar on top would be double signalling.
       _ctrl.clear();
       _focus.requestFocus();
     }
@@ -58,35 +53,18 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Wrap the forui subtree in FTheme. Pick the dark zinc theme to
-    // match the existing dark Material colorScheme; once forui covers
-    // the rest of the app we can drop Material's ThemeData entirely.
-    return FTheme(
-      data: FThemes.zinc.dark.touch,
-      child: FScaffold(
-        header: FHeader.nested(
-          title: const Text('Pair with bridge'),
-          prefixes: <Widget>[
-            FHeaderAction.back(onPress: () => widget.client.close()),
-          ],
-          suffixes: <Widget>[
-            // CacheMenu is Material-themed; wrap it in a Builder so it
-            // gets a Material Theme.of(context) from the outer
-            // MaterialApp ancestor.
-            Builder(builder: (_) => CacheMenu(onCleared: () => widget.client.close())),
-          ],
-        ),
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pair with bridge'),
+        leading: BackButton(onPressed: widget.client.close),
+        actions: <Widget>[CacheMenu(onCleared: widget.client.close)],
+      ),
+      body: SafeArea(
         child: AnimatedBuilder(
           animation: widget.client,
           builder: (BuildContext ctx, _) {
-            final t = FTheme.of(ctx);
-            // Material(transparency) supplies the Material ancestor that
-            // the Material TextField (and any future Material widgets we
-            // keep in this hybrid screen) needs. forui's FScaffold does
-            // not provide one because forui itself doesn't use Material.
-            return Material(
-              type: MaterialType.transparency,
-              child: Padding(
+            return Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -94,8 +72,8 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
                   const SizedBox(height: 24),
                   Text(
                     'Connected to bridge at',
-                    style: t.typography.sm.copyWith(
-                      color: t.colors.mutedForeground,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -111,12 +89,9 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
                   Text(
                     'Enter the 6-digit PIN displayed in the\n'
                     '"Open OBSBOT Bridge" window on your Mac.',
-                    style: t.typography.sm,
+                    style: theme.textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 24),
-                  // Material TextField with forui-friendly styling. PR J
-                  // can swap to FTextField once we migrate the rest of
-                  // the input surfaces.
                   TextField(
                     controller: _ctrl,
                     focusNode: _focus,
@@ -144,31 +119,31 @@ class _PinEntryScreenState extends State<PinEntryScreen> {
                     },
                   ),
                   const SizedBox(height: 24),
-                  FButton(
-                    onPress:
-                        (_busy || _ctrl.text.length != 6) ? null : _submit,
-                    prefix: _busy
+                  FilledButton.icon(
+                    onPressed: (_busy || _ctrl.text.length != 6)
+                        ? null
+                        : _submit,
+                    icon: _busy
                         ? const SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.lock_open, size: 16),
-                    child: Text(_busy ? 'Pairing...' : 'Pair'),
+                    label: Text(_busy ? 'Pairing...' : 'Pair'),
                   ),
                   if (widget.client.lastAuthError != null) ...<Widget>[
                     const SizedBox(height: 16),
                     Text(
                       widget.client.lastAuthError!,
-                      style: t.typography.sm.copyWith(
-                        color: t.colors.destructive,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.error,
                       ),
                       textAlign: TextAlign.center,
                     ),
                   ],
                 ],
               ),
-            ),
             );
           },
         ),

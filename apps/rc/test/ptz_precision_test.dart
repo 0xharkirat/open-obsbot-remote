@@ -7,7 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:obsbot_control/control_screen.dart';
+import 'package:obsbot_control/ptz_widgets.dart';
 import 'package:obsbot_control/ptz_tuning.dart';
 import 'package:obsbot_control/ws_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
