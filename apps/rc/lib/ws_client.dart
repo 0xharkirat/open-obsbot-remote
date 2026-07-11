@@ -8,6 +8,8 @@ import 'package:obsbot_api_client/obsbot_api_client.dart';
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'ptz_tuning.dart';
+
 // Re-export the protocol types so existing consumers of this file keep
 // seeing PresetEntry, SequenceStep, SequenceState, DeviceState,
 // BridgeState, LoopMode, MoveDurationPreset, etc. without an
@@ -63,6 +65,7 @@ class WsClient extends ChangeNotifier {
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
       _driveControlStyle =
           p.getString('drive_control_style') ?? _driveControlStyle;
+      _ptzSpeed = ptzSpeedFromWire(p.getString('ptz_speed') ?? 'normal');
       if (!_disposed) notifyListeners();
     });
   }
@@ -102,6 +105,9 @@ class WsClient extends ChangeNotifier {
 
   /// Drive page control style: `"joystick"` or `"buttons"` (default).
   String _driveControlStyle = 'buttons';
+
+  /// Manual-PTZ speed preset (nudge step + glide/joystick ceiling).
+  PtzSpeed _ptzSpeed = PtzSpeed.normal;
 
   // ---------------------------------------------------------------- views
 
@@ -199,6 +205,13 @@ class WsClient extends ChangeNotifier {
   bool get gridReadout => _gridReadout;
   String get driveControlStyle => _driveControlStyle;
   Duration get moveDuration => _moveDuration;
+  PtzSpeed get ptzSpeed => _ptzSpeed;
+
+  Future<void> setPtzSpeed(PtzSpeed s) async {
+    _ptzSpeed = s;
+    notifyListeners();
+    await _setPref((p) => p.setString('ptz_speed', ptzSpeedToWire(s)));
+  }
 
   Future<void> setDriveControlStyle(String style) async {
     if (style != 'joystick' && style != 'buttons') return;
@@ -413,6 +426,24 @@ class WsClient extends ChangeNotifier {
 
   void ptzStop() => _fire((r, id) => r.ptzStop(deviceId: id));
   void ptzRecenter() => _fire((r, id) => r.recenter(deviceId: id));
+
+  /// One precision nudge: an absolute-position step of the current
+  /// speed preset's size in the given direction (signs are the same
+  /// viewer-frame convention as velocity: +yaw pans right, +pitch
+  /// tilts up). Position commands cannot overshoot - this is the
+  /// primary framing verb; hold-to-glide is the coarse one.
+  void ptzNudge({double yawSign = 0, double pitchSign = 0}) {
+    final d = state;
+    final step = nudgeStepDeg(_ptzSpeed);
+    _fire(
+      (r, id) => r.ptzAngle(
+        deviceId: id,
+        yaw: d.yaw + yawSign * step,
+        pitch: d.pitch + pitchSign * step,
+        duration: kNudgeMoveDuration,
+      ),
+    );
+  }
 
   void zoomSet(double value, {bool terminal = false, Duration? duration}) =>
       _fire(

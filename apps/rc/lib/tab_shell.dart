@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 import 'control_screen.dart';
 import 'move_duration_icons.dart';
 import 'preview_widget.dart';
+import 'ptz_tuning.dart';
 import 'ws_client.dart';
 
 /// v1.2 redesign — 3-tab shell below a pinned live preview.
@@ -424,6 +425,43 @@ class _DurationChips extends StatelessWidget {
 // Tab 1 — Joystick
 // ===========================================================================
 
+/// Manual-PTZ speed preset, adjacent to the pad/joystick (broadcast
+/// controllers put speed beside the stick - you change it mid-move).
+/// Governs nudge step + glide/joystick ceilings; preset-recall move
+/// durations stay a separate concept (the chip strip below).
+class _PtzSpeedRow extends StatelessWidget {
+  final WsClient client;
+  const _PtzSpeedRow({required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SegmentedButton<PtzSpeed>(
+      showSelectedIcon: false,
+      style: SegmentedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        textStyle: const TextStyle(fontSize: 12),
+        backgroundColor: cs.surfaceContainer,
+        foregroundColor: cs.onSurface,
+        selectedBackgroundColor: cs.primary,
+        selectedForegroundColor: cs.onPrimary,
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      segments: const <ButtonSegment<PtzSpeed>>[
+        ButtonSegment<PtzSpeed>(value: PtzSpeed.fine, label: Text('Fine')),
+        ButtonSegment<PtzSpeed>(value: PtzSpeed.normal, label: Text('Normal')),
+        ButtonSegment<PtzSpeed>(value: PtzSpeed.fast, label: Text('Fast')),
+      ],
+      selected: <PtzSpeed>{client.ptzSpeed},
+      onSelectionChanged: (Set<PtzSpeed> sel) {
+        if (sel.isNotEmpty) client.setPtzSpeed(sel.first);
+      },
+    );
+  }
+}
+
 class _JoystickTab extends StatelessWidget {
   final WsClient client;
   const _JoystickTab({required this.client});
@@ -455,6 +493,8 @@ class _JoystickTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
+              _PtzSpeedRow(client: client),
+              const SizedBox(height: 8),
               _InlinePresetRow(client: client),
               const SizedBox(height: 8),
               _BottomControls(client: client),
@@ -475,12 +515,10 @@ class _ButtonsTab extends StatelessWidget {
   final WsClient client;
   const _ButtonsTab({required this.client});
 
-  // Hold-button velocities in deg/s. The v1.2 user-facing speed slider
-  // was dropped per live-test feedback; users now control pace via the
-  // duration chips (preset recall + ptz.angle) and analog joystick
-  // deflection. Hold-buttons run at full velocity.
-  static const double _yaw = 80;
-  static const double _pit = 40;
+  // Direction signs only (v3 P1): HoldDirBtn derives magnitude from the
+  // speed preset + ramp; these fields just carry which way to go.
+  static const double _yaw = 1;
+  static const double _pit = 1;
 
   @override
   Widget build(BuildContext context) {
@@ -533,6 +571,8 @@ class _ButtonsTab extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 8),
+              _PtzSpeedRow(client: client),
               const SizedBox(height: 8),
               _InlinePresetRow(client: client),
               const SizedBox(height: 8),

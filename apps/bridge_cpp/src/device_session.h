@@ -263,6 +263,12 @@ private:
 
     // velocity coalescing
     std::chrono::steady_clock::time_point last_velocity_apply_{};
+    // True while a nonzero manual velocity is driving the gimbal. The
+    // worker loop's watchdog auto-stops the motors if the client stops
+    // refreshing (dropped packet, dead phone, backgrounded browser tab)
+    // - a runaway pan mid-service is the worst possible failure. Only
+    // touched on the worker thread.
+    bool velocity_active_ = false;
 
     // ----- MotionPlanner: bridge-side smooth interpolation for moves
     // slower than the SDK's own floor.
