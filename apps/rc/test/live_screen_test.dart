@@ -95,6 +95,15 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'TAKE'), findsOneWidget);
   });
 
+  testWidgets('empty preset tiles show the save hint (discoverability)', (
+    tester,
+  ) async {
+    await _pump(tester, _bridge(<DeviceState>[_device('A')], 'A'));
+    // Save-on-long-press is invisible without the hint; the v2 tiles
+    // carried it and the operator could not find how to save without it.
+    expect(find.text('hold to save here'), findsWidgets);
+  });
+
   testWidgets('Frame toggle swaps presets for the manual controls', (
     tester,
   ) async {

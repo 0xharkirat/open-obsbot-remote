@@ -44,8 +44,14 @@ test -x "$BRIDGE_BIN" || { echo "obsbot-bridge missing"; exit 1; }
 test -f "$BRIDGE_LIB" || { echo "libdev.dylib missing"; exit 1; }
 
 # 2a) build Flutter web app (Open OBSBOT Remote) so the bridge can serve it.
+#     --pwa-strategy=none disables the service worker. The bridge is
+#     always on the LAN, so an offline PWA cache buys nothing but causes
+#     the classic Flutter-web stale-asset bug: after an update the SW
+#     serves the OLD tree-shaken icon font (and JS), so new icons render
+#     blank until the user clears site data. No SW = a normal reload
+#     always gets the fresh build.
 echo "==> Building Flutter web app..."
-(cd apps/rc && flutter build web --release)
+(cd apps/rc && flutter build web --release --pwa-strategy=none)
 WEB_DIR="$ROOT/apps/rc/build/web"
 test -d "$WEB_DIR" || { echo "web build missing at $WEB_DIR"; exit 1; }
 

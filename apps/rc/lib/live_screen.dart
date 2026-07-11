@@ -427,21 +427,51 @@ class _PresetTile extends StatelessWidget {
                 : theme.colorScheme.outlineVariant,
           ),
         ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: has ? 18 : 15,
-            fontWeight: FontWeight.w700,
-            color: active
-                ? theme.colorScheme.onPrimary
-                : (has
-                      ? theme.colorScheme.onSurface
-                      : theme.colorScheme.outline),
-          ),
+        padding: const EdgeInsets.all(8),
+        child: Stack(
+          children: <Widget>[
+            Center(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: has ? 18 : 15,
+                  fontWeight: FontWeight.w700,
+                  color: active
+                      ? theme.colorScheme.onPrimary
+                      : (has
+                            ? theme.colorScheme.onSurface
+                            : theme.colorScheme.outline),
+                ),
+              ),
+            ),
+            // Discoverability: tap-to-recall / hold-to-save is invisible
+            // otherwise. The v2 tiles carried this hint; the studio
+            // dropped it and the operator could not find how to save.
+            Positioned(
+              left: 0,
+              bottom: 0,
+              child: Text(
+                has ? 'P${id + 1}  ·  hold to rename' : 'hold to save here',
+                style: TextStyle(
+                  fontSize: 10,
+                  color:
+                      (active
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.outline)
+                          .withValues(alpha: 0.75),
+                ),
+              ),
+            ),
+            if (active)
+              const Positioned(
+                right: 0,
+                top: 0,
+                child: Icon(Icons.check_circle, size: 16, color: Colors.white),
+              ),
+          ],
         ),
       ),
     );
