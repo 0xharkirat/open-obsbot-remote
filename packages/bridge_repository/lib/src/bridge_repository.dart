@@ -95,6 +95,37 @@ class BridgeRepository {
     });
   }
 
+  // ---- mix.* : cross-camera sequencer (bridge-scoped, spans cameras) ----
+
+  /// Replaces the active scratch cue list. Persists on the bridge and
+  /// broadcasts a fresh state event with the new `mix.cues`.
+  Future<void> setMix(List<MixCue> cues, String mode) async {
+    await _api.send(<String, dynamic>{
+      'action': 'mix.set',
+      'cues': cues.map((c) => c.toJson()).toList(),
+      'mode': mode,
+    });
+  }
+
+  Future<void> startMix() =>
+      _api.send(<String, dynamic>{'action': 'mix.start'});
+  Future<void> stopMix() => _api.send(<String, dynamic>{'action': 'mix.stop'});
+
+  /// Saves the cue list to the library under [name] and marks it loaded.
+  Future<void> saveMixAs(String name, List<MixCue> cues, String mode) async {
+    await _api.send(<String, dynamic>{
+      'action': 'mix.save_as',
+      'name': name,
+      'cues': cues.map((c) => c.toJson()).toList(),
+      'mode': mode,
+    });
+  }
+
+  Future<void> loadMix(String name) =>
+      _api.send(<String, dynamic>{'action': 'mix.load', 'name': name});
+  Future<void> deleteMix(String name) =>
+      _api.send(<String, dynamic>{'action': 'mix.delete', 'name': name});
+
   /// Builds the MJPEG preview URL on the HTTP port (`ws_port + 1`).
   ///
   /// [deviceId] null -> `/preview/active.mjpg`, the follow-the-live
@@ -107,9 +138,8 @@ class BridgeRepository {
     required String token,
     String? deviceId,
   }) {
-    final path = deviceId == null
-        ? '/preview/active.mjpg'
-        : '/preview/$deviceId.mjpg';
+    final path =
+        deviceId == null ? '/preview/active.mjpg' : '/preview/$deviceId.mjpg';
     return Uri(
       scheme: 'http',
       host: host,

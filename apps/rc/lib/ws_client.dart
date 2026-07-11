@@ -180,6 +180,30 @@ class WsClient extends ChangeNotifier {
     }
   }
 
+  // ---- mix.* : cross-camera sequencer (bridge-global, no device_id) ----
+
+  /// Live status + scratch cues + saved library of the cross-camera mixer.
+  MixState get mix => _bridge.mix;
+
+  Future<void> _mix(Future<void> Function(BridgeRepository) op) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return;
+    try {
+      await op(repo);
+    } on ApiException catch (e) {
+      _fail(e);
+    }
+  }
+
+  Future<void> mixSet(List<MixCue> cues, String mode) =>
+      _mix((r) => r.setMix(cues, mode));
+  Future<void> mixStart() => _mix((r) => r.startMix());
+  Future<void> mixStop() => _mix((r) => r.stopMix());
+  Future<void> mixSaveAs(String name, List<MixCue> cues, String mode) =>
+      _mix((r) => r.saveMixAs(name, cues, mode));
+  Future<void> mixLoad(String name) => _mix((r) => r.loadMix(name));
+  Future<void> mixDelete(String name) => _mix((r) => r.deleteMix(name));
+
   /// MJPEG preview URL for [deviceId] (defaults to the selected
   /// camera). Null until connected + authed.
   Uri? previewUri({String? deviceId}) {

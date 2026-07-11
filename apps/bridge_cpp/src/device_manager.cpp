@@ -58,7 +58,7 @@ static nlohmann::json cue_to_json(const MixCue& c) {
 static MixCue cue_from_json(const nlohmann::json& j) {
     MixCue c;
     c.camera_sn  = j.value("camera_sn", std::string{});
-    c.preset_id  = j.value("preset_id", 0);
+    c.preset_id  = j.value("preset_id", -1);   // absent = hold current shot
     c.move_ms    = j.value("move_ms", 0);
     c.hold_s     = j.value("hold_s", 10);
     c.transition = j.value("transition", std::string("cut"));
@@ -548,11 +548,11 @@ void DeviceManager::mix_loop() {
             std::string ec;
             set_active(cue.camera_sn, ec);
         }
-        if (cue.preset_id > 0) {
+        if (cue.preset_id >= 0) {   // <0 = hold current shot (no recall)
             if (auto s = session_by_sn(cue.camera_sn))
                 s->cmd_preset_recall(cue.preset_id, cue.move_ms, [](CmdResult) {});
         }
-        if (cue.has_meanwhile) {
+        if (cue.has_meanwhile && cue.mw_preset_id >= 0) {
             if (auto s = session_by_sn(cue.mw_sn))
                 s->cmd_preset_recall(cue.mw_preset_id, cue.mw_move_ms, [](CmdResult) {});
         }

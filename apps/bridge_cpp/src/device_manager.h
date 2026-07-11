@@ -28,7 +28,9 @@ class VideoCapture;
 // means "hold the current shot" (just cut to the camera without moving it).
 struct MixCue {
     std::string camera_sn;            // program camera for this cue
-    int preset_id = 0;                // <=0 = hold current shot (no recall)
+    int preset_id = -1;               // <0 = hold current shot (no recall).
+                                      // 0..5 are real slots (P1..P6), so the
+                                      // hold sentinel must be negative, not 0.
     int move_ms = 0;                  // live move duration (0 = instant snap)
     int hold_s = 10;                  // dwell after the move lands
     std::string transition = "cut";   // "cut" now; "fade" arrives in P4

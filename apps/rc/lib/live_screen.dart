@@ -5,7 +5,7 @@ import 'footer.dart';
 import 'preview_widget.dart';
 import 'ptz_tuning.dart';
 import 'ptz_widgets.dart';
-import 'sequencer_screen.dart';
+import 'sequences_hub.dart';
 import 'settings_screen.dart';
 import 'ws_client.dart';
 
@@ -183,13 +183,13 @@ class _TopStrip extends StatelessWidget {
           IconButton(
             tooltip: 'Sequences',
             icon: Icon(
-              client.state.sequence.running
+              (client.state.sequence.running || client.mix.running)
                   ? Icons.multiline_chart
                   : Icons.timeline,
             ),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => SequencerScreen(client: client),
+                builder: (_) => SequencesHub(client: client),
               ),
             ),
           ),
