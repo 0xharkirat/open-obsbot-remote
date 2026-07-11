@@ -53,6 +53,7 @@ dependencies:
     path: ../../packages/obsbot_api_client
   obsbot_protocol:
     path: ../../packages/obsbot_protocol
+  marionette_flutter: ^0.6.0
 
 dev_dependencies:
   flutter_test:

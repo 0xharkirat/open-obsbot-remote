@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/cupertino.dart' show CupertinoColors, CupertinoIcons;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:marionette_flutter/marionette_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -41,7 +43,15 @@ Future<bool> _hasPairedTokens() async {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Marionette (debug only) lets an AI agent drive this Mac app via the
+  // widget tree. Skip it under a test harness - one WidgetsBinding per
+  // process. macOS-only app, so dart:io is always available here.
+  final underTest = Platform.environment.containsKey('FLUTTER_TEST');
+  if (kDebugMode && !underTest) {
+    MarionetteBinding.ensureInitialized();
+  } else {
+    WidgetsFlutterBinding.ensureInitialized();
+  }
   await windowManager.ensureInitialized();
   final prefs = await BridgePrefs.load();
   final paired = await _hasPairedTokens();

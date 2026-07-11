@@ -1,8 +1,11 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:marionette_flutter/marionette_flutter.dart';
 
 import 'connect_screen.dart';
+import 'flutter_test_detect.dart'
+    if (dart.library.io) 'flutter_test_detect_io.dart';
 import 'host_autodetect_stub.dart'
     if (dart.library.js_interop) 'host_autodetect_web.dart';
 import 'live_screen.dart';
@@ -10,7 +13,14 @@ import 'pin_entry_screen.dart';
 import 'ws_client.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Marionette lets an AI agent drive the running app via the widget tree
+  // (docs/testing: marionette MCP). Debug-only, and never when a test
+  // harness already owns the binding - one WidgetsBinding per process.
+  if (kDebugMode && !isRunningFlutterTest) {
+    MarionetteBinding.ensureInitialized();
+  } else {
+    WidgetsFlutterBinding.ensureInitialized();
+  }
   SystemChrome.setPreferredOrientations(<DeviceOrientation>[
     DeviceOrientation.portraitUp,
     DeviceOrientation.landscapeLeft,
