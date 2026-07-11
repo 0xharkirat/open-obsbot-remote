@@ -29,7 +29,18 @@ class AppBarTitle extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        const Text('OBSBOT Remote'),
+        // Flexible so the text YIELDS when the action icons crowd the
+        // bar (multi-cam adds the picker icon; at 390px the fixed-width
+        // Row otherwise let the icons paint over the title). Ellipsized
+        // "OBSBOT Re..." beats overlap; the logo never shrinks.
+        const Flexible(
+          child: Text(
+            'OBSBOT Remote',
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }
