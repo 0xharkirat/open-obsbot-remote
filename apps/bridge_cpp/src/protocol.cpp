@@ -217,7 +217,6 @@ void dispatch_message(DeviceManager& mgr,
 
     if (action == "device.set_active") {
         string sn = msg.value("device_id", string{});
-        if (sn.empty()) sn = msg.value("sn", string{});
         string ec;
         if (mgr.set_active(sn, ec)) reply_send(ack_ok(id).dump());
         else reply_send(ack_err(id, ec, "no camera with device_id " + sn).dump());
@@ -226,7 +225,6 @@ void dispatch_message(DeviceManager& mgr,
 
     if (action == "device.rename") {
         string sn = msg.value("device_id", string{});
-        if (sn.empty()) sn = msg.value("sn", string{});
         string name = msg.value("name", string{});
         string ec;
         if (mgr.rename(sn, name, ec)) reply_send(ack_ok(id).dump());

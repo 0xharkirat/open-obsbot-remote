@@ -51,8 +51,6 @@ struct DeviceSnapshot {
     // AVFoundation uniqueID for this camera (== Device::videoDevPath()).
     // The SN -> capture-device join the per-device MJPEG path needs. Not
     // emitted in the state event; surfaced for the MJPEG agent via
-    // DeviceSession::video_dev_path().
-    std::string video_dev_path;
     bool connected = false;
     int run_status = 1;       // 1=run, 3=sleep, 4=privacy
 
@@ -129,21 +127,13 @@ public:
     using ReplyFn = std::function<void(CmdResult)>;
 
     // `sn` identifies the camera for its entire lifetime: the persistence
-    // key, the routing key, and the MJPEG path component. A fake session
+    // key, the routing key, and the MJPEG path component.
     // makes zero libdev calls and its MJPEG path 404s; it exists so CI and
     // single-camera dev machines can exercise the multi-cam UI without a
-    // second physical camera (--fake-device <SN>).
-    explicit DeviceSession(std::string sn, bool fake = false);
+    explicit DeviceSession(std::string sn);
     ~DeviceSession();
 
     const std::string& sn() const { return sn_; }
-    bool is_fake() const { return fake_; }
-
-    // AVFoundation uniqueID (== Device::videoDevPath()), captured on
-    // attach. Empty until a real device is bound (and always empty for
-    // fake sessions). The next agent's per-device MJPEG path joins on
-    // this. Reads a copy under the snapshot mutex.
-    std::string video_dev_path() const;
 
     // Launch the worker + motion threads. Non-blocking. on_state fires
     // whenever this device's snapshot changes. The DeviceManager owns the
@@ -156,17 +146,13 @@ public:
     // SDK work runs on this session's worker thread.
     void attach(std::shared_ptr<Device> dev);
 
-    // Stamp a fake session's identity into its snapshot (fake devices only).
-    void init_fake();
 
     // Stamp the friendly name (device.rename) into the snapshot. Does NOT
     // broadcast or persist - the DeviceManager owns both (it calls this under
     // its own lock, so broadcasting from here would deadlock).
     void set_friendly_name(const std::string& name);
 
-    // Apply a WS action to a fake device as a snapshot-only no-op so the UI
     // still reacts. Never touches libdev. `raw` is the original JSON message.
-    void cmd_fake(const std::string& action, const std::string& raw, ReplyFn reply);
 
     bool connected() const;
     DeviceSnapshot snapshot() const;
@@ -192,10 +178,6 @@ public:
     // Single-channel setters. Superseded by cmd_image_set_color (which sets
     // any subset atomically) but kept live: the dead-code cut is deferred to
     // a later PR, not this one.
-    void cmd_image_set_brightness(int v, ReplyFn reply);
-    void cmd_image_set_contrast(int v, ReplyFn reply);
-    void cmd_image_set_saturation(int v, ReplyFn reply);
-    void cmd_image_set_sharpness(int v, ReplyFn reply);
     void cmd_image_set_color(bool has_brightness, int brightness,
                              bool has_contrast, int contrast,
                              bool has_saturation, int saturation,
@@ -264,7 +246,6 @@ private:
 
     // Stable identity for this session (persistence + routing + MJPEG key).
     std::string sn_;
-    bool fake_ = false;
 
     // shared snapshot
     mutable std::mutex snap_mu_;

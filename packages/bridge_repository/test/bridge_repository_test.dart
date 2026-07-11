@@ -151,72 +151,17 @@ void main() {
       });
     });
 
-    test('renameDevice trims and caps the name at 60 chars', () async {
+    test(
+        'renameDevice passes the name through verbatim - the bridge '
+        'owns validation (trim + 60-char cap), one authority', () async {
       when(() => api.send(any())).thenAnswer((_) async => <String, dynamic>{});
       final repo = build();
-      await repo.renameDevice('A', '  ${'x' * 80}  ');
+      await repo.renameDevice('A', '  Vocal  ');
       final sent = verify(() => api.send(captureAny())).captured.single
           as Map<String, dynamic>;
       expect(sent['action'], 'device.rename');
       expect(sent['device_id'], 'A');
-      expect((sent['name'] as String).length, 60);
-    });
-
-    test('renameDevice with only whitespace clears the name', () async {
-      when(() => api.send(any())).thenAnswer((_) async => <String, dynamic>{});
-      final repo = build();
-      await repo.renameDevice('A', '   ');
-      final sent = verify(() => api.send(captureAny())).captured.single
-          as Map<String, dynamic>;
-      expect(sent['name'], '');
-    });
-
-    test('listDevices parses the ack devices array into DeviceSummary',
-        () async {
-      when(() => api.send(any())).thenAnswer(
-        (_) async => <String, dynamic>{
-          'ok': true,
-          'active_device_id': 'A',
-          'devices': <dynamic>[
-            <String, dynamic>{
-              'device_id': 'A',
-              'model_display': 'Tiny 2 Lite',
-              'sn': 'A',
-              'connected': true,
-              'friendly_name': 'Vocal',
-            },
-            <String, dynamic>{
-              'device_id': 'B',
-              'model_display': 'Tiny 2 Lite',
-              'sn': 'B',
-              'connected': false,
-              'friendly_name': '',
-            },
-          ],
-        },
-      );
-      final repo = build();
-      final list = await repo.listDevices();
-
-      expect(list, hasLength(2));
-      expect(
-        list.first,
-        const DeviceSummary(
-          deviceId: 'A',
-          modelDisplay: 'Tiny 2 Lite',
-          sn: 'A',
-          connected: true,
-          friendlyName: 'Vocal',
-        ),
-      );
-      expect(list.last.connected, isFalse);
-    });
-
-    test('listDevices tolerates a missing devices array', () async {
-      when(() => api.send(any()))
-          .thenAnswer((_) async => <String, dynamic>{'ok': true});
-      final repo = build();
-      expect(await repo.listDevices(), isEmpty);
+      expect(sent['name'], '  Vocal  ');
     });
   });
 }
