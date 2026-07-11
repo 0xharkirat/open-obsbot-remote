@@ -20,6 +20,7 @@ library;
 export 'src/bridge_state.dart';
 export 'src/device_state.dart';
 export 'src/loop_mode.dart';
+export 'src/mix_state.dart';
 export 'src/move_duration_preset.dart';
 export 'src/preset_entry.dart';
 export 'src/sequence_state.dart';

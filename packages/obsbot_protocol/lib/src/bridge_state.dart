@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 
 import 'device_state.dart';
+import 'mix_state.dart';
 
 /// Top-level state pushed by the bridge in every v2 `state` event.
 ///
@@ -36,10 +37,15 @@ class BridgeState {
   /// UI still use it to badge the LIVE pill on the picker.
   final String activeDeviceId;
 
+  /// Cross-camera sequencer (P3) status + scratch cues + saved library.
+  /// [MixState.empty] on v1/v2.0 bridges that don't emit a `mix` block.
+  final MixState mix;
+
   const BridgeState({
     required this.protocolVersion,
     required this.devices,
     required this.activeDeviceId,
+    this.mix = MixState.empty,
   });
 
   static const empty = BridgeState(
@@ -85,10 +91,14 @@ class BridgeState {
         .whereType<Map<String, dynamic>>()
         .map(DeviceState.fromEvent)
         .toList(growable: false);
+    final mixRaw = j['mix'];
     return BridgeState(
       protocolVersion: version,
       devices: devices,
       activeDeviceId: j['active_device_id'] as String? ?? '',
+      mix: mixRaw is Map<String, dynamic>
+          ? MixState.fromJson(mixRaw)
+          : MixState.empty,
     );
   }
 
@@ -96,11 +106,13 @@ class BridgeState {
     String? protocolVersion,
     List<DeviceState>? devices,
     String? activeDeviceId,
+    MixState? mix,
   }) {
     return BridgeState(
       protocolVersion: protocolVersion ?? this.protocolVersion,
       devices: devices ?? this.devices,
       activeDeviceId: activeDeviceId ?? this.activeDeviceId,
+      mix: mix ?? this.mix,
     );
   }
 

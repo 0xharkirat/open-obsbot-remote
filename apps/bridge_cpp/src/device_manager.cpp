@@ -19,6 +19,78 @@ static int64_t now_ms() {
         system_clock::now().time_since_epoch()).count();
 }
 
+// LoopMode <-> string. The per-camera sequencer has its own file-local copies
+// in device_session.cpp; these small twins keep the mix engine self-contained
+// rather than exporting them across a header. ponytail: two five-line funcs is
+// less machinery than a new shared header for one enum.
+static const char* loop_mode_str(LoopMode m) {
+    switch (m) {
+        case LoopMode::once:      return "once";
+        case LoopMode::forward:   return "forward";
+        case LoopMode::ping_pong: return "ping_pong";
+    }
+    return "forward";
+}
+static LoopMode parse_loop_mode(const std::string& s) {
+    if (s == "once") return LoopMode::once;
+    if (s == "ping_pong") return LoopMode::ping_pong;
+    return LoopMode::forward;
+}
+
+static nlohmann::json cue_to_json(const MixCue& c) {
+    nlohmann::json j{
+        {"camera_sn", c.camera_sn},
+        {"preset_id", c.preset_id},
+        {"move_ms",   c.move_ms},
+        {"hold_s",    c.hold_s},
+        {"transition", c.transition},
+    };
+    if (c.has_meanwhile) {
+        j["meanwhile"] = {
+            {"camera_sn", c.mw_sn},
+            {"preset_id", c.mw_preset_id},
+            {"move_ms",   c.mw_move_ms},
+        };
+    }
+    return j;
+}
+
+static MixCue cue_from_json(const nlohmann::json& j) {
+    MixCue c;
+    c.camera_sn  = j.value("camera_sn", std::string{});
+    c.preset_id  = j.value("preset_id", -1);   // absent = hold current shot
+    c.move_ms    = j.value("move_ms", 0);
+    c.hold_s     = j.value("hold_s", 10);
+    c.transition = j.value("transition", std::string("cut"));
+    if (c.hold_s < 1) c.hold_s = 1;
+    if (c.move_ms < 0) c.move_ms = 0;
+    if (j.contains("meanwhile") && j["meanwhile"].is_object()) {
+        auto& m = j["meanwhile"];
+        c.has_meanwhile = true;
+        c.mw_sn        = m.value("camera_sn", std::string{});
+        c.mw_preset_id = m.value("preset_id", 0);
+        c.mw_move_ms   = m.value("move_ms", 0);
+        if (c.mw_move_ms < 0) c.mw_move_ms = 0;
+        if (c.mw_sn.empty()) c.has_meanwhile = false;
+    }
+    return c;
+}
+
+static std::vector<MixCue> cues_from_json(const nlohmann::json& arr) {
+    std::vector<MixCue> out;
+    if (arr.is_array()) {
+        for (auto& j : arr) {
+            if (j.is_object()) out.push_back(cue_from_json(j));
+        }
+    }
+    return out;
+}
+
+std::vector<MixCue> parse_mix_cues(const nlohmann::json& cues_json) {
+    return cues_from_json(cues_json);
+}
+LoopMode parse_mix_mode(const std::string& s) { return parse_loop_mode(s); }
+
 DeviceManager::DeviceManager() {}
 DeviceManager::~DeviceManager() { stop(); }
 
@@ -29,6 +101,26 @@ void DeviceManager::start(Broadcaster broadcaster) {
     // first-attached camera.
     desired_active_ = persist::load_active_device();
     active_sn_.clear();
+    // Rehydrate the active mix scratch so the editor shows the last-authored
+    // cross-camera sequence on reopen (mirrors the per-camera scratch). Wrapped
+    // in try/catch: a hand-edited mix.json with a wrong-typed field would throw
+    // nlohmann::type_error, and a bricked launch mid-service is unacceptable -
+    // fall back to an empty scratch instead.
+    try {
+        nlohmann::json m = persist::load_active_mix();
+        nlohmann::json lib = persist::load_mix_library();
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cues_ = cues_from_json(m.value("cues", nlohmann::json::array()));
+        mix_mode_ = parse_loop_mode(m.value("mode", std::string("forward")));
+        for (auto& it : lib.items()) mix_available_.push_back(it.key());
+        std::sort(mix_available_.begin(), mix_available_.end());
+    } catch (const std::exception& e) {
+        LOGW("mix: failed to rehydrate scratch/library (%s); starting empty",
+             e.what());
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cues_.clear();
+        mix_mode_ = LoopMode::forward;
+    }
     started_ = true;
 
     Devices::get().setDevChangedCallback(
@@ -48,6 +140,17 @@ void DeviceManager::stop() {
     if (!started_) return;
     started_ = false;
     Devices::get().setDevChangedCallback(nullptr, nullptr);
+
+    // Stop the mix engine before sessions die: mix_loop touches sessions.
+    // Under mix_ctl_mu_ so a concurrent mix_start on a WS worker cannot
+    // relaunch the thread after this join and before sessions_ is cleared.
+    {
+        std::lock_guard<std::mutex> ctl(mix_ctl_mu_);
+        mix_running_ = false;
+        mix_quit_ = true;
+        mix_cv_.notify_all();
+        if (mix_thr_.joinable()) mix_thr_.join();
+    }
 
     std::vector<std::shared_ptr<DeviceSession>> dead;
     {
@@ -189,6 +292,7 @@ nlohmann::json DeviceManager::build_state_event() {
         {"ts", now_ms()},
         {"active_device_id", active_sn_},
         {"devices", std::move(devs)},
+        {"mix", mix_state()},
     };
 }
 
@@ -271,6 +375,277 @@ VideoCapture* DeviceManager::capture_for(const std::string& sn) {
     std::lock_guard<std::mutex> g(mu_);
     auto it = captures_.find(sn);
     return it == captures_.end() ? nullptr : it->second.get();
+}
+
+// ---------------------------------------------------------------------------
+// Mix engine (cross-camera sequencer)
+// ---------------------------------------------------------------------------
+
+static CmdResult mok() { return CmdResult{true, "", ""}; }
+static CmdResult merr(const char* code, const std::string& msg) {
+    return CmdResult{false, code, msg};
+}
+
+// Serialise the active scratch (cues + mode) to mix.json.
+static void persist_mix_scratch(const std::vector<MixCue>& cues, LoopMode mode) {
+    nlohmann::json m;
+    m["mode"] = loop_mode_str(mode);
+    m["cues"] = nlohmann::json::array();
+    for (auto& c : cues) m["cues"].push_back(cue_to_json(c));
+    persist::store_active_mix(m);
+}
+
+nlohmann::json DeviceManager::mix_state_locked() {
+    nlohmann::json cues = nlohmann::json::array();
+    for (auto& c : mix_cues_) cues.push_back(cue_to_json(c));
+    return nlohmann::json{
+        {"running",   mix_running_.load()},
+        {"cue_index", mix_cue_index_},
+        {"cue_count", (int)mix_cues_.size()},
+        {"phase",     mix_phase_},
+        {"elapsed_s", mix_elapsed_s_},
+        {"total_s",   mix_total_s_},
+        {"mode",      loop_mode_str(mix_mode_)},
+        {"loaded",    mix_loaded_},
+        {"cues",      std::move(cues)},
+        {"available", mix_available_},
+    };
+}
+
+nlohmann::json DeviceManager::mix_state() {
+    std::lock_guard<std::mutex> g(mix_mu_);
+    return mix_state_locked();
+}
+
+void DeviceManager::mix_set(const std::vector<MixCue>& cues, LoopMode mode) {
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cues_ = cues;
+        mix_mode_ = mode;
+        mix_loaded_.clear();   // editing scratch
+        if (mix_running_) {
+            if (mix_cues_.empty()) { mix_running_ = false; mix_quit_ = true; }
+            else if (mix_cue_index_ >= (int)mix_cues_.size())
+                mix_cue_index_ = (int)mix_cues_.size() - 1;
+        }
+    }
+    persist_mix_scratch(cues, mode);
+    mix_cv_.notify_all();   // let a shrink/clear take effect at the next boundary
+    broadcast();
+}
+
+CmdResult DeviceManager::mix_start() {
+    // Whole transition under mix_ctl_mu_: the running-check, the join of a
+    // finished thread, and the relaunch must be atomic vs. a concurrent
+    // start/stop on another WS worker thread.
+    std::lock_guard<std::mutex> ctl(mix_ctl_mu_);
+    // Never (re)launch during/after teardown: stop() clears started_ before it
+    // joins under the same ctl mutex, so this prevents a start racing shutdown
+    // from relaunching the thread onto sessions that are about to be freed.
+    if (!started_) return mok();
+    if (mix_running_) return mok();
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        if (mix_cues_.empty()) return merr("invalid_param", "no mix configured");
+        mix_cue_index_ = 0;
+        mix_direction_ = 1;
+    }
+    mix_quit_ = false;
+    mix_running_ = true;
+    if (mix_thr_.joinable()) mix_thr_.join();
+    mix_thr_ = std::thread(&DeviceManager::mix_loop, this);
+    return mok();
+}
+
+CmdResult DeviceManager::mix_stop() {
+    {
+        std::lock_guard<std::mutex> ctl(mix_ctl_mu_);
+        mix_running_ = false;
+        mix_quit_ = true;
+        mix_cv_.notify_all();
+        if (mix_thr_.joinable()) mix_thr_.join();
+    }
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cue_index_ = -1;
+        mix_phase_ = "holding";
+        mix_elapsed_s_ = 0;
+        mix_total_s_ = 0;
+    }
+    broadcast();
+    return mok();
+}
+
+CmdResult DeviceManager::mix_save_as(const std::string& name,
+                                     const std::vector<MixCue>& cues,
+                                     LoopMode mode) {
+    if (name.empty()) return merr("invalid_param", "name required");
+    nlohmann::json lib = persist::load_mix_library();
+    nlohmann::json entry;
+    entry["mode"] = loop_mode_str(mode);
+    entry["cues"] = nlohmann::json::array();
+    for (auto& c : cues) entry["cues"].push_back(cue_to_json(c));
+    lib[name] = entry;
+    persist::store_mix_library(lib);
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cues_ = cues;
+        mix_mode_ = mode;
+        mix_loaded_ = name;
+        mix_available_.clear();
+        for (auto& it : lib.items()) mix_available_.push_back(it.key());
+        std::sort(mix_available_.begin(), mix_available_.end());
+    }
+    persist_mix_scratch(cues, mode);
+    LOGI("mix: saved as '%s'", name.c_str());
+    broadcast();
+    return mok();
+}
+
+CmdResult DeviceManager::mix_load(const std::string& name) {
+    nlohmann::json lib = persist::load_mix_library();
+    if (!lib.contains(name)) return merr("not_found", "no mix named '" + name + "'");
+    auto& e = lib[name];
+    std::vector<MixCue> cues = cues_from_json(e.value("cues", nlohmann::json::array()));
+    LoopMode mode = parse_loop_mode(e.value("mode", std::string("forward")));
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_cues_ = cues;
+        mix_mode_ = mode;
+        mix_loaded_ = name;
+        if (mix_running_ && mix_cue_index_ >= (int)mix_cues_.size())
+            mix_cue_index_ = mix_cues_.empty() ? -1 : (int)mix_cues_.size() - 1;
+    }
+    persist_mix_scratch(cues, mode);
+    mix_cv_.notify_all();
+    LOGI("mix: loaded '%s' (%zu cues)", name.c_str(), cues.size());
+    broadcast();
+    return mok();
+}
+
+CmdResult DeviceManager::mix_delete(const std::string& name) {
+    nlohmann::json lib = persist::load_mix_library();
+    if (!lib.contains(name)) return merr("not_found", "no mix named '" + name + "'");
+    lib.erase(name);
+    persist::store_mix_library(lib);
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_available_.clear();
+        for (auto& it : lib.items()) mix_available_.push_back(it.key());
+        std::sort(mix_available_.begin(), mix_available_.end());
+        if (mix_loaded_ == name) mix_loaded_.clear();
+    }
+    LOGI("mix: deleted '%s'", name.c_str());
+    broadcast();
+    return mok();
+}
+
+void DeviceManager::mix_loop() {
+    LOGI("mix: started");
+
+    // Interruptible sleep. Returns false the moment the run should end (stop
+    // pressed, or the cue list emptied mid-run), so callers break out promptly.
+    auto wait_ms = [&](int ms) -> bool {
+        std::unique_lock<std::mutex> lk(mix_mu_);
+        mix_cv_.wait_for(lk, std::chrono::milliseconds(ms),
+                         [&] { return mix_quit_.load() || !mix_running_.load(); });
+        return mix_running_.load() && !mix_quit_.load();
+    };
+
+    while (mix_running_ && !mix_quit_) {
+        MixCue cue;
+        {
+            std::lock_guard<std::mutex> g(mix_mu_);
+            int n = (int)mix_cues_.size();
+            if (n == 0) { mix_running_ = false; break; }
+            if (mix_cue_index_ < 0 || mix_cue_index_ >= n) mix_cue_index_ = 0;
+            cue = mix_cues_[mix_cue_index_];
+            mix_phase_ = "moving";
+            mix_elapsed_s_ = 0;
+            mix_total_s_ = cue.hold_s;
+        }
+        broadcast();
+
+        // 1) Program switch + live moves. NO on-air lock: the program camera
+        //    physically moves to its preset ON AIR (cmd_preset_recall ramps it
+        //    over move_ms) - the whole point of the mixer. Held lock-free so
+        //    set_active()/session_by_sn() (which take mu_) never self-deadlock.
+        if (!cue.camera_sn.empty()) {
+            std::string ec;
+            set_active(cue.camera_sn, ec);
+        }
+        if (cue.preset_id >= 0) {   // <0 = hold current shot (no recall)
+            if (auto s = session_by_sn(cue.camera_sn))
+                s->cmd_preset_recall(cue.preset_id, cue.move_ms, [](CmdResult) {});
+        }
+        if (cue.has_meanwhile && cue.mw_preset_id >= 0) {
+            if (auto s = session_by_sn(cue.mw_sn))
+                s->cmd_preset_recall(cue.mw_preset_id, cue.mw_move_ms, [](CmdResult) {});
+        }
+
+        // 2) Moving phase: let the live move land before the hold clock starts.
+        if (cue.move_ms > 0) {
+            if (!wait_ms(cue.move_ms)) break;
+        }
+
+        // 3) Holding phase: dwell on the shot, ticking elapsed once a second.
+        {
+            std::lock_guard<std::mutex> g(mix_mu_);
+            mix_phase_ = "holding";
+            mix_elapsed_s_ = 0;
+            mix_total_s_ = cue.hold_s;
+        }
+        broadcast();
+        bool stopping = false;
+        for (int e = 0; e < cue.hold_s; ++e) {
+            if (!wait_ms(1000)) { stopping = true; break; }
+            {
+                std::lock_guard<std::mutex> g(mix_mu_);
+                mix_elapsed_s_ = e + 1;
+            }
+            broadcast();
+        }
+        if (stopping) break;
+
+        // 4) Advance per loop mode (mirrors the per-camera sequencer).
+        {
+            std::lock_guard<std::mutex> g(mix_mu_);
+            int cur = mix_cue_index_;
+            int cnt = (int)mix_cues_.size();
+            if (cnt == 0) { mix_running_ = false; break; }
+            int next = cur;
+            switch (mix_mode_) {
+                case LoopMode::once:
+                    next = cur + 1;
+                    if (next >= cnt) mix_running_ = false;
+                    break;
+                case LoopMode::forward:
+                    next = (cur + 1) % cnt;
+                    break;
+                case LoopMode::ping_pong:
+                    if (cnt <= 1) { next = 0; break; }
+                    {
+                        int cand = cur + mix_direction_;
+                        if (cand >= cnt) { mix_direction_ = -1; cand = cur - 1; }
+                        else if (cand < 0) { mix_direction_ = 1; cand = cur + 1; }
+                        next = cand;
+                    }
+                    break;
+            }
+            mix_cue_index_ = next;
+        }
+    }
+
+    LOGI("mix: stopped");
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        mix_running_ = false;
+        mix_cue_index_ = -1;
+        mix_phase_ = "holding";
+        mix_elapsed_s_ = 0;
+        mix_total_s_ = 0;
+    }
+    broadcast();
 }
 
 }  // namespace obs

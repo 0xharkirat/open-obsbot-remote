@@ -242,6 +242,27 @@ void dispatch_message(DeviceManager& mgr,
         return;
     }
 
+    // ---- mix.* : cross-camera sequencer (bridge-scoped, spans cameras) ----
+
+    if (action == "mix.set") {
+        auto cues = parse_mix_cues(msg.contains("cues") ? msg["cues"] : json::array());
+        LoopMode mode = parse_mix_mode(msg.value("mode", string("forward")));
+        mgr.mix_set(cues, mode);
+        reply_send(ack_ok(id).dump());
+        return;
+    }
+    if (action == "mix.start") { reply_cb(mgr.mix_start()); return; }
+    if (action == "mix.stop")  { reply_cb(mgr.mix_stop());  return; }
+    if (action == "mix.save_as") {
+        string name = msg.value("name", string{});
+        auto cues = parse_mix_cues(msg.contains("cues") ? msg["cues"] : json::array());
+        LoopMode mode = parse_mix_mode(msg.value("mode", string("forward")));
+        reply_cb(mgr.mix_save_as(name, cues, mode));
+        return;
+    }
+    if (action == "mix.load")   { reply_cb(mgr.mix_load(msg.value("name", string{})));   return; }
+    if (action == "mix.delete") { reply_cb(mgr.mix_delete(msg.value("name", string{}))); return; }
+
     // ---- device-scoped actions: resolve the target camera first ----
 
     auto sess = route_target(mgr, msg, id, reply_send);

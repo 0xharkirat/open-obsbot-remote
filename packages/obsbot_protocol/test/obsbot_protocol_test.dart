@@ -95,19 +95,15 @@ void main() {
     test('kMoveDurationPresets has 8 entries from Instant to 5 min', () {
       expect(kMoveDurationPresets.length, 8);
       expect(kMoveDurationPresets.first.duration, Duration.zero);
-      expect(kMoveDurationPresets.last.duration,
-          const Duration(minutes: 5));
+      expect(kMoveDurationPresets.last.duration, const Duration(minutes: 5));
     });
 
     test('formatMoveDuration spans the chip range', () {
       expect(formatMoveDuration(Duration.zero), 'Instant');
-      expect(formatMoveDuration(const Duration(milliseconds: 1000)),
-          '1 sec');
-      expect(formatMoveDuration(const Duration(milliseconds: 5500)),
-          '5.5 sec');
+      expect(formatMoveDuration(const Duration(milliseconds: 1000)), '1 sec');
+      expect(formatMoveDuration(const Duration(milliseconds: 5500)), '5.5 sec');
       expect(formatMoveDuration(const Duration(minutes: 1)), '1 min');
-      expect(
-          formatMoveDuration(const Duration(minutes: 2, seconds: 30)),
+      expect(formatMoveDuration(const Duration(minutes: 2, seconds: 30)),
           '2m 30s');
     });
   });
@@ -213,12 +209,10 @@ void main() {
       expect(s.presets.single.name, 'Wide');
       expect(s.activePresetId, 0);
       expect(s.sequence.loaded, 'Main');
-      expect(s.sequence.steps.single.transition,
-          const Duration(seconds: 5));
+      expect(s.sequence.steps.single.transition, const Duration(seconds: 5));
     });
 
-    test('fromEvent falls back to dev.sn when top-level device_id missing',
-        () {
+    test('fromEvent falls back to dev.sn when top-level device_id missing', () {
       // Transitional: bridges that haven't been bumped to v2 may omit
       // the top-level device_id field.
       final fixture = fixtureDeviceJson();
@@ -236,8 +230,7 @@ void main() {
     });
 
     test('displayName uses friendlyName when set', () {
-      final s = DeviceState.fromEvent(
-          fixtureDeviceJson(friendlyName: 'Vocal'));
+      final s = DeviceState.fromEvent(fixtureDeviceJson(friendlyName: 'Vocal'));
       expect(s.displayName, 'Vocal');
     });
 
@@ -283,8 +276,7 @@ void main() {
       expect(bs.deviceById('NOPE'), isNull);
     });
 
-    test('fromEvent tolerates v1 single-device payload (no devices key)',
-        () {
+    test('fromEvent tolerates v1 single-device payload (no devices key)', () {
       // v1 bridges that haven't been upgraded send the device snapshot
       // at the top level instead of inside a `devices` array. We wrap
       // it into a one-element list so clients can still connect during
@@ -355,6 +347,101 @@ void main() {
 
     test('SequenceState.empty defaults phase to holding', () {
       expect(SequenceState.empty.phase, 'holding');
+    });
+  });
+
+  group('MixState / MixCue', () {
+    test('MixCue round-trips through JSON incl. meanwhile', () {
+      const cue = MixCue(
+        cameraSn: 'A',
+        presetId: 3,
+        moveMs: 800,
+        holdS: 20,
+        transition: 'cut',
+        mwSn: 'B',
+        mwPresetId: 1,
+        mwMoveMs: 500,
+      );
+      final back = MixCue.fromJson(cue.toJson());
+      expect(back.cameraSn, 'A');
+      expect(back.presetId, 3);
+      expect(back.holdS, 20);
+      expect(back.hasMeanwhile, isTrue);
+      expect(back.mwSn, 'B');
+      expect(back.mwPresetId, 1);
+    });
+
+    test('hold sentinel: absent preset_id parses to -1 (hold), not slot 0', () {
+      // Slots 0..5 are real presets, so the "hold current shot" sentinel
+      // must be negative - a cue with no preset must NOT recall P1.
+      final cue = MixCue.fromJson(const <String, dynamic>{'camera_sn': 'A'});
+      expect(cue.presetId, -1);
+      expect(cue.hasPreset, isFalse);
+      expect(const MixCue(cameraSn: 'A', presetId: 0).hasPreset, isTrue);
+    });
+
+    test('cue without meanwhile omits the block in JSON', () {
+      const cue = MixCue(cameraSn: 'A', presetId: 0);
+      expect(cue.toJson().containsKey('meanwhile'), isFalse);
+    });
+
+    test('MixState.fromJson reads status + cues + library', () {
+      final m = MixState.fromJson(const <String, dynamic>{
+        'running': true,
+        'cue_index': 1,
+        'cue_count': 2,
+        'phase': 'moving',
+        'elapsed_s': 3,
+        'total_s': 20,
+        'mode': 'ping_pong',
+        'loaded': 'Sunday',
+        'available': <String>['Sunday', 'Evening'],
+        'cues': <Map<String, dynamic>>[
+          <String, dynamic>{'camera_sn': 'A', 'preset_id': 0, 'hold_s': 20},
+          <String, dynamic>{'camera_sn': 'B', 'preset_id': 2, 'hold_s': 15},
+        ],
+      });
+      expect(m.running, isTrue);
+      expect(m.cueIndex, 1);
+      expect(m.phase, 'moving');
+      expect(m.mode, 'ping_pong');
+      expect(m.cues, hasLength(2));
+      expect(m.cues[1].cameraSn, 'B');
+      expect(m.available, contains('Evening'));
+    });
+
+    test('MixState.empty is idle', () {
+      expect(MixState.empty.running, isFalse);
+      expect(MixState.empty.cueIndex, -1);
+      expect(MixState.empty.cues, isEmpty);
+    });
+
+    test('BridgeState parses the mix block from a state event', () {
+      final b = BridgeState.fromEvent(const <String, dynamic>{
+        'version': '2.0',
+        'active_device_id': 'A',
+        'devices': <Map<String, dynamic>>[],
+        'mix': <String, dynamic>{
+          'running': false,
+          'cue_index': -1,
+          'cues': <Map<String, dynamic>>[
+            <String, dynamic>{'camera_sn': 'A', 'preset_id': 1},
+          ],
+          'available': <String>['Sunday'],
+        },
+      });
+      expect(b.mix.cues, hasLength(1));
+      expect(b.mix.available, contains('Sunday'));
+    });
+
+    test('BridgeState without a mix block falls back to empty', () {
+      final b = BridgeState.fromEvent(const <String, dynamic>{
+        'version': '2.0',
+        'active_device_id': '',
+        'devices': <Map<String, dynamic>>[],
+      });
+      expect(b.mix.running, isFalse);
+      expect(b.mix.cues, isEmpty);
     });
   });
 }
