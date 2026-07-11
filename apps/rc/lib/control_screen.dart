@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'ptz_tuning.dart';
 import 'sequencer_screen.dart';
 import 'tab_shell.dart';
 import 'widgets/app_bar_actions.dart';
@@ -131,38 +132,78 @@ class HoldDirBtn extends StatefulWidget {
 /// (no Button wrapper) so press / release / cancel events are first-
 /// class and no upstream recognizer can steal them.
 class HoldDirBtnState extends State<HoldDirBtn> {
-  Timer? _ticker;
+  Timer? _holdStarter; // fires at the tap/hold threshold -> begin glide
+  Timer? _ticker; // velocity refresh while gliding
+  // Held time is counted in refresh ticks rather than a Stopwatch: the
+  // ticker IS the clock that drives the ramp, so the ramp is exactly
+  // reproducible (and testable under fake async, where a Stopwatch's
+  // wall clock stands still).
+  Duration _held = Duration.zero;
   bool _down = false;
+  bool _gliding = false;
+
+  // The widget's legacy yawSpeed/pitchSpeed fields carry DIRECTION now;
+  // magnitude comes from the speed preset + ramp (v3 P1). Signs keep
+  // the viewer-frame convention: +yaw right, +pitch up.
+  double get _yawSign => widget.yawSpeed.sign;
+  double get _pitchSign => widget.pitchSpeed.sign;
 
   void _start() {
     if (_down) return;
     _down = true;
     HapticFeedback.selectionClick();
     setState(() {});
-    widget.client.ptzVelocity(
-      yawSpeed: widget.yawSpeed,
-      pitchSpeed: widget.pitchSpeed,
-    );
-    _ticker = Timer.periodic(const Duration(milliseconds: 80), (_) {
-      widget.client.ptzVelocity(
-        yawSpeed: widget.yawSpeed,
-        pitchSpeed: widget.pitchSpeed,
-      );
+    // Nothing moves yet: a release before the threshold is a TAP and
+    // becomes a nudge - an absolute step that cannot overshoot. Only a
+    // genuine hold starts the motors.
+    _holdStarter = Timer(kTapHoldThreshold, _beginGlide);
+  }
+
+  void _beginGlide() {
+    if (!_down) return;
+    _gliding = true;
+    _held = Duration.zero;
+    _sendGlide();
+    _ticker = Timer.periodic(kVelocityRefresh, (_) {
+      _held += kVelocityRefresh;
+      _sendGlide();
     });
+  }
+
+  void _sendGlide() {
+    final ceiling = ceilingDegPerSec(widget.client.ptzSpeed);
+    final v = rampVelocity(_held, ceiling);
+    widget.client.ptzVelocity(
+      yawSpeed: _yawSign * v,
+      pitchSpeed: _pitchSign * v,
+    );
   }
 
   void _end() {
     if (!_down) return;
     _down = false;
+    _holdStarter?.cancel();
+    _holdStarter = null;
+    final wasGlide = _gliding;
+    _gliding = false;
     _ticker?.cancel();
     _ticker = null;
-    widget.client.ptzStop();
+    if (wasGlide) {
+      // Two independent stops (plus the bridge's 400ms watchdog) so a
+      // single lost packet cannot leave the gimbal running.
+      widget.client.ptzStop();
+      Timer(kDoubleStopDelay, () => widget.client.ptzStop());
+    } else {
+      widget.client.ptzNudge(yawSign: _yawSign, pitchSign: _pitchSign);
+    }
     setState(() {});
   }
 
   @override
   void dispose() {
+    _holdStarter?.cancel();
     _ticker?.cancel();
+    if (_gliding) widget.client.ptzStop();
     super.dispose();
   }
 
@@ -222,15 +263,16 @@ class _PtzPadState extends State<PtzPad> {
       _dragging = true;
     });
     HapticFeedback.selectionClick();
-    _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      final dx = _delta.dx;
-      final dy = _delta.dy;
-      // Map -1..1 -> deg/sec. Joystick magnitude (deflection from
-      // centre) IS the speed control, so we keep this hardcoded; the
-      // dropped v1.2 velocity slider is gone.
-      final yawSpeed = (dx * 120).clamp(-150.0, 150.0);
-      final pitchSpeed = (-dy * 60).clamp(-80.0, 80.0);
-      widget.client.ptzVelocity(yawSpeed: yawSpeed, pitchSpeed: pitchSpeed);
+    _ticker = Timer.periodic(kVelocityRefresh, (_) {
+      // v3 P1: squared response into the speed preset's ceiling. Half
+      // deflection = quarter speed, so the middle of the stick is a
+      // precision zone instead of already-too-fast (the v2 linear map
+      // hit 60 deg/s at half stick - unusable for framing).
+      final ceiling = ceilingDegPerSec(widget.client.ptzSpeed);
+      widget.client.ptzVelocity(
+        yawSpeed: joystickAxisSpeed(_delta.dx, ceiling),
+        pitchSpeed: joystickAxisSpeed(-_delta.dy, ceiling),
+      );
     });
   }
 
@@ -250,7 +292,9 @@ class _PtzPadState extends State<PtzPad> {
       _delta = Offset.zero;
       _dragging = false;
     });
+    // Double stop: two independent packets, bridge watchdog behind them.
     widget.client.ptzStop();
+    Timer(kDoubleStopDelay, () => widget.client.ptzStop());
   }
 
   @override

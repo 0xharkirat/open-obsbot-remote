@@ -484,6 +484,18 @@ void DeviceSession::worker_loop() {
         lk.unlock();
 
         auto now = steady_clock::now();
+        // Velocity watchdog: the phone refreshes velocity every ~100ms
+        // while a control is held and sends stop twice on release. If
+        // BOTH stops are lost (Wi-Fi drop, browser tab killed mid-hold),
+        // nothing else would ever halt the gimbal - so any velocity
+        // that has not been refreshed for 400ms is stopped here. The
+        // worker wakes at least every 100ms, keeping the bound tight.
+        if (velocity_active_ && dev_ &&
+            now - last_velocity_apply_ > milliseconds(400)) {
+            dev_->aiSetGimbalSpeedCtrlR(0.f, 0.f, 0.f);
+            velocity_active_ = false;
+            LOGW("ptz: velocity watchdog auto-stop (no refresh in 400ms)");
+        }
         if (now >= next_poll && dev_) {
             next_poll = now + milliseconds(500);
             poll_status_locked();
@@ -664,6 +676,7 @@ void DeviceSession::cmd_ptz_velocity(float yaw_speed, float pitch_speed, float r
         // axes, so flip once here. Doing this in the bridge keeps every
         // current and future client (web, native, third-party) consistent.
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(-pitch_speed, -yaw_speed, roll_speed);
+        if (r == 0) velocity_active_ = !stopping;
         if (r == 0 && !stopping) {
             std::lock_guard<std::mutex> g(snap_mu_);
             clear_active_preset_locked();
@@ -679,6 +692,7 @@ void DeviceSession::cmd_ptz_stop(ReplyFn reply) {
     submit([this]() -> CmdResult {
         REQUIRE_DEV();
         int32_t r = dev_->aiSetGimbalSpeedCtrlR(0.0, 0.0, 0.0);
+        if (r == 0) velocity_active_ = false;
         return r == 0 ? ok() : err("device_busy", "stop failed");
     }, std::move(reply));
 }

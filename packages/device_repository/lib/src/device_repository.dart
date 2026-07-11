@@ -239,6 +239,23 @@ class DeviceRepository {
     'roll_speed': 0,
   });
 
+  /// Absolute-position move. Re-added for v3 tap-to-nudge: a position
+  /// command of a fixed small step cannot overshoot the way a velocity
+  /// burst can, which makes it the precision-framing primitive. No
+  /// optimistic overlay - the gimbal's real pose flows back via state.
+  Future<void> ptzAngle({
+    required String deviceId,
+    required double yaw,
+    required double pitch,
+    Duration duration = const Duration(milliseconds: 200),
+  }) => _command(<String, dynamic>{
+    'action': 'ptz.angle',
+    'device_id': deviceId,
+    'yaw': yaw,
+    'pitch': pitch,
+    'duration_ms': duration.inMilliseconds,
+  });
+
   Future<void> ptzStop({required String deviceId}) =>
       _command(<String, dynamic>{'action': 'ptz.stop', 'device_id': deviceId});
 
