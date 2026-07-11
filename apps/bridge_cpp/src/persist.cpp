@@ -87,6 +87,28 @@ void store_sequence_library(const std::string& sn, const nlohmann::json& lib) {
     write_json(path, j);
 }
 
+nlohmann::json load_active_mix() {
+    std::lock_guard<std::mutex> g(g_mu);
+    nlohmann::json j = read_json(path_for("mix.json"));
+    return j.is_object() ? j : nlohmann::json::object();
+}
+
+void store_active_mix(const nlohmann::json& mix) {
+    std::lock_guard<std::mutex> g(g_mu);
+    write_json(path_for("mix.json"), mix);
+}
+
+nlohmann::json load_mix_library() {
+    std::lock_guard<std::mutex> g(g_mu);
+    nlohmann::json j = read_json(path_for("mix_sequences.json"));
+    return j.is_object() ? j : nlohmann::json::object();
+}
+
+void store_mix_library(const nlohmann::json& lib) {
+    std::lock_guard<std::mutex> g(g_mu);
+    write_json(path_for("mix_sequences.json"), lib);
+}
+
 std::map<std::string, std::string> load_device_names() {
     std::lock_guard<std::mutex> g(g_mu);
     nlohmann::json j = read_json(path_for("device_names.json"));

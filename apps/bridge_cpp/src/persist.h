@@ -35,6 +35,15 @@ void store_active_sequence(const std::string& sn, const nlohmann::json& seq);
 nlohmann::json load_sequence_library(const std::string& sn);
 void store_sequence_library(const std::string& sn, const nlohmann::json& lib);
 
+// MIX sequences span cameras, so they are bridge-level (NOT keyed by SN).
+//   mix.json           active scratch, shape { mode, cues:[...] }
+//   mix_sequences.json saved library,  shape { "<name>": {mode, cues:[...]} }
+// Each cue: { camera_sn, preset_id, move_ms, hold_s, transition, meanwhile? }.
+nlohmann::json load_active_mix();
+void store_active_mix(const nlohmann::json& mix);
+nlohmann::json load_mix_library();
+void store_mix_library(const nlohmann::json& lib);
+
 // Friendly names for every known camera.
 std::map<std::string, std::string> load_device_names();
 // Empty name clears the entry.
