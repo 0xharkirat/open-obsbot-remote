@@ -13,7 +13,7 @@ import 'package:obsbot_protocol/obsbot_protocol.dart';
 import 'local_bridge_client.dart';
 
 /// Per-camera rows for the bridge window: one row per attached camera
-/// with status dot, friendly name, ON AIR badge, a "Set live" action, and
+/// with status dot, friendly name, ON AIR badge, a "Put on air" action, and
 /// rename. Rendered inside the home screen's group card.
 ///
 /// The deck is a monitor + coarse control. Fine control (PTZ, presets,
@@ -152,7 +152,7 @@ class _CameraRow extends StatelessWidget {
               controlSize: ControlSize.regular,
               secondary: true,
               onPressed: () => client.setActive(device.deviceId),
-              child: const Text('Set live'),
+              child: const Text('Put on air'),
             ),
           const SizedBox(width: 6),
           MacosIconButton(
