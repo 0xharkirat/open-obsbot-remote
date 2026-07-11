@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -37,7 +38,14 @@ public:
     // Trigger the macOS camera-permission (TCC) prompt without binding a
     // device. Called once at boot so the prompt fires even before any camera
     // has enumerated (the bridge UI keys "Granted" off the resulting log line).
-    static void request_camera_permission();
+    //
+    // `on_result` (optional) fires with the user's answer if a prompt is
+    // actually shown (status was NotDetermined). This is how the bridge
+    // retries captures that already gave up at their 60s permission timeout:
+    // if the operator clicks Allow minutes later, granting alone would leave
+    // preview dead until a restart. Runs on an AVFoundation callback thread.
+    static void request_camera_permission(
+        std::function<void(bool granted)> on_result = {});
 
     void stop();
 
