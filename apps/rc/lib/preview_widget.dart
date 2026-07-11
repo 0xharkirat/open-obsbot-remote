@@ -28,6 +28,17 @@ class PreviewWidget extends StatelessWidget {
   /// Show top-left Pan / Tilt degrees readout.
   final bool showReadout;
 
+  /// Which camera to stream. Null = the selected camera (the default,
+  /// used everywhere before the studio surface). A concrete id pins the
+  /// stream to one camera regardless of selection - the v3 studio uses
+  /// this to show the on-air (program) camera in the PiP while the
+  /// large preview follows the staged camera.
+  final String? deviceId;
+
+  /// Bare feed: no grid overlay, no rounded clip, no aspect box. For the
+  /// program PiP, which draws its own frame + ON AIR badge.
+  final bool minimal;
+
   const PreviewWidget({
     super.key,
     required this.client,
@@ -35,19 +46,26 @@ class PreviewWidget extends StatelessWidget {
     this.showCenterLines = false,
     this.showThirds = false,
     this.showReadout = true,
+    this.deviceId,
+    this.minimal = false,
   });
 
   @override
   Widget build(BuildContext context) {
     // v2: the URL is per-device (`/preview/<sn>.mjpg`), built by the
     // bridge repository from the SELECTED camera - switching cameras
-    // in the picker switches this stream on the same frame.
-    final uri = client.previewUri();
+    // in the picker switches this stream on the same frame. v3 studio
+    // may pin it to an explicit camera (the on-air one) instead.
+    final uri = client.previewUri(deviceId: deviceId);
     if (!client.connected || uri == null) {
       return _placeholder(context, 'Connecting...');
     }
     final url = uri.toString();
+    final stream = kIsWeb ? _webStream(url) : _mobileStream(url);
 
+    if (minimal) {
+      return ColoredBox(color: Colors.black, child: stream);
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: AspectRatio(
@@ -57,7 +75,7 @@ class PreviewWidget extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              kIsWeb ? _webStream(url) : _mobileStream(url),
+              stream,
               GridOverlay(
                 client: client,
                 showCrosshair: showCrosshair,

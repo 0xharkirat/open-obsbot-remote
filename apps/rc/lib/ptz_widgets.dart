@@ -1,97 +1,16 @@
 import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'ptz_tuning.dart';
-import 'sequencer_screen.dart';
-import 'tab_shell.dart';
-import 'widgets/app_bar_actions.dart';
 import 'ws_client.dart';
 
-class ControlScreen extends StatefulWidget {
-  final WsClient client;
-  final VoidCallback? onSwitchSimple;
-  const ControlScreen({super.key, required this.client, this.onSwitchSimple});
-
-  @override
-  State<ControlScreen> createState() => _ControlScreenState();
-}
-
-class _ControlScreenState extends State<ControlScreen> {
-  Timer? _pingTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _pingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      widget.client.ping();
-    });
-  }
-
-  @override
-  void dispose() {
-    _pingTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.client,
-      builder: (BuildContext context, _) {
-        final s = widget.client.state;
-        return Scaffold(
-          appBar: AppBar(
-            title: const AppBarTitle(),
-            // Standard 3 icons + overflow: mesh / sequencer / mode.
-            // Speed lives in the bottom chip strip on each tab; no
-            // need to mirror in the AppBar. Disconnect + Clear cache
-            // live in the 3-dot overflow.
-            actions: <Widget>[
-              DevicePickerMenu(client: widget.client),
-              GridOverlayMenu(client: widget.client),
-              IconButton(
-                tooltip: s.sequence.running ? 'Sequence running' : 'Sequence',
-                icon: Icon(
-                  s.sequence.running ? Icons.multiline_chart : Icons.timeline,
-                ),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => SequencerScreen(client: widget.client),
-                  ),
-                ),
-              ),
-              if (widget.onSwitchSimple != null)
-                IconButton(
-                  tooltip: 'Simple mode',
-                  icon: const Icon(Icons.dashboard_customize),
-                  onPressed: widget.onSwitchSimple,
-                ),
-              AppBarOverflowMenu(client: widget.client),
-            ],
-          ),
-          body: SafeArea(
-            // Status chips removed in the post-review pass — every field
-            // they carried has a dedicated home now:
-            //   * Pan / Tilt → overlaid on the preview (grid readout).
-            //   * Zoom       → next to the vertical zoom slider.
-            //   * AI mode    → Image tab → Auto-track segmented.
-            //   * FOV        → Image tab → View segmented.
-            //   * runStatus  → tray icon glyph in the menubar.
-            // Dropping the bar frees ~40 px of vertical space and gives
-            // the live preview more room to breathe on phones.
-            child: TabShell(client: widget.client),
-          ),
-        );
-      },
-    );
-  }
-
-  // Grid menu extracted to widgets/app_bar_actions.dart so simple +
-  // advanced share the same toggles.
-}
-
-// ----------------------------------------------------------------------------
+// Reusable manual-PTZ control widgets, shared by the v3 Live screen's
+// framing panel. Extracted from the retired ControlScreen; the gesture
+// model (tap-nudge / hold-glide / squared joystick / double-stop) is
+// the v3 P1 precision engine (see ptz_tuning.dart).
 
 class HoldDirBtn extends StatefulWidget {
   final IconData icon;
