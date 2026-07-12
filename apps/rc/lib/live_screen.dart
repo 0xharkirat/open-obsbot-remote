@@ -32,7 +32,8 @@ class LiveScreen extends StatefulWidget {
 class _LiveScreenState extends State<LiveScreen> {
   WsClient get client => widget.client;
   bool _framing = false;
-  // When on, a manual TAKE fades the program up from black instead of cutting.
+  // When on, a manual TAKE crossfades (dissolves) to the program instead of
+  // cutting.
   bool _fadeTake = false;
 
   @override
@@ -121,13 +122,13 @@ class _LiveScreenState extends State<LiveScreen> {
           ),
           const SizedBox(width: 8),
           if (multi) ...<Widget>[
-            // Cut vs fade-from-black for the manual TAKE. Semantics.toggled
-            // carries the on/off state to screen readers (isSelected alone
-            // doesn't expose it).
+            // Cut vs crossfade for the manual TAKE. Semantics.toggled carries
+            // the on/off state to screen readers (isSelected alone doesn't
+            // expose it).
             Semantics(
               toggled: _fadeTake,
               child: IconButton(
-                tooltip: _fadeTake ? 'TAKE fades from black' : 'TAKE cuts hard',
+                tooltip: _fadeTake ? 'TAKE crossfades' : 'TAKE cuts hard',
                 isSelected: _fadeTake,
                 onPressed: () => setState(() => _fadeTake = !_fadeTake),
                 icon: Icon(

@@ -581,9 +581,9 @@ class _MixEditorState extends State<MixEditor> {
   );
 }
 
-/// How this cue's shot comes in: a hard Cut, or a Fade in from black (the
-/// bridge ramps the program up from black over ~0.5s, baked into the active
-/// stream so OBS sees it too).
+/// How this cue's shot comes in: a hard Cut, or a Fade (crossfade - the bridge
+/// dissolves the outgoing camera into this one over ~0.5s, baked into the
+/// active stream so OBS sees it too).
 class _TransitionToggle extends StatelessWidget {
   const _TransitionToggle({required this.value, required this.onChanged});
   final String value;
