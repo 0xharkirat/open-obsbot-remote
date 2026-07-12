@@ -470,7 +470,7 @@ class _SequencerEditorState extends State<SequencerEditor> {
     );
   }
 
-  Widget _libraryBar(BuildContext ctx, CameraState s) {
+  Widget _libraryBar(BuildContext ctx, DeviceState s) {
     final theme = Theme.of(ctx);
     final lib = s.sequence.available;
     if (lib.isEmpty) {

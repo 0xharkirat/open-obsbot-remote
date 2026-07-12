@@ -1,54 +1,60 @@
 import 'dart:async';
-import 'dart:convert';
 
+import 'package:auth_repository/auth_repository.dart';
+import 'package:bridge_repository/bridge_repository.dart';
+import 'package:device_repository/device_repository.dart';
 import 'package:flutter/foundation.dart';
+import 'package:obsbot_api_client/obsbot_api_client.dart';
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
-// Re-export the protocol types so existing consumers of this file
-// (e.g. `import 'ws_client.dart';`) keep seeing PresetEntry,
-// SequenceStep, SequenceState, CameraState, LoopMode,
-// MoveDurationPreset, kMoveDurationPresets, formatMoveDuration,
-// loopModeToWire / loopModeFromWire / loopModeLabel without an
-// import-path change. They now live in
-// `packages/obsbot_protocol/`.
+import 'ptz_tuning.dart';
+
+// Re-export the protocol types so existing consumers of this file keep
+// seeing PresetEntry, SequenceStep, SequenceState, DeviceState,
+// BridgeState, LoopMode, MoveDurationPreset, etc. without an
+// import-path change.
 export 'package:obsbot_protocol/obsbot_protocol.dart';
 
+/// [AuthStorage] backed by SharedPreferences. Uses the same
+/// `token::<host:port>` keys v1 wrote, so an upgrade keeps its pairing.
+class SharedPrefsAuthStorage implements AuthStorage {
+  @override
+  Future<String?> read(String key) async =>
+      (await SharedPreferences.getInstance()).getString(key);
+
+  @override
+  Future<void> write(String key, String value) async =>
+      (await SharedPreferences.getInstance()).setString(key, value);
+
+  @override
+  Future<void> delete(String key) async {
+    await (await SharedPreferences.getInstance()).remove(key);
+  }
+}
+
+/// Presentation-layer facade over the v2 packages.
+///
+/// v1's WsClient was transport + auth + state + optimistic UI in one
+/// 578-line ChangeNotifier. v2 moves each concern into its package
+/// (`obsbot_api_client`, `auth_repository`, `bridge_repository`,
+/// `device_repository`); this class is what remains - connection
+/// lifecycle, which-camera-am-I-controlling selection, UI preferences,
+/// and ChangeNotifier fan-out so the existing widget tree keeps its
+/// AnimatedBuilder idiom.
+///
+/// Multi-camera model:
+///  - [bridge] is the whole-bridge snapshot (all cameras + who is live).
+///  - [selectedDeviceId] is the camera THIS phone is controlling.
+///    Selection is local to the phone; two phones can control two
+///    different cameras at once.
+///  - [state] is the selected camera's snapshot. The getter keeps the
+///    v1 name so widgets reading `client.state.hdr` etc. survive.
+///  - "Live" (which camera OBS sees) is bridge-global: [activeDeviceId]
+///    / [makeLive]. Selection and liveness are deliberately separate -
+///    the operator lines up a shot on camera B while camera A is live,
+///    then cuts.
 class WsClient extends ChangeNotifier {
-  WebSocketChannel? _ch;
-  StreamSubscription<dynamic>? _sub;
-  int _msgId = 0;
-  bool _connected = false;
-  bool _connecting = false;
-  bool _needsPairing = false; // true after auth_required response
-  String _serverUri = '';
-  CameraState _state = CameraState.empty;
-  String? _lastError;
-  String? _lastAuthError;
-  int _lastLatencyMs = 0;
-  DateTime? _lastPingSent;
-  String? _token; // bearer token after pairing
-  /// Default move duration applied to ptzAngle / presetRecall / zoomSet
-  /// when the caller doesn't pass one explicitly. Persisted across app
-  /// launches via SharedPreferences key `move_duration_ms`.
-  Duration _moveDuration = const Duration(milliseconds: 2000);
-
-  /// Grid overlay preferences (mirrored to SharedPreferences keys
-  /// `grid_crosshair`, `grid_center_lines`, `grid_thirds`, `grid_readout`).
-  bool _gridCrosshair = true;
-  bool _gridCenterLines = false;
-  bool _gridThirds = false;
-  bool _gridReadout = true;
-
-  /// Drive page control style: `"joystick"` (analog deflection pad) or
-  /// `"buttons"` (8-way press-and-hold pad). Persisted across launches
-  /// via SharedPreferences key `drive_control_style`. Default (v1.5):
-  /// buttons. The 8-way pad is discrete + unambiguous, the joystick is
-  /// for users who want analog control. Onboarding lands on the
-  /// clearer surface first.
-  String _driveControlStyle = 'buttons';
-
   WsClient() {
     SharedPreferences.getInstance().then((p) {
       final ms = p.getInt('move_duration_ms');
@@ -59,520 +65,540 @@ class WsClient extends ChangeNotifier {
       _gridReadout = p.getBool('grid_readout') ?? _gridReadout;
       _driveControlStyle =
           p.getString('drive_control_style') ?? _driveControlStyle;
-      notifyListeners();
+      _ptzSpeed = ptzSpeedFromWire(p.getString('ptz_speed') ?? 'normal');
+      if (!_disposed) notifyListeners();
     });
   }
+
+  /// Guards every notify that can fire from an async continuation
+  /// (prefs load, teardown, fire-and-forget action errors) - calling
+  /// notifyListeners() after dispose() trips ChangeNotifier's debug
+  /// assert and crashes hot-restart + tests.
+  bool _disposed = false;
+
+  // ---- layers (built per-connection) ----
+  ObsbotApiClient? _api;
+  AuthRepository? _auth;
+  BridgeRepository? _bridgeRepo;
+  DeviceRepository? _deviceRepo;
+  StreamSubscription<BridgeState>? _stateSub;
+  StreamSubscription<AuthStatus>? _authSub;
+
+  // ---- connection state ----
+  bool _connected = false;
+  bool _connecting = false;
+  bool _needsPairing = false;
+  String _serverUri = '';
+  String? _lastError;
+  String? _lastAuthError;
+
+  // ---- camera state ----
+  BridgeState _bridge = BridgeState.empty;
+  String _selectedDeviceId = '';
+
+  // ---- UI preferences (presentation state, not repository state) ----
+  Duration _moveDuration = const Duration(milliseconds: 2000);
+  bool _gridCrosshair = true;
+  bool _gridCenterLines = false;
+  bool _gridThirds = false;
+  bool _gridReadout = true;
+
+  /// Drive page control style: `"joystick"` or `"buttons"` (default).
+  String _driveControlStyle = 'buttons';
+
+  /// Manual-PTZ speed preset (nudge step + glide/joystick ceiling).
+  PtzSpeed _ptzSpeed = PtzSpeed.normal;
+
+  // ---------------------------------------------------------------- views
+
+  bool get socketOpen => _connected;
+  bool get connecting => _connecting;
+  bool get needsPairing => _needsPairing;
+  String get serverUri => _serverUri;
+  String? get token => _auth?.token;
+  String? get lastError => _lastError;
+  String? get lastAuthError => _lastAuthError;
+
+  /// Whole-bridge snapshot: every camera + which one is live.
+  BridgeState get bridge => _bridge;
+  List<DeviceState> get devices => _bridge.devices;
+
+  /// `device_id` of the camera OBS sees (bridge-global).
+  String get activeDeviceId => _bridge.activeDeviceId;
+
+  /// The camera THIS phone is controlling. Falls back live -> first
+  /// when the sticky selection vanishes (unplug) or was never made.
+  String get selectedDeviceId {
+    if (_bridge.deviceById(_selectedDeviceId) != null) {
+      return _selectedDeviceId;
+    }
+    if (_bridge.activeDevice != null) return _bridge.activeDeviceId;
+    return _bridge.devices.isEmpty ? '' : _bridge.devices.first.deviceId;
+  }
+
+  /// Selected camera's snapshot. Keeps the v1 getter name so the widget
+  /// tree (`client.state.hdr`, `state.sequence`, ...) needs no rewrite.
+  DeviceState get state =>
+      _bridge.deviceById(selectedDeviceId) ?? DeviceState.empty;
+
+  bool get connected => _connected && state.connected;
+
+  /// Point this phone's controls at a different camera. Local only -
+  /// does NOT change which camera is live in OBS.
+  void selectDevice(String deviceId) {
+    _selectedDeviceId = deviceId;
+    notifyListeners();
+  }
+
+  /// Test-only seam: inject a synthetic [BridgeState] without a live
+  /// socket. Widget tests use this to render multi-camera states.
+  @visibleForTesting
+  void debugSetBridge(BridgeState s) {
+    _bridge = s;
+    notifyListeners();
+  }
+
+  /// Route [deviceId] to OBS (bridge-global). The bridge wakes a
+  /// sleeping camera before switching. [fadeMs] > 0 fades the program up
+  /// from black over that many ms instead of a hard cut.
+  Future<void> makeLive(String deviceId, {int fadeMs = 0}) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return;
+    try {
+      await repo.setActiveDevice(deviceId, fadeMs: fadeMs);
+    } on ApiException catch (e) {
+      _fail(e);
+    }
+  }
+
+  Future<void> renameDevice(String deviceId, String name) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return;
+    try {
+      await repo.renameDevice(deviceId, name);
+    } on ApiException catch (e) {
+      _fail(e);
+    }
+  }
+
+  // ---- mix.* : cross-camera sequencer (bridge-global, no device_id) ----
+
+  /// Live status + scratch cues + saved library of the cross-camera mixer.
+  MixState get mix => _bridge.mix;
+
+  Future<void> _mix(Future<void> Function(BridgeRepository) op) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return;
+    try {
+      await op(repo);
+    } on ApiException catch (e) {
+      _fail(e);
+    }
+  }
+
+  Future<void> mixSet(List<MixCue> cues, String mode) =>
+      _mix((r) => r.setMix(cues, mode));
+  Future<void> mixStart() => _mix((r) => r.startMix());
+  Future<void> mixStop() => _mix((r) => r.stopMix());
+  Future<void> mixSaveAs(String name, List<MixCue> cues, String mode) =>
+      _mix((r) => r.saveMixAs(name, cues, mode));
+  Future<void> mixLoad(String name) => _mix((r) => r.loadMix(name));
+  Future<void> mixDelete(String name) => _mix((r) => r.deleteMix(name));
+
+  // ---- library export/import (for migrating to a new Mac) ----
+
+  /// The whole authored library (sequences + mix + names) as a JSON map, or
+  /// null if not connected / on error.
+  Future<Map<String, dynamic>?> exportLibrary() async {
+    final repo = _bridgeRepo;
+    if (repo == null) return null;
+    try {
+      return await repo.exportLibrary();
+    } on ApiException catch (e) {
+      _fail(e);
+      return null;
+    }
+  }
+
+  /// Returns true only if the import was sent and acked. False when not
+  /// connected or the bridge rejected it, so the UI never reports a false
+  /// success on the migrate-to-a-new-Mac path.
+  Future<bool> importLibrary(Map<String, dynamic> library) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return false;
+    try {
+      await repo.importLibrary(library);
+      return true;
+    } on ApiException catch (e) {
+      _fail(e);
+      return false;
+    }
+  }
+
+  /// MJPEG preview URL for [deviceId] (defaults to the selected
+  /// camera). Null until connected + authed.
+  Uri? previewUri({String? deviceId}) {
+    final repo = _bridgeRepo;
+    final tok = token;
+    if (repo == null || tok == null || _serverUri.isEmpty) return null;
+    final parts = _serverUri.split(':');
+    final host = parts.first;
+    final wsPort = parts.length > 1 ? int.tryParse(parts[1]) ?? 8765 : 8765;
+    return repo.previewUri(
+      host: host,
+      port: wsPort + 1,
+      deviceId: deviceId ?? selectedDeviceId,
+      token: tok,
+    );
+  }
+
+  // ------------------------------------------------------- UI preferences
 
   bool get gridCrosshair => _gridCrosshair;
   bool get gridCenterLines => _gridCenterLines;
   bool get gridThirds => _gridThirds;
   bool get gridReadout => _gridReadout;
   String get driveControlStyle => _driveControlStyle;
+  Duration get moveDuration => _moveDuration;
+  PtzSpeed get ptzSpeed => _ptzSpeed;
+
+  Future<void> setPtzSpeed(PtzSpeed s) async {
+    _ptzSpeed = s;
+    notifyListeners();
+    await _setPref((p) => p.setString('ptz_speed', ptzSpeedToWire(s)));
+  }
 
   Future<void> setDriveControlStyle(String style) async {
     if (style != 'joystick' && style != 'buttons') return;
     _driveControlStyle = style;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setString('drive_control_style', style);
+    await _setPref((p) => p.setString('drive_control_style', style));
   }
 
   Future<void> setGridCrosshair(bool v) async {
     _gridCrosshair = v;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool('grid_crosshair', v);
+    await _setPref((p) => p.setBool('grid_crosshair', v));
   }
 
   Future<void> setGridCenterLines(bool v) async {
     _gridCenterLines = v;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool('grid_center_lines', v);
+    await _setPref((p) => p.setBool('grid_center_lines', v));
   }
 
   Future<void> setGridThirds(bool v) async {
     _gridThirds = v;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool('grid_thirds', v);
+    await _setPref((p) => p.setBool('grid_thirds', v));
   }
 
   Future<void> setGridReadout(bool v) async {
     _gridReadout = v;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setBool('grid_readout', v);
+    await _setPref((p) => p.setBool('grid_readout', v));
   }
 
-  Duration get moveDuration => _moveDuration;
   Future<void> setMoveDuration(Duration d) async {
     _moveDuration = d;
     notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setInt('move_duration_ms', d.inMilliseconds);
+    await _setPref((p) => p.setInt('move_duration_ms', d.inMilliseconds));
   }
 
-  bool get connected => _connected && _state.connected;
-  bool get socketOpen => _connected;
-  bool get connecting => _connecting;
-  bool get needsPairing => _needsPairing;
-  String get serverUri => _serverUri;
-  String? get token => _token;
-  CameraState get state => _state;
-  String? get lastError => _lastError;
-  String? get lastAuthError => _lastAuthError;
-  int get lastLatencyMs => _lastLatencyMs;
+  Future<void> _setPref(Future<void> Function(SharedPreferences) f) async =>
+      f(await SharedPreferences.getInstance());
 
-  /// Test-only seam to swap in a synthetic [CameraState] without a live
-  /// WebSocket. Used by `tab_shell_test.dart` to render the inline
-  /// preset row in its "saved" state (v1.4 W4 bottom-sheet tests).
-  /// Do NOT call from production code.
-  @visibleForTesting
-  void debugSetState(CameraState s) {
-    _state = s;
-    notifyListeners();
-  }
+  Future<String?> loadLastServer() async =>
+      (await SharedPreferences.getInstance()).getString('last_server');
 
-  String _tokenKey(String hostPort) => 'token::$hostPort';
+  // ---------------------------------------------------------- connection
 
-  Future<String?> loadLastServer() async {
-    final SharedPreferences p = await SharedPreferences.getInstance();
-    return p.getString('last_server');
-  }
-
-  Future<void> _saveLastServer(String uri) async {
-    final SharedPreferences p = await SharedPreferences.getInstance();
-    await p.setString('last_server', uri);
-  }
-
-  Future<String?> _loadToken(String hostPort) async {
-    final SharedPreferences p = await SharedPreferences.getInstance();
-    return p.getString(_tokenKey(hostPort));
-  }
-
-  Future<void> _saveToken(String hostPort, String tok) async {
-    final SharedPreferences p = await SharedPreferences.getInstance();
-    await p.setString(_tokenKey(hostPort), tok);
-  }
-
-  Future<void> _clearToken(String hostPort) async {
-    final SharedPreferences p = await SharedPreferences.getInstance();
-    await p.remove(_tokenKey(hostPort));
-  }
+  /// Bumped by every connect() and by close(). A connect attempt that
+  /// is no longer the newest must not touch shared fields from its
+  /// continuations - without this, a double-tap on Connect (or
+  /// auto-connect racing a manual entry) let the FIRST attempt's error
+  /// path tear down the SECOND attempt's freshly-built layers.
+  int _connectGen = 0;
 
   Future<void> connect(String hostPort) async {
     await close();
-    final uri = Uri.parse('ws://$hostPort/v1');
+    final gen = ++_connectGen;
     _serverUri = hostPort;
     _connecting = true;
     _lastError = null;
     _lastAuthError = null;
     _needsPairing = false;
-    _token = await _loadToken(hostPort);
     notifyListeners();
+
     try {
-      final ch = WebSocketChannel.connect(uri);
-      _ch = ch;
-      _sub = ch.stream.listen(
-        _onMessage,
-        onError: (Object e) {
-          _lastError = 'connection error: $e';
-          _connected = false;
-          _connecting = false;
-          notifyListeners();
-        },
-        onDone: () {
-          _connected = false;
-          _connecting = false;
-          _lastError ??=
-              'disconnected  -  bridge closed the socket or it was unreachable';
-          notifyListeners();
-        },
+      final api = ObsbotApiClient(
+        uri: Uri.parse('ws://$hostPort/v1'),
+        timeout: const Duration(seconds: 6),
       );
-      try {
-        await ch.ready.timeout(const Duration(seconds: 6));
-      } on TimeoutException {
-        _lastError = 'timed out  -  could not reach $hostPort.';
-        _connecting = false;
-        notifyListeners();
-        await close();
-        return;
-      } catch (e) {
-        _lastError = 'connect failed: $e';
-        _connecting = false;
-        notifyListeners();
-        await close();
+      if (gen != _connectGen) {
+        // Superseded while constructing: close our own orphan, leave
+        // the newer attempt's fields alone.
+        await api.close();
         return;
       }
+      _api = api;
+      final auth = AuthRepository(
+        api: api,
+        storage: SharedPrefsAuthStorage(),
+        hostPort: hostPort,
+      );
+      _auth = auth;
+      final bridgeRepo = BridgeRepository(api: api);
+      _bridgeRepo = bridgeRepo;
+      final deviceRepo = DeviceRepository(api: api, bridge: bridgeRepo);
+      _deviceRepo = deviceRepo;
+
+      // The merged stream: real bridge state + optimistic overlays.
+      _stateSub = deviceRepo.state.listen((BridgeState s) {
+        _bridge = s;
+        notifyListeners();
+      });
+      _authSub = auth.status.listen((AuthStatus s) {
+        _needsPairing = s == AuthStatus.unauthenticated;
+        notifyListeners();
+      });
+
+      await auth.authenticate();
+      if (gen != _connectGen) return; // superseded mid-handshake
       _connected = true;
       _connecting = false;
-      // hello carries the token if we have one. If not, server will
-      // reply with auth_required and the UI prompts for the PIN.
-      _send({
-        'action': 'hello',
-        'id': _id(),
-        if (_token != null) 'token': _token,
-        'client': {'name': 'Open OBSBOT Remote', 'version': '1.0.0'},
-      });
-      _send({'action': 'subscribe', 'id': _id()});
-      await _saveLastServer(hostPort);
+      if (auth.current == AuthStatus.authenticated) {
+        await bridgeRepo.subscribe();
+      }
+      final p = await SharedPreferences.getInstance();
+      await p.setString('last_server', hostPort);
       notifyListeners();
-    } catch (e) {
-      _lastError = 'connect failed: $e';
-      _connected = false;
-      _connecting = false;
-      notifyListeners();
+    } on ApiConnectionException catch (e) {
+      if (gen != _connectGen) return;
+      _lastError = 'could not reach $hostPort  -  ${e.message}';
+      await _teardown();
+    } on ApiTimeoutException {
+      if (gen != _connectGen) return;
+      _lastError = 'timed out  -  could not reach $hostPort.';
+      await _teardown();
+    } on ApiException catch (e) {
+      if (gen != _connectGen) return;
+      _lastError = 'connect failed: ${e.message}';
+      await _teardown();
     }
   }
 
-  // Pending pair() promise resolved by _onMessage when the matching ack
-  // lands. We keep a single WS subscription for the lifetime of the
-  // connection so we never miss messages mid-handler-swap.
-  Completer<bool>? _pendingPair;
-  String? _pendingPairId;
-
-  /// Pair using the 6-digit PIN displayed in the bridge UI.
-  /// Returns true on success, false on wrong PIN.
+  /// Pair using the 6-digit PIN shown in the bridge window.
+  /// True on success, false on wrong PIN (with friendly copy in
+  /// [lastAuthError] - never the bridge's protocol hint).
   Future<bool> pair(String pin) async {
-    if (_ch == null) return false;
-    // Cancel any earlier in-flight pair to keep state clean.
-    if (_pendingPair != null && !_pendingPair!.isCompleted) {
-      _pendingPair!.complete(false);
+    final auth = _auth;
+    if (auth == null) return false;
+    try {
+      await auth.pair(pin);
+      _lastAuthError = null;
+      await _bridgeRepo?.subscribe();
+      notifyListeners();
+      return true;
+    } on PairException {
+      _lastAuthError =
+          "That PIN didn't match. Check the bridge window and try again.";
+      notifyListeners();
+      return false;
+    } on ApiException catch (e) {
+      _lastAuthError = 'pairing failed: ${e.message}';
+      notifyListeners();
+      return false;
     }
-    _pendingPair = Completer<bool>();
-    _pendingPairId = _id();
-    _send({'action': 'pair', 'id': _pendingPairId, 'pin': pin});
-
-    Timer(const Duration(seconds: 6), () {
-      if (_pendingPair != null && !_pendingPair!.isCompleted) {
-        _lastAuthError = 'timed out waiting for pair response';
-        _pendingPair!.complete(false);
-        notifyListeners();
-      }
-    });
-    return _pendingPair!.future;
   }
 
   Future<void> forgetToken() async {
-    await _clearToken(_serverUri);
-    _token = null;
-    _needsPairing = true;
+    await _auth?.logOut();
     notifyListeners();
   }
 
   Future<void> close() async {
-    await _sub?.cancel();
-    _sub = null;
-    await _ch?.sink.close();
-    _ch = null;
+    _connectGen++; // supersede any in-flight connect attempt
+    await _teardown();
+  }
+
+  Future<void> _teardown() async {
+    await _stateSub?.cancel();
+    _stateSub = null;
+    await _authSub?.cancel();
+    _authSub = null;
+    await _auth?.dispose();
+    _auth = null;
+    await _deviceRepo?.dispose();
+    _deviceRepo = null;
+    await _bridgeRepo?.dispose();
+    _bridgeRepo = null;
+    await _api?.close();
+    _api = null;
     _connected = false;
-    notifyListeners();
+    _connecting = false;
+    if (!_disposed) notifyListeners();
   }
 
-  void _onMessage(dynamic raw) {
-    if (raw is! String) return;
-    try {
-      final j = jsonDecode(raw) as Map<String, dynamic>;
+  // ------------------------------------------------------------- actions
+  //
+  // Fire-and-forget wrappers keeping v1's void signatures. Each injects
+  // the selected camera's device_id. Failures land in [lastError];
+  // a revoked token (pairing reset on the bridge) flips the app back
+  // to the pair screen.
 
-      // Pair-ack (matched by id)  -  resolves any in-flight pair() future.
-      if (j['type'] == 'ack' &&
-          _pendingPair != null &&
-          !_pendingPair!.isCompleted &&
-          j['id'] == _pendingPairId) {
-        if (j['ok'] == true && j['token'] is String) {
-          _token = j['token'] as String;
-          _saveToken(_serverUri, _token!);
-          _needsPairing = false;
-          _lastAuthError = null;
-          // re-send subscribe so we get a state snapshot now that we're authed
-          _send({'action': 'subscribe', 'id': _id()});
-          _pendingPair!.complete(true);
-        } else {
-          // Friendly copy. We deliberately discard `j['msg']` here too -
-          // the server hint is internal protocol detail; the user just
-          // needs to know the PIN was wrong and where to look for it.
-          _lastAuthError =
-              "That PIN didn't match. Check the bridge window and try again.";
-          _pendingPair!.complete(false);
-        }
-        _pendingPair = null;
-        _pendingPairId = null;
-        notifyListeners();
-        return;
-      }
-
-      if (j['event'] == 'state') {
-        _state = CameraState.fromEvent(j);
-        notifyListeners();
-      } else if (j['type'] == 'pong') {
-        if (_lastPingSent != null) {
-          _lastLatencyMs = DateTime.now()
-              .difference(_lastPingSent!)
-              .inMilliseconds;
-          _lastPingSent = null;
-          notifyListeners();
-        }
-      } else if (j['type'] == 'ack' && j['err'] == 'auth_required') {
-        _needsPairing = true;
-        // Discard the server hint (`msg`) here. The bridge sends a
-        // developer-facing protocol prompt like
-        // `send {action:'pair', pin:<6-digit>}` which is correct for an
-        // SDK consumer but reads as a JSON-ish red error to a phone user
-        // arriving at the pair screen. Entering the pair screen is a
-        // state transition, not a failure - keep the error slot empty
-        // until the user actually submits a wrong PIN.
-        _lastAuthError = null;
-        notifyListeners();
-      } else if (j['type'] == 'ack' && j['ok'] == false) {
-        final msg = j['msg'];
-        final err = j['err'];
-        _lastError = msg is String
-            ? msg
-            : err is String
-            ? err
-            : 'command failed';
-        notifyListeners();
-      }
-    } catch (_) {}
-  }
-
-  String _id() => '${++_msgId}';
-
-  void _send(Map<String, dynamic> m) {
-    final ch = _ch;
-    if (ch == null) return;
-    ch.sink.add(jsonEncode(m));
-  }
-
-  // ---- commands ----
-  void ping() {
-    _lastPingSent = DateTime.now();
-    _send({'action': 'ping', 'id': _id()});
-  }
-
-  void ptzAngle({required double yaw, required double pitch, Duration? duration}) =>
-      _send({
-        'action': 'ptz.angle', 'id': _id(),
-        'yaw': yaw, 'pitch': pitch,
-        'duration_ms': (duration ?? _moveDuration).inMilliseconds,
-      });
-
-  /// Velocity is rate-based; client should multiply its own deflection
-  /// by whatever speed-factor the user chose before calling this.
-  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) => _send({
-    'action': 'ptz.velocity',
-    'id': _id(),
-    'yaw_speed': yawSpeed,
-    'pitch_speed': pitchSpeed,
-    'roll_speed': 0,
-  });
-
-  void ptzStop() => _send({'action': 'ptz.stop', 'id': _id()});
-  void ptzRecenter() => _send({'action': 'ptz.recenter', 'id': _id()});
-
-  /// Zoom to absolute value. `terminal: true` on slider drag-end so the
-  /// bridge bypasses mid-drag coalesce. `duration` controls how long
-  /// the lens motor takes  -  Duration.zero = snap, larger = pro slow zoom.
-  void zoomSet(double value, {bool terminal = false, Duration? duration}) => _send({
-    'action': 'zoom.set',
-    'id': _id(),
-    'value': value,
-    if (terminal) 'final': true,
-    'duration_ms': (duration ?? Duration.zero).inMilliseconds,
-  });
-
-  // Optimistic-UI pattern for the Image tab. Every setter snaps the
-  // chosen value into `_state` + fires `notifyListeners` BEFORE
-  // shipping the WS command. The segmented / toggle button's
-  // `selected: <T>{state.field}` binding flips on the same frame as
-  // the tap so the UI feels instant. The bridge's eventual state-event
-  // echo (200-500 ms later over Wi-Fi) overwrites our optimistic
-  // value; if the camera clamped or rejected, the corrective value
-  // takes over - which is the right behaviour.
-  void _snap(CameraState next) {
-    _state = next;
-    notifyListeners();
-  }
-
-  void aiSetMode(String mode, [String sub = 'normal']) {
-    _snap(_state.copyWith(aiMode: mode, aiSubMode: sub));
-    _send({
-      'action': 'ai.set_mode',
-      'id': _id(),
-      'mode': mode,
-      'sub_mode': sub,
+  void _fire(Future<void> Function(DeviceRepository repo, String id) f) {
+    final repo = _deviceRepo;
+    final id = selectedDeviceId;
+    if (repo == null || id.isEmpty) return;
+    f(repo, id).catchError((Object e) {
+      if (e is ApiException) _fail(e);
     });
   }
 
-  void hdr(bool e) {
-    _snap(_state.copyWith(hdr: e));
-    _send({'action': 'image.set_hdr', 'id': _id(), 'enabled': e});
+  void _fail(ApiException e) {
+    if (_disposed) return;
+    if (e is ApiActionException && e.code == 'auth_required') {
+      _needsPairing = true;
+    } else {
+      // Machine code over developer message: the `msg` field is a
+      // protocol hint, not user copy (CLAUDE.md #41).
+      _lastError = e is ApiActionException ? e.code : e.message;
+    }
+    notifyListeners();
   }
 
-  void fov(int f) {
-    _snap(_state.copyWith(fov: f));
-    _send({'action': 'image.set_fov', 'id': _id(), 'fov': f});
+  void ping() {
+    _api
+        ?.send(<String, dynamic>{'action': 'ping'})
+        .catchError((Object _) => <String, dynamic>{});
   }
 
-  /// Camera face-detection-driven auto-exposure. Off by default per the
-  /// v1.1 "auto-exposure makes scene dark" finding.
-  void faceAe(bool e) {
-    _snap(_state.copyWith(faceAe: e));
-    _send({'action': 'image.set_face_ae', 'id': _id(), 'enabled': e});
+  void ptzVelocity({double yawSpeed = 0, double pitchSpeed = 0}) => _fire(
+    (r, id) =>
+        r.ptzVelocity(deviceId: id, yawSpeed: yawSpeed, pitchSpeed: pitchSpeed),
+  );
+
+  void ptzStop() => _fire((r, id) => r.ptzStop(deviceId: id));
+  void ptzRecenter() => _fire((r, id) => r.recenter(deviceId: id));
+
+  /// One precision nudge: an absolute-position step of the current
+  /// speed preset's size in the given direction (signs are the same
+  /// viewer-frame convention as velocity: +yaw pans right, +pitch
+  /// tilts up). Position commands cannot overshoot - this is the
+  /// primary framing verb; hold-to-glide is the coarse one.
+  void ptzNudge({double yawSign = 0, double pitchSign = 0}) {
+    final d = state;
+    final step = nudgeStepDeg(_ptzSpeed);
+    _fire(
+      (r, id) => r.ptzAngle(
+        deviceId: id,
+        yaw: d.yaw + yawSign * step,
+        pitch: d.pitch + pitchSign * step,
+        duration: kNudgeMoveDuration,
+      ),
+    );
   }
 
-  /// Bias auto-focus to detected faces.
-  void faceFocus(bool e) {
-    _snap(_state.copyWith(faceFocus: e));
-    _send({'action': 'image.set_face_focus', 'id': _id(), 'enabled': e});
-  }
+  void zoomSet(double value, {bool terminal = false, Duration? duration}) =>
+      _fire(
+        (r, id) => r.zoomSet(
+          deviceId: id,
+          value: value,
+          terminal: terminal,
+          duration: duration ?? Duration.zero,
+        ),
+      );
 
-  /// Mirror the image horizontally (useful for selfie / monitor setups).
-  void flipH(bool e) {
-    _snap(_state.copyWith(flipH: e));
-    _send({'action': 'image.set_flip_h', 'id': _id(), 'enabled': e});
-  }
+  void aiSetMode(String mode, [String sub = 'normal']) =>
+      _fire((r, id) => r.aiSetMode(deviceId: id, mode: mode, subMode: sub));
 
-  /// Update one or more color sliders (0..100). Only fields you pass are
-  /// sent; unset fields are left untouched on the camera.
-  void colorSet({int? brightness, int? contrast, int? saturation, int? sharpness}) {
-    _snap(_state.copyWith(
+  void hdr(bool e) => _fire((r, id) => r.hdr(deviceId: id, enabled: e));
+  void fov(int f) => _fire((r, id) => r.fov(deviceId: id, fov: f));
+  void faceAe(bool e) => _fire((r, id) => r.faceAe(deviceId: id, enabled: e));
+  void faceFocus(bool e) =>
+      _fire((r, id) => r.faceFocus(deviceId: id, enabled: e));
+  void flipH(bool e) => _fire((r, id) => r.flipH(deviceId: id, enabled: e));
+
+  void colorSet({
+    int? brightness,
+    int? contrast,
+    int? saturation,
+    int? sharpness,
+  }) => _fire(
+    (r, id) => r.colorSet(
+      deviceId: id,
       brightness: brightness,
       contrast: contrast,
       saturation: saturation,
       sharpness: sharpness,
-    ));
-    final Map<String, dynamic> msg = <String, dynamic>{
-      'action': 'image.set_color',
-      'id': _id(),
-    };
-    if (brightness != null) msg['brightness'] = brightness;
-    if (contrast != null) msg['contrast'] = contrast;
-    if (saturation != null) msg['saturation'] = saturation;
-    if (sharpness != null) msg['sharpness'] = sharpness;
-    _send(msg);
-  }
+    ),
+  );
 
-  // v1.2 PR G  -  exposure / anti-flicker / white balance.
-  // Empirical probe on Tiny 2 Lite firmware 6.2.8.1 (PR P, 2026-05-12)
-  // confirmed every exposure_mode + ev_bias variant returns r=0  -  the
-  // "tail air" tag in the SDK headers is misleading. All controls work.
+  void setExposureMode(String mode) =>
+      _fire((r, id) => r.setExposureMode(deviceId: id, mode: mode));
+  void setEvBias(double bias) =>
+      _fire((r, id) => r.setEvBias(deviceId: id, bias: bias));
+  void setAntiFlicker(String mode) =>
+      _fire((r, id) => r.setAntiFlicker(deviceId: id, mode: mode));
+  void setWbAuto(bool enabled) =>
+      _fire((r, id) => r.setWbAuto(deviceId: id, enabled: enabled));
+  void setWbTemp(int kelvin) =>
+      _fire((r, id) => r.setWbTemp(deviceId: id, kelvin: kelvin));
+  void imageRefresh() => _fire((r, id) => r.imageRefresh(deviceId: id));
 
-  void setExposureMode(String mode) {
-    _snap(_state.copyWith(exposureMode: mode));
-    _send({
-      'action': 'image.set_exposure_mode',
-      'id': _id(),
-      'mode': mode, // "auto" | "manual"
-    });
-  }
+  void presetSave(int id, String name) =>
+      _fire((r, dev) => r.presetSave(deviceId: dev, presetId: id, name: name));
 
-  void setEvBias(double bias) {
-    _snap(_state.copyWith(evBias: bias));
-    _send({
-      'action': 'image.set_ev_bias',
-      'id': _id(),
-      'bias': bias, // -3.0 .. +3.0 (1/3 stops). Snapped server-side.
-    });
-  }
-
-  void setAntiFlicker(String mode) {
-    _snap(_state.copyWith(antiFlicker: mode));
-    _send({
-      'action': 'image.set_anti_flicker',
-      'id': _id(),
-      'mode': mode, // "off" | "50" | "60" | "auto"
-    });
-  }
-
-  void setWbAuto(bool enabled) {
-    _snap(_state.copyWith(wbAuto: enabled));
-    _send({
-      'action': 'image.set_wb_auto',
-      'id': _id(),
-      'enabled': enabled,
-    });
-  }
-
-  /// Ask the bridge to re-read live exposure / anti-flicker / WB state
-  /// from the camera and stamp its snapshot. Useful when OBSBOT Center
-  /// or other tools have changed values out-of-band; without it the UI
-  /// shows our last-known state which can drift indefinitely.
-  void imageRefresh() => _send({
-        'action': 'image.refresh',
-        'id': _id(),
-      });
-
-  /// v1.4 W6 stub: capture a still frame from the camera. The bridge
-  /// currently ignores this action (no backend implementation yet);
-  /// the UI button is wired in advance so we can ship the capture
-  /// path in v1.5 without a phone-side update. Fires the request and
-  /// silently no-ops if the bridge replies `err: unknown_action`.
-  void imageSnapshot() => _send({
-        'action': 'image.snapshot',
-        'id': _id(),
-      });
-
-  void setWbTemp(int kelvin) {
-    _snap(_state.copyWith(wbKelvin: kelvin));
-    _send({
-      'action': 'image.set_wb_temp',
-      'id': _id(),
-      'kelvin': kelvin, // 2800 .. 6500
-    });
-  }
-
-  void presetSave(int id, String name) => _send({
-    'action': 'preset.save',
-    'id': _id(),
-    'preset_id': id,
-    'name': name,
-  });
-
-  void presetRecall(int id, {Duration? duration}) => _send({
-    'action': 'preset.recall',
-    'id': _id(),
-    'preset_id': id,
-    'duration_ms': (duration ?? _moveDuration).inMilliseconds,
-  });
+  /// Recall with the user's chosen move duration (the chip strip) when
+  /// the caller doesn't override. The duration default is presentation
+  /// policy, so it lives here rather than in the repository.
+  void presetRecall(int id, {Duration? duration}) => _fire(
+    (r, dev) => r.presetRecall(
+      deviceId: dev,
+      presetId: id,
+      duration: duration ?? _moveDuration,
+    ),
+  );
 
   void presetDelete(int id) =>
-      _send({'action': 'preset.delete', 'id': _id(), 'preset_id': id});
+      _fire((r, dev) => r.presetDelete(deviceId: dev, presetId: id));
 
   void runStatus(String s) =>
-      _send({'action': 'system.run_status', 'id': _id(), 'status': s});
+      _fire((r, id) => r.runStatus(deviceId: id, status: s));
 
-  // ---- sequencer ----
+  // ---- sequencer (per selected camera) ----
+
   void sequenceSet(
     List<SequenceStep> steps, {
     LoopMode mode = LoopMode.forward,
-  }) => _send({
-    'action': 'sequence.set',
-    'id': _id(),
-    'steps': steps.map((s) => s.toJson()).toList(),
-    'mode': loopModeToWire(mode),
-    // legacy field for older bridges
-    'loop': mode != LoopMode.once,
-  });
+  }) => _fire((r, id) => r.sequenceSet(deviceId: id, steps: steps, mode: mode));
 
-  void sequenceStart() => _send({'action': 'sequence.start', 'id': _id()});
-  void sequenceStop() => _send({'action': 'sequence.stop', 'id': _id()});
+  void sequenceStart() => _fire((r, id) => r.sequenceStart(deviceId: id));
+  void sequenceStop() => _fire((r, id) => r.sequenceStop(deviceId: id));
 
-  // Library
   void sequenceSaveAs(
     String name,
     List<SequenceStep> steps, {
     LoopMode mode = LoopMode.forward,
-  }) => _send({
-    'action': 'sequence.save_as',
-    'id': _id(),
-    'name': name,
-    'mode': loopModeToWire(mode),
-    'steps': steps.map((s) => s.toJson()).toList(),
-  });
+  }) => _fire(
+    (r, id) =>
+        r.sequenceSaveAs(deviceId: id, name: name, steps: steps, mode: mode),
+  );
+
   void sequenceLoad(String name) =>
-      _send({'action': 'sequence.load', 'id': _id(), 'name': name});
+      _fire((r, id) => r.sequenceLoad(deviceId: id, name: name));
   void sequenceDelete(String name) =>
-      _send({'action': 'sequence.delete', 'id': _id(), 'name': name});
+      _fire((r, id) => r.sequenceDelete(deviceId: id, name: name));
+
+  @override
+  void dispose() {
+    // Flag FIRST: _teardown() completes asynchronously after
+    // super.dispose(), and its trailing notify (plus any in-flight
+    // _fire error or the constructor's prefs callback) must become a
+    // no-op rather than trip ChangeNotifier's disposed assert.
+    _disposed = true;
+    _teardown();
+    super.dispose();
+  }
 }

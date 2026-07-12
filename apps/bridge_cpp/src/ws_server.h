@@ -3,14 +3,14 @@
 #include <string>
 
 namespace obs {
-class DeviceSession;
-class VideoCapture;
+class DeviceManager;
 class AuthStore;
 
-// Run a Crow WebSocket + HTTP server on `port` (blocks).
+// Run a Crow WebSocket + HTTP server on `port` (blocks). Also installs the
+// DeviceManager's state broadcaster so every attached camera's snapshot fans
+// out to subscribed clients as a single v2 envelope.
 void run_ws_server(uint16_t port,
-                   DeviceSession& session,
-                   VideoCapture* video,
+                   DeviceManager& mgr,
                    const std::string& web_root,
                    AuthStore& auth);
 }

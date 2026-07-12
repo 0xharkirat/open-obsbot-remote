@@ -15,14 +15,29 @@ import 'web_mjpeg_stub.dart' if (dart.library.js_interop) 'web_mjpeg_web.dart';
 ///                             Image widget on mobile doesn't grok multipart).
 class PreviewWidget extends StatelessWidget {
   final WsClient client;
+
   /// Show small `+` reticle at frame center.
   final bool showCrosshair;
+
   /// Show solid horizontal + vertical lines through dead center.
   final bool showCenterLines;
+
   /// Show rule-of-thirds dashed grid.
   final bool showThirds;
+
   /// Show top-left Pan / Tilt degrees readout.
   final bool showReadout;
+
+  /// Which camera to stream. Null = the selected camera (the default,
+  /// used everywhere before the studio surface). A concrete id pins the
+  /// stream to one camera regardless of selection - the v3 studio uses
+  /// this to show the on-air (program) camera in the PiP while the
+  /// large preview follows the staged camera.
+  final String? deviceId;
+
+  /// Bare feed: no grid overlay, no rounded clip, no aspect box. For the
+  /// program PiP, which draws its own frame + ON AIR badge.
+  final bool minimal;
 
   const PreviewWidget({
     super.key,
@@ -31,23 +46,26 @@ class PreviewWidget extends StatelessWidget {
     this.showCenterLines = false,
     this.showThirds = false,
     this.showReadout = true,
+    this.deviceId,
+    this.minimal = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final host = client.serverUri; // e.g. "10.250.1.51:8765"
-    if (!client.connected || host.isEmpty) {
+    // v2: the URL is per-device (`/preview/<sn>.mjpg`), built by the
+    // bridge repository from the SELECTED camera - switching cameras
+    // in the picker switches this stream on the same frame. v3 studio
+    // may pin it to an explicit camera (the on-air one) instead.
+    final uri = client.previewUri(deviceId: deviceId);
+    if (!client.connected || uri == null) {
       return _placeholder(context, 'Connecting...');
     }
-    // MJPEG runs on ws-port + 1 (8766 by default).
-    final colon = host.lastIndexOf(':');
-    final hostOnly = colon >= 0 ? host.substring(0, colon) : host;
-    final wsPort = colon >= 0
-        ? int.tryParse(host.substring(colon + 1)) ?? 8765
-        : 8765;
-    final tok = client.token ?? '';
-    final url = 'http://$hostOnly:${wsPort + 1}/preview.mjpeg?t=$tok';
+    final url = uri.toString();
+    final stream = kIsWeb ? _webStream(url) : _mobileStream(url);
 
+    if (minimal) {
+      return ColoredBox(color: Colors.black, child: stream);
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: AspectRatio(
@@ -57,7 +75,7 @@ class PreviewWidget extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              kIsWeb ? _webStream(url) : _mobileStream(url),
+              stream,
               GridOverlay(
                 client: client,
                 showCrosshair: showCrosshair,

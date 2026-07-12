@@ -1,8 +1,7 @@
 #include "ws_server.h"
-#include "device_session.h"
+#include "device_manager.h"
 #include "protocol.h"
 #include "log.h"
-#include "video_capture.h"
 #include "auth.h"
 #include <json.hpp>
 
@@ -60,8 +59,7 @@ static bool path_is_safe(const std::string& rel) {
 }
 
 void run_ws_server(uint16_t port,
-                   DeviceSession& session,
-                   VideoCapture* video,
+                   DeviceManager& mgr,
                    const std::string& web_root,
                    AuthStore& auth) {
     crow::SimpleApp app;
@@ -74,15 +72,20 @@ void run_ws_server(uint16_t port,
 
     auto broadcast = [&](const std::string& payload) {
         std::lock_guard<std::mutex> g(conn_mu);
-        for (auto* c : authed_conns) c->send_text(payload);
+        // Per-connection catch: one client dying mid-send must not abort
+        // the fan-out to everyone else (the reply path already wraps its
+        // send the same way).
+        for (auto* c : authed_conns) {
+            try { c->send_text(payload); } catch (...) {}
+        }
     };
 
-    // hook session state pushes into broadcaster
-    session.start([&](const DeviceSnapshot& s) {
-        try {
-            auto j = build_state_event(s);
-            broadcast(j.dump());
-        } catch (...) {}
+    // Install the manager's state broadcaster: any camera attach/detach, active
+    // switch, or per-device snapshot push fans out one assembled v2 envelope to
+    // every subscribed client. This also starts the libdev attach/detach
+    // callback, so cameras begin populating as their plug-in events fire.
+    mgr.start([&broadcast](const std::string& event_json) {
+        broadcast(event_json);
     });
 
     CROW_WEBSOCKET_ROUTE(app, "/v1")
@@ -101,12 +104,12 @@ void run_ws_server(uint16_t port,
             // Auth gate: parse minimally to extract action + token.
             std::string action;
             std::string token;
-            std::string id = "?";
+            nlohmann::json id = "?";
             try {
                 auto msg = nlohmann::json::parse(data);
                 action = msg.value("action", "");
                 token  = msg.value("token", "");
-                id     = msg.value("id", "?");
+                if (msg.contains("id")) id = msg["id"];
             } catch (...) {}
 
             bool authed;
@@ -148,7 +151,16 @@ void run_ws_server(uint16_t port,
                 return;
             }
 
-            dispatch_message(session, data, [&conn](std::string out){
+            // Device-scoped commands reply LATER on a session worker thread. If
+            // the client disconnected in the meantime, Crow has deleted this
+            // connection, so send only while it is still in authed_conns - the
+            // same membership gate broadcast() uses. onclose erases under
+            // conn_mu before Crow frees the connection, so a present entry means
+            // the connection is still alive. count() on a stale pointer is a
+            // comparison, not a deref, so it is safe either way.
+            dispatch_message(mgr, data, [&conn, &conn_mu, &authed_conns](std::string out){
+                std::lock_guard<std::mutex> g(conn_mu);
+                if (authed_conns.count(&conn) == 0) return;
                 try { conn.send_text(out); } catch (...) {}
             });
         });

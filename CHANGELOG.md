@@ -1,8 +1,51 @@
 # Changelog
 
-All notable changes to Open OBSBOT Control. Format: [Keep a Changelog](https://keepachangelog.com/), versioning per [SemVer](https://semver.org/).
+All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep a Changelog](https://keepachangelog.com/), versioning per [SemVer](https://semver.org/).
 
 ## [Unreleased]
+
+## [2.0.0] - 2026-07-12
+
+Multi-camera release.
+One bridge now drives several OBSBOT cameras at once, the phone and browser remote is rebuilt around a single Live switcher screen, and a bridge-level engine runs cross-camera mix sequences.
+OBS still reads one Browser Source; camera switching happens in the bridge, not in OBS scenes.
+
+### Added
+
+- Multi-camera control. One `DeviceManager` owns N `DeviceSession`s keyed by serial number. Bridge state is a `BridgeState` envelope on the `event: "state"` message, carrying `devices[]`, `active_device_id`, and a `mix` block.
+- Live switcher screen in the remote. Selection (which camera the phone drives) and on-air (which camera `active.mjpg` and OBS follow) are separate. TAKE commits the change.
+- Crossfade transition. A TAKE with a non-zero fade dissolves the outgoing camera into the incoming one, baked into `active.mjpg` so OBS needs no scene changes. The first take, with no outgoing frame captured yet, falls back to a fade from black.
+- Cross-camera mix sequencer. A bridge-level engine runs timed cues that switch and move across cameras, persisted to `mix.json` and `mix_sequences.json`. A live camera keeps moving while on air by design; there is no on-air movement lock.
+- PTZ precision engine. Tap is an absolute nudge, hold is a ramped glide, the joystick uses a squared response curve, and release double-stops behind a bridge watchdog. Tuning lives in `apps/rc/lib/ptz_tuning.dart`.
+- Sequence library export and import, via the `library.export` and `library.import` actions and a Settings section in the remote.
+- Client packages `obsbot_api_client`, `bridge_repository`, `device_repository`, and `auth_repository`, over the shared `obsbot_protocol` wire types.
+- Multi-camera deck in the Mac bridge window, driven by a local WebSocket client.
+- Copyable OBS Browser Source URL in the bridge window.
+
+### Changed
+
+- The remote is Material 3 only. forui is retired.
+- Camera auto-sleep is disabled on connect via `cameraSetSuspendTimeU(0)`, and a capture left stranded by a sleep is restarted on wake. This fixes a camera that slept and then showed a dead preview and OBS feed after waking while the other camera kept working.
+
+### Removed
+
+- The Drive / Image / More tab layout and Simple mode, replaced by the single Live screen.
+
+### Fixed
+
+- Three deadlocks and crashes found on the first live two-camera run.
+- `notifyListeners()` firing after dispose in the remote's WebSocket client.
+- A per-serial preview stream now ends when its camera detaches.
+- A late camera-permission grant now retries the capture instead of leaving the preview blank.
+
+## [1.5.2] - 2026-07-10
+
+Release artifact switched from a ZIP to a universal DMG (arm64 and x86_64) installed through a Homebrew cask (`brew install --cask 0xharkirat/tap/open-obsbot-bridge`), which clears the Gatekeeper quarantine at install time.
+Same code as 1.5.1; the bump is release metadata only. See PR #30.
+
+## [1.5.1] - 2026-05-18
+
+3-flat-tab restore, Image-tab theme and latency fix, sequencer Update versus Save-as-new, bridge web-root walk-up, and UI polish. See PR #28.
 
 ## [1.5.0] - 2026-05-18
 

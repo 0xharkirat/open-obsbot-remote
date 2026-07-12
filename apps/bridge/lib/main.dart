@@ -2,16 +2,20 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/cupertino.dart' show CupertinoColors, CupertinoIcons;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:marionette_flutter/marionette_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'bridge_prefs.dart';
 import 'bridge_supervisor.dart';
+import 'camera_deck.dart';
 import 'footer.dart';
+import 'local_bridge_client.dart';
 import 'tray_controller.dart';
 
 /// Best-effort check whether the user has ever paired a phone.
@@ -27,7 +31,8 @@ Future<bool> _hasPairedTokens() async {
     final home = Platform.environment['HOME'];
     if (home == null) return false;
     final f = File(
-        '$home/Library/Application Support/Open OBSBOT Bridge/auth.json');
+      '$home/Library/Application Support/Open OBSBOT Bridge/auth.json',
+    );
     if (!await f.exists()) return false;
     final j = json.decode(await f.readAsString()) as Map<String, dynamic>;
     final tokens = j['tokens'] as List<dynamic>?;
@@ -38,7 +43,15 @@ Future<bool> _hasPairedTokens() async {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Marionette (debug only) lets an AI agent drive this Mac app via the
+  // widget tree. Skip it under a test harness - one WidgetsBinding per
+  // process. macOS-only app, so dart:io is always available here.
+  final underTest = Platform.environment.containsKey('FLUTTER_TEST');
+  if (kDebugMode && !underTest) {
+    MarionetteBinding.ensureInitialized();
+  } else {
+    WidgetsFlutterBinding.ensureInitialized();
+  }
   await windowManager.ensureInitialized();
   final prefs = await BridgePrefs.load();
   final paired = await _hasPairedTokens();
@@ -85,7 +98,7 @@ Future<void> main() async {
 /// Hardcoded for now; mirrors `version:` in `apps/bridge/pubspec.yaml`.
 /// `package_info_plus` would let us read it at runtime but it adds a
 /// dependency for a single string. Update both places at release time.
-const String _kAppVersion = '1.5.0';
+const String _kAppVersion = '2.0.0';
 
 class ObsbotBridgeApp extends StatefulWidget {
   final BridgePrefs prefs;
@@ -97,6 +110,7 @@ class ObsbotBridgeApp extends StatefulWidget {
 class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
   final supervisor = BridgeSupervisor();
   List<String> _lanIps = const <String>[];
+
   /// Tray-driven "Reveal PIN" toggles this from anywhere; HomeScreen
   /// watches it so the reveal animation runs regardless of who fired it.
   final ValueNotifier<int> _revealRequest = ValueNotifier<int>(0);
@@ -108,10 +122,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
     _refreshIps();
     Future<void>.delayed(const Duration(milliseconds: 200), () {
       supervisor.start(); // auto-start on launch
-      _tray = TrayController(
-        supervisor: supervisor,
-        version: _kAppVersion,
-      );
+      _tray = TrayController(supervisor: supervisor);
       _tray!.init();
     });
     Timer.periodic(const Duration(seconds: 5), (_) => _refreshIps());
@@ -180,6 +191,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
 class HomeScreen extends StatefulWidget {
   final BridgeSupervisor supervisor;
   final List<String> lanIps;
+
   /// External reveal trigger (bumped by the macOS tray menu's
   /// "Reveal pairing PIN" item). HomeScreen listens and shows the PIN
   /// for the standard 60-second window.
@@ -204,11 +216,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _hideTimer;
   int _lastRevealRequest = 0;
 
+  /// v2: the window is itself a WS client of the C++ subprocess, so the
+  /// Cameras section renders real multi-camera state (per-device rows,
+  /// LIVE badge, set-live, rename) instead of log scraping.
+  late final LocalBridgeClient _bridgeClient;
+
   @override
   void initState() {
     super.initState();
     _lastRevealRequest = widget.revealRequest.value;
     widget.revealRequest.addListener(_onExternalReveal);
+    _bridgeClient = LocalBridgeClient()..start();
   }
 
   void _onExternalReveal() {
@@ -235,6 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     widget.revealRequest.removeListener(_onExternalReveal);
     _hideTimer?.cancel();
+    _bridgeClient.dispose();
     super.dispose();
   }
 
@@ -355,26 +374,26 @@ class _HomeScreenState extends State<HomeScreen> {
             // a banner rather than a row.
             _statusBanner(context),
             const SizedBox(height: 18),
+            // Pairing first: the PIN/QR is the thing you open this window for
+            // (setting up a phone), so it sits above the fold - no scrolling.
+            _sectionHeader(context, 'Pairing'),
+            const SizedBox(height: 6),
+            _revealCard(context),
+            if (lanIps.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'Offline - no Wi-Fi network detected.',
+                  style: MacosTheme.of(context).typography.subheadline.copyWith(
+                    color: MacosColors.systemGrayColor,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 18),
             _sectionHeader(context, 'Status'),
             const SizedBox(height: 6),
             _groupCard(context, <Widget>[
               _cameraPermissionRow(context),
-              _divider(context),
-              _statusRow(
-                context,
-                title: 'Camera',
-                // W2 fallback: when AVFoundation reports the camera but
-                // libdev hasn't filled in the SN yet (post-replug bug),
-                // show just the model name without the "  -  SN" suffix.
-                subtitle: supervisor.cameraConnected
-                    ? (supervisor.detectedSn.isNotEmpty
-                        ? '${supervisor.detectedModel}  -  ${supervisor.detectedSn}'
-                        : supervisor.detectedModel)
-                    : 'Not detected',
-                dotColor: supervisor.cameraConnected
-                    ? CupertinoColors.systemGreen
-                    : MacosColors.systemGrayColor,
-              ),
               _divider(context),
               _statusRow(
                 context,
@@ -391,19 +410,20 @@ class _HomeScreenState extends State<HomeScreen> {
               _firewallRow(context),
             ]),
             const SizedBox(height: 18),
-            _sectionHeader(context, 'Pairing'),
+            // v2: per-camera rows replace the single log-scraped Camera
+            // row - each attached camera gets its own status dot, LIVE
+            // badge, Set live action, and rename. The deck talks to the
+            // C++ subprocess over the same WS API the phone uses.
+            _sectionHeader(context, 'Cameras'),
             const SizedBox(height: 6),
-            _revealCard(context),
-            if (lanIps.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  'Offline - no Wi-Fi network detected.',
-                  style: MacosTheme.of(context).typography.subheadline.copyWith(
-                    color: MacosColors.systemGrayColor,
-                  ),
-                ),
-              ),
+            _groupCard(context, <Widget>[CameraDeck(client: _bridgeClient)]),
+            const SizedBox(height: 18),
+            // One Browser Source pointed at active.mjpg replaces OBS
+            // scene switching; the URL carries a token, so the row
+            // masks it and copies the real thing on demand.
+            _sectionHeader(context, 'OBS output'),
+            const SizedBox(height: 6),
+            _groupCard(context, <Widget>[ObsOutputRow(client: _bridgeClient)]),
             const SizedBox(height: 20),
             _logSection(context),
             const AppFooter(),
@@ -469,24 +489,17 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 6),
         DecoratedBox(
           decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF1C1C1E)
-                : const Color(0xFFF6F6F8),
+            color: isDark ? const Color(0xFF1C1C1E) : const Color(0xFFF6F6F8),
             borderRadius: const BorderRadius.all(Radius.circular(8)),
             border: Border.all(
-              color: isDark
-                  ? const Color(0x1FFFFFFF)
-                  : const Color(0x14000000),
+              color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
               width: 0.5,
             ),
           ),
           child: SizedBox(
             height: 220,
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 8,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               child: ListView.builder(
                 itemCount: supervisor.logTail.length,
                 itemBuilder: (BuildContext ctx, int i) {
@@ -514,11 +527,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
             children: <Widget>[
-              MacosIcon(
-                CupertinoIcons.lock_fill,
-                color: mutedColor,
-                size: 18,
-              ),
+              MacosIcon(CupertinoIcons.lock_fill, color: mutedColor, size: 18),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -731,9 +740,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: <Widget>[
             Text(
               '${supervisor.pairedTokenCount} paired',
-              style: macosTheme.typography.caption1.copyWith(
-                color: mutedColor,
-              ),
+              style: macosTheme.typography.caption1.copyWith(color: mutedColor),
             ),
             const SizedBox(height: 6),
             Row(
@@ -856,9 +863,7 @@ class _HomeScreenState extends State<HomeScreen> {
             : MacosColors.controlBackgroundColor.color,
         borderRadius: const BorderRadius.all(Radius.circular(8)),
         border: Border.all(
-          color: isDark
-              ? const Color(0x1FFFFFFF)
-              : const Color(0x14000000),
+          color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
           width: 0.5,
         ),
       ),
@@ -876,9 +881,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.only(left: 36),
       child: Container(
         height: 0.5,
-        color: isDark
-            ? const Color(0x1FFFFFFF)
-            : const Color(0x14000000),
+        color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
       ),
     );
   }
@@ -910,8 +913,10 @@ class _HomeScreenState extends State<HomeScreen> {
             Container(
               width: 10,
               height: 10,
-              decoration:
-                  BoxDecoration(color: dotColor, shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
             ),
           const SizedBox(width: 12),
           Expanded(
@@ -937,10 +942,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          if (trailing != null) ...<Widget>[
-            const SizedBox(width: 8),
-            trailing,
-          ],
+          if (trailing != null) ...<Widget>[const SizedBox(width: 8), trailing],
         ],
       ),
     );
@@ -1117,17 +1119,19 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Row(children: <Widget>[
-          Text('Version', style: mutedStyle),
-          const SizedBox(width: 8),
-          SelectableText(
-            'v$_kAppVersion',
-            style: const TextStyle(
-              fontFamily: 'Menlo',
-              fontWeight: FontWeight.w600,
+        Row(
+          children: <Widget>[
+            Text('Version', style: mutedStyle),
+            const SizedBox(width: 8),
+            SelectableText(
+              'v$_kAppVersion',
+              style: const TextStyle(
+                fontFamily: 'Menlo',
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
         const SizedBox(height: 8),
         if (supervisor.logFilePath != null)
           _aboutRow(
@@ -1156,7 +1160,10 @@ class _HomeScreenState extends State<HomeScreen> {
         Wrap(
           crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
-            Text('by Hark Singh with OBSBOT SDK + Flutter  ', style: mutedStyle),
+            Text(
+              'by Hark Singh with OBSBOT SDK + Flutter  ',
+              style: mutedStyle,
+            ),
             _aboutLink(
               ctx,
               icon: Icons.open_in_new,
@@ -1185,15 +1192,13 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 80,
             child: Text(
               label,
-              style:
-                  TextStyle(color: theme.colorScheme.outline, fontSize: 11),
+              style: TextStyle(color: theme.colorScheme.outline, fontSize: 11),
             ),
           ),
           Expanded(
             child: SelectableText(
               value,
-              style:
-                  const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+              style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
             ),
           ),
           IconButton(

@@ -6,8 +6,9 @@ third_party/**/libdev.*
 third_party/**/OBSBOT_Sample
 third_party/**/OBSBOT_Sample.exe
 
-# C++ bridge build output
-apps/bridge_cpp/build/
+# C++ bridge build output. build* covers build/ and out-of-tree build-dev/,
+# both of which hold the proprietary libdev.dylib that must never be committed.
+apps/bridge_cpp/build*/
 apps/bridge_cpp/cmake-build-*/
 
 # Local release artifacts. Upload these to GitHub Releases manually; don't

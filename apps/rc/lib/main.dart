@@ -1,18 +1,26 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:marionette_flutter/marionette_flutter.dart';
 
 import 'connect_screen.dart';
-import 'control_screen.dart';
+import 'flutter_test_detect.dart'
+    if (dart.library.io) 'flutter_test_detect_io.dart';
 import 'host_autodetect_stub.dart'
     if (dart.library.js_interop) 'host_autodetect_web.dart';
+import 'live_screen.dart';
 import 'pin_entry_screen.dart';
-import 'simple_mode_screen.dart';
 import 'ws_client.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Marionette lets an AI agent drive the running app via the widget tree
+  // (docs/testing: marionette MCP). Debug-only, and never when a test
+  // harness already owns the binding - one WidgetsBinding per process.
+  if (kDebugMode && !isRunningFlutterTest) {
+    MarionetteBinding.ensureInitialized();
+  } else {
+    WidgetsFlutterBinding.ensureInitialized();
+  }
   SystemChrome.setPreferredOrientations(<DeviceOrientation>[
     DeviceOrientation.portraitUp,
     DeviceOrientation.landscapeLeft,
@@ -29,15 +37,10 @@ class ObsbotApp extends StatefulWidget {
 
 class _ObsbotAppState extends State<ObsbotApp> {
   final WsClient client = WsClient();
-  bool _simpleMode = true;
 
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((p) {
-      final m = p.getString('mode') ?? 'simple';
-      if (mounted) setState(() => _simpleMode = m == 'simple');
-    });
     // On web, the page itself was served by the bridge, so we already
     // know its address. Skip the connect screen and auto-dial.
     if (kIsWeb) {
@@ -46,12 +49,6 @@ class _ObsbotAppState extends State<ObsbotApp> {
         client.connect(hp);
       }
     }
-  }
-
-  Future<void> _setMode(bool simple) async {
-    setState(() => _simpleMode = simple);
-    final p = await SharedPreferences.getInstance();
-    await p.setString('mode', simple ? 'simple' : 'advanced');
   }
 
   @override
@@ -68,19 +65,20 @@ class _ObsbotAppState extends State<ObsbotApp> {
     // hardware + the OBSBOT Center mac app.
     const obsbotRed = Color(0xFFFF3B30);
     const deepSurface = Color(0xFF0F1115);
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: obsbotRed,
-      primary: obsbotRed,
-      surface: deepSurface,
-      brightness: Brightness.dark,
-    ).copyWith(
-      surfaceContainerLowest: const Color(0xFF0A0C10),
-      surfaceContainerLow: const Color(0xFF14171D),
-      surfaceContainer: const Color(0xFF181B22),
-      surfaceContainerHigh: const Color(0xFF1F2229),
-      surfaceContainerHighest: const Color(0xFF262932),
-      outlineVariant: const Color(0xFF3A3D45),
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: obsbotRed,
+          primary: obsbotRed,
+          surface: deepSurface,
+          brightness: Brightness.dark,
+        ).copyWith(
+          surfaceContainerLowest: const Color(0xFF0A0C10),
+          surfaceContainerLow: const Color(0xFF14171D),
+          surfaceContainer: const Color(0xFF181B22),
+          surfaceContainerHigh: const Color(0xFF1F2229),
+          surfaceContainerHighest: const Color(0xFF262932),
+          outlineVariant: const Color(0xFF3A3D45),
+        );
     return MaterialApp(
       title: 'Open OBSBOT Remote',
       theme: ThemeData(
@@ -128,17 +126,8 @@ class _ObsbotAppState extends State<ObsbotApp> {
           if (client.needsPairing || client.token == null) {
             return PinEntryScreen(client: client);
           }
-          // 3) authed + camera reporting state → control screens
-          if (_simpleMode) {
-            return SimpleModeScreen(
-              client: client,
-              onSwitchAdvanced: () => _setMode(false),
-            );
-          }
-          return ControlScreen(
-            client: client,
-            onSwitchSimple: () => _setMode(true),
-          );
+          // 3) authed → the v3 studio (one surface, no mode split).
+          return LiveScreen(client: client);
         },
       ),
     );

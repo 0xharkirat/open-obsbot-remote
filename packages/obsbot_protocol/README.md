@@ -17,9 +17,15 @@ This package is the Dart-side mirror.
   transition duration).
 - `SequenceState` - sequencer block from the `state` event (running
   flag, current step, library, active edit list).
-- `CameraState` - the full decoded `state` event payload.
-- `LoopMode` + `loopModeToWire` / `loopModeFromWire` /
-  `loopModeLabel`.
+- `DeviceState` - one camera's full snapshot (PTZ, zoom, AI, image,
+  exposure / WB, presets, per-device sequence). Multiple cameras
+  appear as multiple `DeviceState`s.
+- `BridgeState` - the top-level `state` event envelope. Owns the
+  `devices` list + `activeDeviceId` (which camera is currently going
+  out to OBS). `BridgeState.deviceById(id)` + `BridgeState.withDevice`
+  for routing per-device mutations.
+- `LoopMode` + `loopModeToWire` / `loopModeFromWire`.
+- `MixState` + `MixCue` - the cross-camera mix sequencer's state and cue shape.
 - `MoveDurationPreset` + `kMoveDurationPresets` +
   `formatMoveDuration` - the well-known move-duration chip strip
   (Instant / 1 sec / 5 sec / 15 sec / 30 sec / 1 min / 3 min /
@@ -36,9 +42,27 @@ dependencies:
 ```dart
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 
-final state = CameraState.fromEvent(jsonDecode(wsFrame));
-if (state.connected) print('Zoom: ${state.zoom.toStringAsFixed(2)}x');
+final bridge = BridgeState.fromEvent(jsonDecode(wsFrame));
+for (final dev in bridge.devices) {
+  print('${dev.displayName}: zoom ${dev.zoom.toStringAsFixed(2)}x');
+}
+final live = bridge.activeDevice;
+if (live != null) print('OBS sees: ${live.displayName}');
 ```
+
+## v2 break - multi-cam
+
+v1.x called the single-camera snapshot `CameraState` and pushed it
+directly as the state event. v2 splits this into:
+
+- `DeviceState` (per-camera, same fields as v1 `CameraState` + new
+  `deviceId` + `friendlyName`)
+- `BridgeState` (envelope holding the device list + the live id)
+
+v1 clients connecting to a v2 bridge fail at the state-event parse
+step (no `devices` array). v2 clients connecting to a v1 bridge use
+the `BridgeState.fromEvent` fallback that wraps the single device into
+a one-element list - transitional during the rollout window.
 
 ## Tests
 
@@ -58,7 +82,7 @@ Open OBSBOT Remote app version. Bumps:
 - Patch: defaults added, optional fields, no breaking change.
 - Minor: new actions, new state fields. Old clients still work.
 - Major: breaking change to existing field names / types. The
-  bridge's `hello` ack carries a `server.protocol` integer that
-  clients should compare against their compiled-in version.
+  state event carries a `version` field clients can compare
+  against their compiled-in version.
 
-Current package version: `0.1.0` (matches bridge protocol `1`).
+Current package version: `1.0.0` (matches bridge protocol `2.0`).

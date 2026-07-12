@@ -5,7 +5,7 @@ A duplicate copy lives at `AGENTS.md` for non-Claude AI tools that follow that c
 
 ## What this project is
 
-Phone-based remote for OBSBOT cameras (Tiny 2 Lite is the only camera tested). A controller device uses Android, iOS, or a **web browser** to pan/tilt/zoom/recall presets/run a timed sequence while the camera stays connected to the bridge host over USB.
+Phone and browser remote for OBSBOT cameras. Tiny 2 Lite is the tested model; the bridge drives one or more cameras at once. A controller (Android, iOS, or **web browser**) selects a camera, drives pan/tilt/zoom/presets, switches which camera is on air (TAKE - cut or crossfade), and runs both single-camera and cross-camera timed sequences. Cameras stay on USB to the bridge host. OBS reads one Browser Source pointed at `active.mjpg`, so camera switching happens in the bridge, not in OBS scenes.
 
 Two products:
 
@@ -124,9 +124,23 @@ See README.md "Features" and "Known Limits" sections. Tiny 2 Lite is the tested 
 - Don't try to commit the SDK (`third_party/obsbot-sdk/`). It's gitignored on purpose.
 - When re-launching the Mac app after a rebuild, kill the old subprocess first: `pkill -9 -f obsbot-bridge` and `osascript -e 'quit app "Open OBSBOT Bridge"'`. The supervisor's `_killStalePortsHolders` covers most cases now but is best-effort.
 
-## Current dev state (v1.4.1 shipped, 2026-05-18)
+## Current dev state (v2.0.0-dev on `v2-dev`; last public release v1.5.2)
 
-**Last release:** v1.4.1 (tag `v1.4.1`, commit `c794ac2` on `main`). PR-styled workflow, squash-merge default. Branches named `feat/...`, `fix/...`, `docs/...`, `chore/...`. Parallel worktree agents (`isolation: worktree` in the Agent tool) handle independent file-set work concurrently; their branches merge sequentially into a release branch.
+**Where things are (2026-07-12):** the multi-camera and mix-sequencing work is built and merged to `v2-dev`, stamped `2.0.0-dev`, and not yet released. `main` is still v1.5.2. Public version numbers are for releases only; dev work is tracked as phases, not minted versions. The next public release is 2.0.0 (everything below); 2.5.0 then adds non-OBSBOT camera sources.
+
+Built and merged to `v2-dev`:
+- Multi-camera bridge: one `DeviceManager` owns N `DeviceSession`s keyed by serial number. State is a `BridgeState` envelope (`devices[]` plus `active_device_id` plus `mix{}`) on the `event:"state"` wire discriminator.
+- v3 remote UI: one Live screen replaced the old Drive/Image/More tabs and Simple mode. forui is retired; the app is Material 3 only. Selection (which camera the phone controls) and on-air (which camera `active.mjpg` follows) are separate; TAKE commits the cut, as a hard cut or a crossfade.
+- P1 PTZ precision: tap is an absolute nudge, hold is a ramped glide, the joystick uses a squared curve, and release double-stops with a bridge watchdog. Tuning lives in `apps/rc/lib/ptz_tuning.dart`.
+- P3 mix sequencer: a bridge-level engine on `DeviceManager` runs cross-camera cues (`mix.*` protocol, `state.mix` block, `mix.json` and `mix_sequences.json`). No on-air movement lock - a live camera moves on air by design.
+- P4 crossfade: `jpeg_crossfade` dissolves the outgoing camera's frozen frame into the incoming live frames over `fade_ms`, baked into `active.mjpg`; `jpeg_darken` (fade from black) is the first-take fallback. Library export/import via `library.export` and `library.import`.
+- Client packages: `obsbot_api_client` -> `bridge_repository` -> `device_repository` -> the `WsClient` facade, with `auth_repository` for pairing and `obsbot_protocol` for the shared wire types.
+
+Test batteries (against connected cameras): `tests/two_cam_smoke.mjs`, `tests/mix_sequence.mjs`, `tests/fade.mjs`, `tests/library.mjs`, plus the v1 batteries. Run widget and protocol tests through the very_good_cli MCP test tool, not `flutter test` / `dart test` directly.
+
+**Workflow:** PR-styled, squash-merge default. Branches `feat/...`, `fix/...`, `docs/...`, `chore/...`. v2 work merges to `v2-dev`, not `main`, until the real-prod test passes. Parallel worktree agents (`isolation: worktree`) handle independent file-set work.
+
+### History: v1.4.1 (tag `v1.4.1`, commit `c794ac2` on `main`)
 
 ### v1.4.x rolled up
 

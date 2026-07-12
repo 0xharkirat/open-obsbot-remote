@@ -1,4 +1,4 @@
-#include "device_session.h"
+#include "device_manager.h"
 #include "ws_server.h"
 #include "video_capture.h"
 #include "mjpeg_server.h"
@@ -53,33 +53,41 @@ int main(int argc, char** argv) {
     }
     obs::AuthStore auth(auth_path);
 
-    obs::DeviceSession session;
+    // The DeviceManager owns every attached camera (control sessions) AND the
+    // per-camera AVFoundation captures. Cameras appear asynchronously via
+    // libdev's attach callback once run_ws_server calls mgr.start().
+    obs::DeviceManager mgr;
 
-    // Start UVC video capture in parallel (independent of libdev). This
-    // exposes the camera as a regular MJPEG stream over HTTP so phone
-    // clients can show a live preview. Both libdev and AVFoundation can
-    // hold the camera at the same time.
-    obs::VideoCapture video;
-    if (!video.start()) {
-        obs::log("warn ", "video capture not available  -  preview disabled");
-    }
+    // Trigger the macOS camera-permission (TCC) prompt up front so it fires
+    // even before a camera enumerates. Per-camera capture then starts on
+    // attach. libdev + AVFoundation can hold the same USB device at once.
+    //
+    // If the operator answers the prompt AFTER a camera's attach-time capture
+    // already gave up at its 60s timeout, retry those captures on grant -
+    // otherwise preview stays black until a manual restart (hit live during
+    // two-camera bring-up: prompt ignored for minutes, then Allow -> no video).
+    // `mgr` outlives the process (run_ws_server blocks below), so capturing it
+    // by reference in this AVFoundation callback is safe.
+    obs::VideoCapture::request_camera_permission([&mgr](bool granted) {
+        if (granted) mgr.retry_pending_captures();
+    });
 
-    // MJPEG preview server runs on the next port up (default 8766).
-    // Best-effort  -  if the port is busy (e.g. previous instance dying),
-    // log + continue without preview rather than crash the whole bridge.
+    // MJPEG preview server runs on the next port up (default 8766). It resolves
+    // captures from the manager per request (/preview/<sn>.mjpg,
+    // /preview/active.mjpg), so it starts unconditionally - streams become
+    // available as cameras attach. Best-effort: if the port is busy, log +
+    // continue without preview rather than crash the whole bridge.
     obs::MjpegServer mjpeg;
-    if (video.running()) {
-        try {
-            if (!mjpeg.start((uint16_t)(port + 1), &video, &auth)) {
-                obs::log("warn ", "mjpeg server failed to start (port busy?)  -  preview disabled");
-            }
-        } catch (const std::exception& e) {
-            obs::log("error", "mjpeg server crashed: %s", e.what());
+    try {
+        if (!mjpeg.start((uint16_t)(port + 1), &mgr, &auth)) {
+            obs::log("warn ", "mjpeg server failed to start (port busy?)  -  preview disabled");
         }
+    } catch (const std::exception& e) {
+        obs::log("error", "mjpeg server crashed: %s", e.what());
     }
 
     try {
-        obs::run_ws_server(port, session, &video, web_root, auth);  // blocks
+        obs::run_ws_server(port, mgr, web_root, auth);  // blocks; calls mgr.start()
     } catch (const std::exception& e) {
         obs::log("error", "ws server crashed: %s", e.what());
         return 1;

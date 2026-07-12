@@ -1,4 +1,4 @@
-# Contributing to Open OBSBOT Control
+# Contributing to Open OBSBOT Bridge and Remote
 
 Thanks for considering a contribution. Bug reports, feature ideas, and PRs are welcome.
 
@@ -6,10 +6,10 @@ Thanks for considering a contribution. Bug reports, feature ideas, and PRs are w
 
 Read these in order before changing behavior:
 
-1. [README.md](README.md) — what this project is and how it's wired.
-2. [AGENTS.md](AGENTS.md) — repo layout, conventions, and project-specific gotchas for AI coding tools.
-3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the bigger picture of how the bridge / phone / web pieces fit.
-4. [docs/PROTOCOL.md](docs/PROTOCOL.md) — the WS message format.
+1. [README.md](README.md) - what this project is and how it's wired.
+2. [AGENTS.md](AGENTS.md) - repo layout, conventions, and project-specific gotchas for AI coding tools.
+3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - the bigger picture of how the bridge / phone / web pieces fit.
+4. [docs/PROTOCOL.md](docs/PROTOCOL.md) - the WS message format.
 
 ## Setup
 
@@ -51,7 +51,7 @@ Use `Co-Authored-By` footers when required by your workflow or organization.
 ## Style
 
 - C++17, no exceptions across the libdev boundary, prefer RAII.
-- Dart/Flutter: follow `package:flutter_lints` — `flutter analyze` should be clean.
+- Dart/Flutter: follow `package:flutter_lints` - `flutter analyze` should be clean.
 - 4-space indent in C++ headers/cpp (match existing files); 2-space indent in Dart.
 - Prefer narrow struct extensions to flag-bag refactors.
 
@@ -67,7 +67,7 @@ If your change touches the WS protocol:
 
 If your change touches the bridge subprocess lifecycle:
 
-1. Read CLAUDE.md §"Things that bit us" first — there's a high chance the new failure mode is already known.
+1. Read CLAUDE.md §"Things that bit us" first - there's a high chance the new failure mode is already known.
 2. If you're adding a new exit path, ensure `signal(SIGPIPE, SIG_IGN)` and `_Exit(0)` semantics still hold.
 
 ## Testing

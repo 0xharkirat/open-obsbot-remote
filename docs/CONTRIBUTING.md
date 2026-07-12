@@ -70,7 +70,7 @@ Branch names are lowercase, hyphenated, scoped:
    - **Verification:** smoke result + touch test result + manual notes.
    - **Risk / rollout:** anything that could regress, any feature flag.
 
-   Use `docs/PULL_REQUEST_TEMPLATE.md` (auto-loaded if present).
+   Use `.github/PULL_REQUEST_TEMPLATE.md` (auto-loaded if present).
 
 6. Merge strategy: **squash-and-merge**. The squashed commit message
    should follow the commit-message convention used pre-1.1
