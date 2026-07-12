@@ -95,6 +95,23 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'TAKE'), findsOneWidget);
   });
 
+  testWidgets('manual TAKE exposes a cut/fade toggle that flips', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      _bridge(<DeviceState>[_device('A'), _device('B')], 'A'),
+    );
+    await tester.binding.setSurfaceSize(const Size(700, 844));
+    await tester.pump();
+    // Default is a hard cut (scissors icon); tapping flips to fade (gradient).
+    expect(find.byIcon(Icons.content_cut), findsOneWidget);
+    expect(find.byIcon(Icons.gradient), findsNothing);
+    await tester.tap(find.byIcon(Icons.content_cut));
+    await tester.pump();
+    expect(find.byIcon(Icons.gradient), findsOneWidget);
+  });
+
   testWidgets('empty preset tiles show the save hint (discoverability)', (
     tester,
   ) async {

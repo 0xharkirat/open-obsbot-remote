@@ -76,10 +76,11 @@ class BridgeRepository {
   /// Marks [deviceId] the live camera (the one `active.mjpg` follows and
   /// that OBS sees). The bridge broadcasts a fresh state event on
   /// success, which flows out through [state].
-  Future<void> setActiveDevice(String deviceId) async {
+  Future<void> setActiveDevice(String deviceId, {int fadeMs = 0}) async {
     await _api.send(<String, dynamic>{
       'action': 'device.set_active',
       'device_id': deviceId,
+      if (fadeMs > 0) 'fade_ms': fadeMs,
     });
   }
 
@@ -125,6 +126,21 @@ class BridgeRepository {
       _api.send(<String, dynamic>{'action': 'mix.load', 'name': name});
   Future<void> deleteMix(String name) =>
       _api.send(<String, dynamic>{'action': 'mix.delete', 'name': name});
+
+  // ---- library.* : export/import the authored library (for Mac migration) ----
+
+  /// Returns the whole authored library (sequences + mix + names) as a JSON
+  /// map. Presets are excluded - they live on the camera hardware.
+  Future<Map<String, dynamic>> exportLibrary() async {
+    final ack = await _api.send(<String, dynamic>{'action': 'library.export'});
+    final lib = ack['library'];
+    return lib is Map<String, dynamic> ? lib : <String, dynamic>{};
+  }
+
+  /// Merges [library] back into the bridge's stored files (incoming wins per
+  /// key). Names refresh live; sequences apply on the next camera re-attach.
+  Future<void> importLibrary(Map<String, dynamic> library) => _api
+      .send(<String, dynamic>{'action': 'library.import', 'library': library});
 
   /// Builds the MJPEG preview URL on the HTTP port (`ws_port + 1`).
   ///

@@ -44,6 +44,14 @@ void store_active_mix(const nlohmann::json& mix);
 nlohmann::json load_mix_library();
 void store_mix_library(const nlohmann::json& lib);
 
+// Export the whole authored library (per-camera sequences + mix library +
+// device names) as one JSON blob for migrating to a new Mac. Presets are NOT
+// included - they live on the camera hardware. Import merges the blob back in
+// (incoming entries win per key); a bridge restart / camera re-attach applies
+// restored sequences to live sessions.
+nlohmann::json export_library();
+void import_library(const nlohmann::json& blob);
+
 // Friendly names for every known camera.
 std::map<std::string, std::string> load_device_names();
 // Empty name clears the entry.

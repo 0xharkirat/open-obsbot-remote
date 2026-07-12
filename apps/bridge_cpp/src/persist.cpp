@@ -109,6 +109,33 @@ void store_mix_library(const nlohmann::json& lib) {
     write_json(path_for("mix_sequences.json"), lib);
 }
 
+nlohmann::json export_library() {
+    std::lock_guard<std::mutex> g(g_mu);
+    nlohmann::json out;
+    out["version"] = 1;
+    out["sequences"] = read_json(path_for("sequences.json"));
+    out["mix"] = read_json(path_for("mix_sequences.json"));
+    out["names"] = read_json(path_for("device_names.json"));
+    return out;
+}
+
+void import_library(const nlohmann::json& blob) {
+    std::lock_guard<std::mutex> g(g_mu);
+    auto merge_into = [](const char* file, const nlohmann::json& incoming) {
+        if (!incoming.is_object()) return;
+        std::string p = path_for(file);
+        nlohmann::json cur = read_json(p);
+        if (!cur.is_object()) cur = nlohmann::json::object();
+        for (auto& it : incoming.items()) cur[it.key()] = it.value();  // incoming wins
+        write_json(p, cur);
+    };
+    if (blob.is_object()) {
+        if (blob.contains("sequences")) merge_into("sequences.json", blob["sequences"]);
+        if (blob.contains("mix")) merge_into("mix_sequences.json", blob["mix"]);
+        if (blob.contains("names")) merge_into("device_names.json", blob["names"]);
+    }
+}
+
 std::map<std::string, std::string> load_device_names() {
     std::lock_guard<std::mutex> g(g_mu);
     nlohmann::json j = read_json(path_for("device_names.json"));

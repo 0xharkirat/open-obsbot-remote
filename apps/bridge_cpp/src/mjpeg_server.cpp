@@ -222,8 +222,16 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
             last_cap = cap;
             last_seq = 0;
         }
+        // Fade-from-black: while a program cut is fading in, ramp the active
+        // stream up from black. Only the follow-active stream fades (a fixed
+        // per-SN stream is a monitor, not the program). During the fade window
+        // we must keep emitting frames even when the camera has no NEW frame,
+        // so the fade animates smoothly regardless of camera fps.
+        const float fade = follow_active ? mgr->active_fade_factor() : 1.0f;
+        const bool fading = fade < 1.0f;
+
         auto seq = cap->frame_seq();
-        if (seq == last_seq) {
+        if (seq == last_seq && !fading) {
             std::this_thread::sleep_for(period);
             continue;
         }
@@ -233,6 +241,7 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
             continue;
         }
         last_seq = seq;
+        if (fading) jpeg = obs::jpeg_darken(jpeg, fade);
 
         std::string part = "--obsboundary\r\n"
                            "Content-Type: image/jpeg\r\n"

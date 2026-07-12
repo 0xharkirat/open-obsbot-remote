@@ -19,6 +19,9 @@ static int64_t now_ms() {
         system_clock::now().time_since_epoch()).count();
 }
 
+// Default fade-from-black duration for a "fade" transition (mix cue or TAKE).
+static constexpr int kDefaultFadeMs = 500;
+
 // LoopMode <-> string. The per-camera sequencer has its own file-local copies
 // in device_session.cpp; these small twins keep the mix engine self-contained
 // rather than exporting them across a header. ponytail: two five-line funcs is
@@ -330,13 +333,25 @@ std::shared_ptr<DeviceSession> DeviceManager::sole_session() {
     return sessions_.begin()->second;
 }
 
-bool DeviceManager::set_active(const std::string& sn, std::string& err_code) {
+bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
+                              int fade_ms) {
     {
         std::lock_guard<std::mutex> g(mu_);
         auto it = sessions_.find(sn);
         if (it == sessions_.end()) { err_code = "not_found"; return false; }
         active_sn_ = sn;
         desired_active_ = sn;
+        // Set the fade window atomically with active_sn_ (no 1-frame
+        // full-brightness flash at fade start) and UNCONDITIONALLY: a cut
+        // (fade_ms == 0) must CLEAR any fade still in progress, or the cut
+        // inherits the leftover ramp and darkens the program - the exact bug
+        // an operator hits fading then cutting back. fade_mu_ is a leaf lock,
+        // so nesting it under mu_ keeps lock order consistent.
+        {
+            std::lock_guard<std::mutex> fg(fade_mu_);
+            fade_ms_ = fade_ms > 0 ? fade_ms : 0;
+            fade_start_ = std::chrono::steady_clock::now();
+        }
         // Implicit wake: if the target is asleep, wake it before it goes live
         // so OBS (which consumes /preview/active.mjpg) does not pull a black
         // stream. Async - the camera takes ~1 s to wake regardless.
@@ -348,6 +363,16 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code) {
     persist::store_active_device(sn);
     broadcast();
     return true;
+}
+
+float DeviceManager::active_fade_factor() {
+    std::lock_guard<std::mutex> g(fade_mu_);
+    if (fade_ms_ <= 0) return 1.0f;
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - fade_start_).count();
+    if (elapsed >= fade_ms_) { fade_ms_ = 0; return 1.0f; }  // fade complete
+    const float f = static_cast<float>(elapsed) / static_cast<float>(fade_ms_);
+    return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 }
 
 bool DeviceManager::rename(const std::string& sn, const std::string& name,
@@ -601,7 +626,9 @@ void DeviceManager::mix_loop() {
         //    set_active()/session_by_sn() (which take mu_) never self-deadlock.
         if (!cue.camera_sn.empty()) {
             std::string ec;
-            set_active(cue.camera_sn, ec);
+            // A "fade" cue fades the program up from black; "cut" is instant.
+            set_active(cue.camera_sn, ec,
+                       cue.transition == "fade" ? kDefaultFadeMs : 0);
         }
         if (cue.preset_id >= 0) {   // <0 = hold current shot (no recall)
             if (auto s = session_by_sn(cue.camera_sn))

@@ -129,6 +129,78 @@ struct VideoCapture::Impl {
 
 namespace obs {
 
+std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg_in,
+                                 float factor) {
+    if (jpeg_in.empty() || factor >= 1.0f) return jpeg_in;  // no-op common case
+    if (factor < 0.0f) factor = 0.0f;
+    @autoreleasepool {
+        NSData* inData = [NSData dataWithBytesNoCopy:(void*)jpeg_in.data()
+                                              length:jpeg_in.size()
+                                        freeWhenDone:NO];
+        CGImageSourceRef src =
+            CGImageSourceCreateWithData((__bridge CFDataRef)inData, nullptr);
+        if (!src) return jpeg_in;
+        CGImageRef cg = CGImageSourceCreateImageAtIndex(src, 0, nullptr);
+        CFRelease(src);
+        if (!cg) return jpeg_in;
+
+        CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        CIImage* ci = [CIImage imageWithCGImage:cg];
+        CGImageRelease(cg);
+
+        // Multiply RGB by factor (0 = black, 1 = unchanged); leave alpha.
+        CIFilter* mtx = [CIFilter filterWithName:@"CIColorMatrix"];
+        [mtx setValue:ci forKey:kCIInputImageKey];
+        [mtx setValue:[CIVector vectorWithX:factor Y:0 Z:0 W:0] forKey:@"inputRVector"];
+        [mtx setValue:[CIVector vectorWithX:0 Y:factor Z:0 W:0] forKey:@"inputGVector"];
+        [mtx setValue:[CIVector vectorWithX:0 Y:0 Z:factor W:0] forKey:@"inputBVector"];
+        [mtx setValue:[CIVector vectorWithX:0 Y:0 Z:0 W:1] forKey:@"inputAVector"];
+        [mtx setValue:[CIVector vectorWithX:0 Y:0 Z:0 W:0] forKey:@"inputBiasVector"];
+        CIImage* out = mtx.outputImage;
+        if (!out) { CGColorSpaceRelease(srgb); return jpeg_in; }
+
+        static CIContext* dctx = nil;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            CGColorSpaceRef ws = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+            dctx = [CIContext contextWithOptions:@{
+                kCIContextWorkingColorSpace: (__bridge id)ws,
+                kCIContextOutputColorSpace:  (__bridge id)ws,
+            }];
+            CGColorSpaceRelease(ws);
+        });
+
+        CGImageRef outCg = [dctx createCGImage:out
+                                      fromRect:ci.extent
+                                        format:kCIFormatRGBA8
+                                    colorSpace:srgb];
+        CGColorSpaceRelease(srgb);
+        if (!outCg) return jpeg_in;
+
+        NSMutableData* outData = [NSMutableData data];
+        CFStringRef utType =
+#if defined(__has_builtin) && __has_builtin(__builtin_available)
+            (__bridge CFStringRef)UTTypeJPEG.identifier;
+#else
+            CFSTR("public.jpeg");
+#endif
+        CGImageDestinationRef dest = CGImageDestinationCreateWithData(
+            (__bridge CFMutableDataRef)outData, utType, 1, nullptr);
+        if (!dest) { CGImageRelease(outCg); return jpeg_in; }
+        NSDictionary* props =
+            @{ (id)kCGImageDestinationLossyCompressionQuality: @0.80 };
+        CGImageDestinationAddImage(dest, outCg, (__bridge CFDictionaryRef)props);
+        bool ok = CGImageDestinationFinalize(dest);
+        CFRelease(dest);
+        CGImageRelease(outCg);
+        if (!ok) return jpeg_in;
+
+        return std::vector<uint8_t>(
+            (const uint8_t*)outData.bytes,
+            (const uint8_t*)outData.bytes + outData.length);
+    }
+}
+
 static NSArray<AVCaptureDevice*>* discover_devices() {
     AVCaptureDeviceDiscoverySession* disc = nil;
     if (@available(macOS 14.0, *)) {

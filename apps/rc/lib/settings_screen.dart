@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import 'cache_menu.dart';
 import 'footer.dart';
@@ -65,6 +68,34 @@ class SettingsScreen extends StatelessWidget {
                 const Divider(height: 28),
                 _label(ctx, 'Grid overlay'),
                 _GridToggles(client: client),
+                const Divider(height: 28),
+                _label(ctx, 'Library'),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    OutlinedButton.icon(
+                      onPressed: () => _exportLibrary(ctx),
+                      icon: const Icon(Icons.ios_share, size: 18),
+                      label: const Text('Export'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _importLibrary(ctx),
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('Import'),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Sequences, mixes, and camera names, to move to a new Mac. '
+                    'Presets live on the camera.',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
                 const Divider(height: 28),
                 _label(ctx, 'Connection'),
                 ListTile(
@@ -135,6 +166,76 @@ class SettingsScreen extends StatelessWidget {
     );
     if (name == null) return;
     await client.renameDevice(s.deviceId, name);
+  }
+
+  Future<void> _exportLibrary(BuildContext ctx) async {
+    final lib = await client.exportLibrary();
+    if (lib == null) return;
+    final text = const JsonEncoder.withIndent('  ').convert(lib);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text('Library copied to clipboard (${text.length} chars)'),
+      ),
+    );
+  }
+
+  Future<void> _importLibrary(BuildContext ctx) async {
+    final ctrl = TextEditingController();
+    try {
+      final text = await showDialog<String>(
+        context: ctx,
+        builder: (BuildContext c) => AlertDialog(
+          title: const Text('Import library'),
+          content: TextField(
+            controller: ctrl,
+            maxLines: 8,
+            minLines: 4,
+            decoration: const InputDecoration(
+              hintText: 'Paste the exported library JSON',
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(c).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(c).pop(ctrl.text),
+              child: const Text('Import'),
+            ),
+          ],
+        ),
+      );
+      if (text == null || text.trim().isEmpty) return;
+      Map<String, dynamic>? decoded;
+      try {
+        decoded = jsonDecode(text) as Map<String, dynamic>;
+      } catch (_) {
+        decoded = null;
+      }
+      if (!ctx.mounted) return;
+      if (decoded == null) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('Import failed: not valid JSON')),
+        );
+        return;
+      }
+      final ok = await client.importLibrary(decoded);
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? 'Library imported. Reconnect cameras to apply sequences.'
+                : 'Import failed - not connected to the bridge.',
+          ),
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
   }
 }
 
