@@ -369,6 +369,23 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
         if (it->second->snapshot().run_status == 3 /*sleep*/) {
             LOGI("set_active: %s is asleep, waking before switch", sn.c_str());
             it->second->cmd_system_run_status("run", [](CmdResult) {});
+            // The camera's UVC video interface drops while asleep and returns a
+            // second or so after waking; AVFoundation does not auto-rebind, so
+            // the capture would stay dead (blank preview + OBS feed) even though
+            // the camera is awake. Restart it on a detached thread -
+            // start_unique_id retries internally, covering the wake latency, and
+            // VideoCapture::ctl_mu_ serialises this against attach/detach.
+            auto cit = captures_.find(sn);
+            auto uidit = capture_uid_.find(sn);
+            if (cit != captures_.end() && cit->second &&
+                uidit != capture_uid_.end() && !uidit->second.empty()) {
+                VideoCapture* cap = cit->second.get();
+                const std::string uid = uidit->second;
+                std::thread([cap, uid]() {
+                    cap->stop();
+                    cap->start_unique_id(uid);
+                }).detach();
+            }
         }
     }
     persist::store_active_device(sn);
