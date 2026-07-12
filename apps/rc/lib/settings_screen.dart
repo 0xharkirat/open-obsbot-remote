@@ -222,12 +222,14 @@ class SettingsScreen extends StatelessWidget {
         );
         return;
       }
-      await client.importLibrary(decoded);
+      final ok = await client.importLibrary(decoded);
       if (!ctx.mounted) return;
       ScaffoldMessenger.of(ctx).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Library imported. Reconnect cameras to apply sequences.',
+            ok
+                ? 'Library imported. Reconnect cameras to apply sequences.'
+                : 'Import failed - not connected to the bridge.',
           ),
         ),
       );

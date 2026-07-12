@@ -220,13 +220,18 @@ class WsClient extends ChangeNotifier {
     }
   }
 
-  Future<void> importLibrary(Map<String, dynamic> library) async {
+  /// Returns true only if the import was sent and acked. False when not
+  /// connected or the bridge rejected it, so the UI never reports a false
+  /// success on the migrate-to-a-new-Mac path.
+  Future<bool> importLibrary(Map<String, dynamic> library) async {
     final repo = _bridgeRepo;
-    if (repo == null) return;
+    if (repo == null) return false;
     try {
       await repo.importLibrary(library);
+      return true;
     } on ApiException catch (e) {
       _fail(e);
+      return false;
     }
   }
 

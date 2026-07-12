@@ -234,6 +234,10 @@ void dispatch_message(DeviceManager& mgr,
         if (fade_ms == 0 && msg.value("transition", string("cut")) == "fade") {
             fade_ms = 500;
         }
+        // Clamp at the trust boundary: an unbounded fade_ms would dim the OBS
+        // program feed (and run per-frame JPEG re-encode) for that whole time.
+        if (fade_ms < 0) fade_ms = 0;
+        if (fade_ms > 5000) fade_ms = 5000;
         string ec;
         if (mgr.set_active(sn, ec, fade_ms)) reply_send(ack_ok(id).dump());
         else reply_send(ack_err(id, ec, "no camera with device_id " + sn).dump());

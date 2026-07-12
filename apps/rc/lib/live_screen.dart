@@ -121,16 +121,21 @@ class _LiveScreenState extends State<LiveScreen> {
           ),
           const SizedBox(width: 8),
           if (multi) ...<Widget>[
-            // Cut vs fade-from-black for the manual TAKE.
-            IconButton(
-              tooltip: _fadeTake ? 'TAKE fades from black' : 'TAKE cuts hard',
-              isSelected: _fadeTake,
-              onPressed: () => setState(() => _fadeTake = !_fadeTake),
-              icon: Icon(
-                _fadeTake ? Icons.gradient : Icons.content_cut,
-                color: _fadeTake
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+            // Cut vs fade-from-black for the manual TAKE. Semantics.toggled
+            // carries the on/off state to screen readers (isSelected alone
+            // doesn't expose it).
+            Semantics(
+              toggled: _fadeTake,
+              child: IconButton(
+                tooltip: _fadeTake ? 'TAKE fades from black' : 'TAKE cuts hard',
+                isSelected: _fadeTake,
+                onPressed: () => setState(() => _fadeTake = !_fadeTake),
+                icon: Icon(
+                  _fadeTake ? Icons.gradient : Icons.content_cut,
+                  color: _fadeTake
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
             const SizedBox(width: 4),

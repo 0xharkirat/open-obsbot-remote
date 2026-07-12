@@ -341,6 +341,17 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
         if (it == sessions_.end()) { err_code = "not_found"; return false; }
         active_sn_ = sn;
         desired_active_ = sn;
+        // Set the fade window atomically with active_sn_ (no 1-frame
+        // full-brightness flash at fade start) and UNCONDITIONALLY: a cut
+        // (fade_ms == 0) must CLEAR any fade still in progress, or the cut
+        // inherits the leftover ramp and darkens the program - the exact bug
+        // an operator hits fading then cutting back. fade_mu_ is a leaf lock,
+        // so nesting it under mu_ keeps lock order consistent.
+        {
+            std::lock_guard<std::mutex> fg(fade_mu_);
+            fade_ms_ = fade_ms > 0 ? fade_ms : 0;
+            fade_start_ = std::chrono::steady_clock::now();
+        }
         // Implicit wake: if the target is asleep, wake it before it goes live
         // so OBS (which consumes /preview/active.mjpg) does not pull a black
         // stream. Async - the camera takes ~1 s to wake regardless.
@@ -348,11 +359,6 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
             LOGI("set_active: %s is asleep, waking before switch", sn.c_str());
             it->second->cmd_system_run_status("run", [](CmdResult) {});
         }
-    }
-    if (fade_ms > 0) {
-        std::lock_guard<std::mutex> g(fade_mu_);
-        fade_start_ = std::chrono::steady_clock::now();
-        fade_ms_ = fade_ms;
     }
     persist::store_active_device(sn);
     broadcast();
