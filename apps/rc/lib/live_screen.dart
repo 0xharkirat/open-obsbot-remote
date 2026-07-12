@@ -32,6 +32,8 @@ class LiveScreen extends StatefulWidget {
 class _LiveScreenState extends State<LiveScreen> {
   WsClient get client => widget.client;
   bool _framing = false;
+  // When on, a manual TAKE fades the program up from black instead of cutting.
+  bool _fadeTake = false;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +120,20 @@ class _LiveScreenState extends State<LiveScreen> {
             label: Text(_framing ? 'Presets' : 'Frame'),
           ),
           const SizedBox(width: 8),
-          if (multi)
+          if (multi) ...<Widget>[
+            // Cut vs fade-from-black for the manual TAKE.
+            IconButton(
+              tooltip: _fadeTake ? 'TAKE fades from black' : 'TAKE cuts hard',
+              isSelected: _fadeTake,
+              onPressed: () => setState(() => _fadeTake = !_fadeTake),
+              icon: Icon(
+                _fadeTake ? Icons.gradient : Icons.content_cut,
+                color: _fadeTake
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 4),
             Expanded(
               child: FilledButton(
                 // The only red button in the app. Disabled (staged is
@@ -128,7 +143,10 @@ class _LiveScreenState extends State<LiveScreen> {
                     ? null
                     : () {
                         HapticFeedback.mediumImpact();
-                        client.makeLive(client.selectedDeviceId);
+                        client.makeLive(
+                          client.selectedDeviceId,
+                          fadeMs: _fadeTake ? 500 : 0,
+                        );
                       },
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFFFF3B30),
@@ -144,8 +162,8 @@ class _LiveScreenState extends State<LiveScreen> {
                 ),
                 child: Text(stagedIsLive ? 'ON AIR' : 'TAKE'),
               ),
-            )
-          else
+            ),
+          ] else
             const Spacer(),
         ],
       ),

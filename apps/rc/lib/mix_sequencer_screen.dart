@@ -426,7 +426,7 @@ class _MixEditorState extends State<MixEditor> {
                     ),
                   ),
                   const Spacer(),
-                  _fieldLabel(context, 'Then'),
+                  _fieldLabel(context, 'In'),
                   const SizedBox(width: 8),
                   _TransitionToggle(
                     value: cue.transition,
@@ -581,8 +581,9 @@ class _MixEditorState extends State<MixEditor> {
   );
 }
 
-/// Cut / Fade selector. Fade is P4 - shown but disabled so the shape is
-/// discoverable now and lights up when the bridge crossfade lands.
+/// How this cue's shot comes in: a hard Cut, or a Fade in from black (the
+/// bridge ramps the program up from black over ~0.5s, baked into the active
+/// stream so OBS sees it too).
 class _TransitionToggle extends StatelessWidget {
   const _TransitionToggle({required this.value, required this.onChanged});
   final String value;
@@ -598,13 +599,9 @@ class _TransitionToggle extends StatelessWidget {
       ),
       segments: const <ButtonSegment<String>>[
         ButtonSegment<String>(value: 'cut', label: Text('Cut')),
-        ButtonSegment<String>(
-          value: 'fade',
-          label: Text('Fade'),
-          enabled: false,
-        ),
+        ButtonSegment<String>(value: 'fade', label: Text('Fade')),
       ],
-      selected: <String>{value == 'fade' ? 'cut' : value},
+      selected: <String>{value == 'fade' ? 'fade' : 'cut'},
       onSelectionChanged: (s) => onChanged(s.first),
     );
   }

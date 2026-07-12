@@ -19,6 +19,9 @@ static int64_t now_ms() {
         system_clock::now().time_since_epoch()).count();
 }
 
+// Default fade-from-black duration for a "fade" transition (mix cue or TAKE).
+static constexpr int kDefaultFadeMs = 500;
+
 // LoopMode <-> string. The per-camera sequencer has its own file-local copies
 // in device_session.cpp; these small twins keep the mix engine self-contained
 // rather than exporting them across a header. ponytail: two five-line funcs is
@@ -330,7 +333,8 @@ std::shared_ptr<DeviceSession> DeviceManager::sole_session() {
     return sessions_.begin()->second;
 }
 
-bool DeviceManager::set_active(const std::string& sn, std::string& err_code) {
+bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
+                              int fade_ms) {
     {
         std::lock_guard<std::mutex> g(mu_);
         auto it = sessions_.find(sn);
@@ -345,9 +349,24 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code) {
             it->second->cmd_system_run_status("run", [](CmdResult) {});
         }
     }
+    if (fade_ms > 0) {
+        std::lock_guard<std::mutex> g(fade_mu_);
+        fade_start_ = std::chrono::steady_clock::now();
+        fade_ms_ = fade_ms;
+    }
     persist::store_active_device(sn);
     broadcast();
     return true;
+}
+
+float DeviceManager::active_fade_factor() {
+    std::lock_guard<std::mutex> g(fade_mu_);
+    if (fade_ms_ <= 0) return 1.0f;
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - fade_start_).count();
+    if (elapsed >= fade_ms_) { fade_ms_ = 0; return 1.0f; }  // fade complete
+    const float f = static_cast<float>(elapsed) / static_cast<float>(fade_ms_);
+    return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 }
 
 bool DeviceManager::rename(const std::string& sn, const std::string& name,
@@ -601,7 +620,9 @@ void DeviceManager::mix_loop() {
         //    set_active()/session_by_sn() (which take mu_) never self-deadlock.
         if (!cue.camera_sn.empty()) {
             std::string ec;
-            set_active(cue.camera_sn, ec);
+            // A "fade" cue fades the program up from black; "cut" is instant.
+            set_active(cue.camera_sn, ec,
+                       cue.transition == "fade" ? kDefaultFadeMs : 0);
         }
         if (cue.preset_id >= 0) {   // <0 = hold current shot (no recall)
             if (auto s = session_by_sn(cue.camera_sn))

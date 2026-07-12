@@ -109,7 +109,16 @@ public:
     // Switch the active (OBS-routed) camera. Persists to active.json. If the
     // target is asleep it is woken first (implicit wake) before the switch.
     // Returns false + fills err_code ("not_found") for an unknown SN.
-    bool set_active(const std::string& sn, std::string& err_code);
+    //
+    // fade_ms > 0 starts a fade-from-black window: the active MJPEG stream
+    // ramps the incoming camera up from black over fade_ms (~500). 0 = hard cut.
+    bool set_active(const std::string& sn, std::string& err_code, int fade_ms = 0);
+
+    // Current fade multiplier for the active stream: 1.0 = no fade (full
+    // brightness), 0..1 while a fade-from-black is in progress. The MJPEG
+    // server multiplies active-stream frames by this. Cheap; safe to call
+    // per frame.
+    float active_fade_factor();
     // Set / clear the friendly name (empty clears). Persists to
     // device_names.json. Returns false + "not_found" for an unknown SN.
     bool rename(const std::string& sn, const std::string& name, std::string& err_code);
@@ -164,6 +173,12 @@ private:
     std::string desired_active_;       // persisted preference, loaded at start()
     Broadcaster broadcaster_;
     bool started_ = false;
+
+    // Fade-from-black state for the active stream (set by set_active with
+    // fade_ms>0, read per-frame by active_fade_factor()).
+    std::mutex fade_mu_;
+    std::chrono::steady_clock::time_point fade_start_{};
+    int fade_ms_ = 0;
 
     // ---- mix engine ----
     // Guards the cue list + run cursor. Separate from mu_ so the mix thread can

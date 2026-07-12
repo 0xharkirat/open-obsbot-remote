@@ -1,6 +1,7 @@
 #include "protocol.h"
 #include "device_session.h"
 #include "device_manager.h"
+#include "persist.h"
 #include "log.h"
 
 #include <chrono>
@@ -227,8 +228,14 @@ void dispatch_message(DeviceManager& mgr,
 
     if (action == "device.set_active") {
         string sn = msg.value("device_id", string{});
+        // Optional fade-from-black on the cut: explicit fade_ms, or
+        // transition:"fade" (-> 500ms). Default is a hard cut.
+        int fade_ms = msg.value("fade_ms", 0);
+        if (fade_ms == 0 && msg.value("transition", string("cut")) == "fade") {
+            fade_ms = 500;
+        }
         string ec;
-        if (mgr.set_active(sn, ec)) reply_send(ack_ok(id).dump());
+        if (mgr.set_active(sn, ec, fade_ms)) reply_send(ack_ok(id).dump());
         else reply_send(ack_err(id, ec, "no camera with device_id " + sn).dump());
         return;
     }
@@ -262,6 +269,35 @@ void dispatch_message(DeviceManager& mgr,
     }
     if (action == "mix.load")   { reply_cb(mgr.mix_load(msg.value("name", string{})));   return; }
     if (action == "mix.delete") { reply_cb(mgr.mix_delete(msg.value("name", string{}))); return; }
+
+    // ---- library.* : export/import the authored library (bridge-scoped) ----
+
+    if (action == "library.export") {
+        json resp = ack_ok(id);
+        resp["library"] = persist::export_library();
+        reply_send(resp.dump());
+        return;
+    }
+    if (action == "library.import") {
+        if (!msg.contains("library") || !msg["library"].is_object()) {
+            reply_send(ack_err(id, "invalid_param", "missing library object").dump());
+            return;
+        }
+        persist::import_library(msg["library"]);
+        // Re-apply device names live so they refresh without a restart (the
+        // most common same-Mac restore); sequences hydrate on next re-attach.
+        const auto& blob = msg["library"];
+        if (blob.contains("names") && blob["names"].is_object()) {
+            for (auto& it : blob["names"].items()) {
+                if (it.value().is_string()) {
+                    string ec;
+                    mgr.rename(it.key(), it.value().get<string>(), ec);
+                }
+            }
+        }
+        reply_send(ack_ok(id).dump());
+        return;
+    }
 
     // ---- device-scoped actions: resolve the target camera first ----
 

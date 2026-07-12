@@ -9,6 +9,14 @@
 
 namespace obs {
 
+// Multiply a JPEG's RGB by `factor` (0 = black, 1 = unchanged) and re-encode.
+// This is the fade-from-black primitive: a program cut can ramp `factor` 0->1
+// over ~0.5s so the incoming camera fades up from black on the active stream
+// (baked into the MJPEG so OBS sees it, not just the webapp). Returns the input
+// unchanged when factor >= 1 (the no-fade common case, so zero cost normally)
+// or on any decode/encode failure. Uses Core Image + ImageIO (already linked).
+std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg, float factor);
+
 // Captures one OBSBOT camera as a regular UVC webcam via AVFoundation,
 // JPEG-encodes the latest frame in software, and exposes it to the HTTP
 // route. libdev is unaffected  -  control + video go to the same USB device

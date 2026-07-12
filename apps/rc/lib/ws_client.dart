@@ -159,12 +159,13 @@ class WsClient extends ChangeNotifier {
   }
 
   /// Route [deviceId] to OBS (bridge-global). The bridge wakes a
-  /// sleeping camera before switching.
-  Future<void> makeLive(String deviceId) async {
+  /// sleeping camera before switching. [fadeMs] > 0 fades the program up
+  /// from black over that many ms instead of a hard cut.
+  Future<void> makeLive(String deviceId, {int fadeMs = 0}) async {
     final repo = _bridgeRepo;
     if (repo == null) return;
     try {
-      await repo.setActiveDevice(deviceId);
+      await repo.setActiveDevice(deviceId, fadeMs: fadeMs);
     } on ApiException catch (e) {
       _fail(e);
     }
@@ -203,6 +204,31 @@ class WsClient extends ChangeNotifier {
       _mix((r) => r.saveMixAs(name, cues, mode));
   Future<void> mixLoad(String name) => _mix((r) => r.loadMix(name));
   Future<void> mixDelete(String name) => _mix((r) => r.deleteMix(name));
+
+  // ---- library export/import (for migrating to a new Mac) ----
+
+  /// The whole authored library (sequences + mix + names) as a JSON map, or
+  /// null if not connected / on error.
+  Future<Map<String, dynamic>?> exportLibrary() async {
+    final repo = _bridgeRepo;
+    if (repo == null) return null;
+    try {
+      return await repo.exportLibrary();
+    } on ApiException catch (e) {
+      _fail(e);
+      return null;
+    }
+  }
+
+  Future<void> importLibrary(Map<String, dynamic> library) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return;
+    try {
+      await repo.importLibrary(library);
+    } on ApiException catch (e) {
+      _fail(e);
+    }
+  }
 
   /// MJPEG preview URL for [deviceId] (defaults to the selected
   /// camera). Null until connected + authed.
