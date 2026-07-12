@@ -12,8 +12,9 @@ See [Compatibility](#compatibility) for what breaks and why we accept it.
 
 The Dart mirror of this wire format lives in `packages/obsbot_protocol/`:
 
-- `lib/src/bridge_state.dart` - the `BridgeState` envelope (`devices[]`, `active_device_id`, `version`).
+- `lib/src/bridge_state.dart` - the `BridgeState` envelope (`devices[]`, `active_device_id`, `version`, `mix`).
 - `lib/src/device_state.dart` - one `DeviceState` per camera.
+- `lib/src/mix_state.dart` - the `MixState` block and its `MixCue` list.
 
 If the wire and the Dart types ever disagree, the Dart types win on field names, because that is what ships in the app.
 
@@ -50,7 +51,7 @@ Only these WebSocket actions are accepted before authentication:
 - `pair`
 - `ping`
 
-All camera commands, `hello`, `subscribe`, `device.*`, and state broadcasts require a valid token.
+All camera commands, `hello`, `subscribe`, the `device.*` / `mix.*` / `library.*` actions, and state broadcasts require a valid token.
 
 ### Pair With PIN
 
@@ -132,21 +133,24 @@ Success:
   "id": "1",
   "ok": true,
   "server": { "version": "2.0.0", "protocol": "2.0", "host": "obsbot-bridge" },
+  "active_device_id": "RMOWLHH3281PMV",
   "devices": [
     {
       "device_id": "RMOWLHH3281PMV",
       "sn": "RMOWLHH3281PMV",
       "model_display": "Tiny 2 Lite",
       "firmware": "6.2.8.1",
+      "friendly_name": "Vocal",
       "connected": true,
-      "friendly_name": "Vocal"
+      "run_status": "run",
+      "active": true
     }
   ]
 }
 ```
 
 `hello` is bridge-scoped.
-It ignores any `device_id` on the message and returns the full device summary list.
+It ignores any `device_id` on the message and returns `active_device_id` plus the full device summary list.
 The `devices` array here is the same summary shape returned by [`device.list`](#devicelist).
 
 Missing or invalid token:
@@ -197,19 +201,22 @@ Response:
 
 `device_id` is the camera's serial number as reported by libdev, for example `RMOWLHH3281PMV`.
 It is stable across unplug and replug, and across USB ports.
-The same string serves three jobs at once:
+The same string is used as a key in several places:
 
 - the addressing key on every action and every entry in the state event's `devices[]` array.
-- the persistence key inside `presets.json`, `sequence.json`, `sequences.json`, and `device_names.json`.
+- the persistence key inside `sequence.json`, `sequences.json`, and `device_names.json`.
 - the path component in the per-camera MJPEG URL, `:8766/preview/<device_id>.mjpg`.
 
-Because it is the camera's own serial, a client can save a preset against a camera, unplug that camera, move it to another port or another day, plug it back in, and the bridge re-attaches the saved presets to the same physical camera without any re-pairing.
+Presets are not keyed by `device_id` on disk; they live on the camera hardware and are read back per camera.
+Because `device_id` is the camera's own serial, a client can save a preset against a camera, unplug it, move it to another port or another day, plug it back in, and the bridge re-attaches the saved sequences to the same physical camera without any re-pairing.
 
 ## State Event
 
 The bridge broadcasts full snapshots after commands, on poll ticks (about every 500 ms), and right after subscribe.
-The payload is the `BridgeState` envelope: a `version`, an `active_device_id`, and a `devices` array.
+The payload is the `BridgeState` envelope.
+It carries the protocol `version`, a `ts` millisecond timestamp, the `active_device_id`, a `devices` array, and a `mix` block for the cross-camera sequencer.
 Each entry in `devices` is one camera's full snapshot, keyed by its `device_id`.
+The `mix` block is documented under [The `mix` block](#the-mix-block).
 
 The example below shows a host with two Tiny 2 Lite cameras attached, one named "Vocal" and one named "GGS".
 The first is live (`active_device_id` matches its `device_id`).
@@ -218,13 +225,13 @@ The first is live (`active_device_id` matches its `device_id`).
 {
   "event": "state",
   "version": "2.0",
+  "ts": 1746086400123,
   "active_device_id": "RMOWLHH3281PMV",
   "devices": [
     {
       "device_id": "RMOWLHH3281PMV",
       "device": {
         "sn": "RMOWLHH3281PMV",
-        "model": "tiny2lite",
         "model_display": "Tiny 2 Lite",
         "firmware": "6.2.8.1",
         "connected": true,
@@ -260,7 +267,6 @@ The first is live (`active_device_id` matches its `device_id`).
       "device_id": "RMOWLHHC233LOQ",
       "device": {
         "sn": "RMOWLHHC233LOQ",
-        "model": "tiny2lite",
         "model_display": "Tiny 2 Lite",
         "firmware": "6.2.8.1",
         "connected": true,
@@ -292,7 +298,25 @@ The first is live (`active_device_id` matches its `device_id`).
         "steps": []
       }
     }
-  ]
+  ],
+  "mix": {
+    "running": false,
+    "cue_index": -1,
+    "cue_count": 2,
+    "phase": "holding",
+    "elapsed_s": 0,
+    "total_s": 0,
+    "mode": "forward",
+    "loaded": "Sunday service",
+    "available": ["Sunday service"],
+    "cues": [
+      { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0, "move_ms": 0, "hold_s": 20, "transition": "cut" },
+      {
+        "camera_sn": "RMOWLHHC233LOQ", "preset_id": 1, "move_ms": 3000, "hold_s": 15, "transition": "fade",
+        "meanwhile": { "camera_sn": "RMOWLHH3281PMV", "preset_id": 2, "move_ms": 2000 }
+      }
+    ]
+  }
 }
 ```
 
@@ -307,7 +331,6 @@ Each entry in `devices[]` carries one camera's full state.
 | --- | --- | --- |
 | (top) | `device_id` | The camera's serial. Canonical addressing key. Equal to `device.sn`. |
 | `device` | `sn` | Same serial. Kept alongside `device_id` so existing UI reading `device.sn` keeps working. |
-| `device` | `model` | Internal model tag, e.g. `tiny2lite`. |
 | `device` | `model_display` | Human label, e.g. `Tiny 2 Lite`. |
 | `device` | `firmware` | Firmware version string. |
 | `device` | `connected` | Whether libdev currently sees the camera. |
@@ -330,6 +353,25 @@ Clients can use this for UI affordances such as a "moving..." chip on the step c
 Because each camera owns its own MotionPlanner worker thread in the bridge, one camera's `phase` moves independently of another's.
 A slow 30-second zoom on camera A does not stall a preset recall on camera B.
 
+### The `mix` block
+
+The `mix` block reports the cross-camera sequencer.
+It is bridge-level, not per camera, so there is exactly one `mix` block per state event.
+A v1 bridge and a v2 bridge that predates the mixer omit it; clients treat an absent block as an empty, idle mix.
+
+| Field | Meaning |
+| --- | --- |
+| `running` | True while the mix engine is running. |
+| `cue_index` | Index of the cue on air, or `-1` when idle. |
+| `cue_count` | Number of cues in the authored list. |
+| `phase` | `"moving"` while the live move is in flight, `"holding"` while dwelling on the shot. |
+| `elapsed_s` | Seconds elapsed in the current cue's hold. |
+| `total_s` | The current cue's `hold_s`. |
+| `mode` | Loop mode: `once`, `forward`, or `ping_pong`. |
+| `loaded` | Name of the loaded library entry, or `""` for unsaved scratch. |
+| `cues` | The authored cue list. Each entry is a `MixCue`; see [`mix.set`](#mixset) for the shape. |
+| `available` | Saved mix names in the library. |
+
 ### Changes vs v1
 
 - `devices` is a new top-level array.
@@ -338,6 +380,8 @@ A slow 30-second zoom on camera A does not stall a preset recall on camera B.
   It names the camera routed to the `active.mjpg` preview and, in later versions, to the virtual webcam.
   Empty string when no camera is live.
 - `version` is new, always `"2.0"` from a v2 bridge.
+- `ts` is new, a millisecond wall-clock timestamp stamped on every broadcast.
+- `mix` is new. It carries the cross-camera sequencer state and is absent on bridges that predate the mixer.
 - The v1 top-level `device`, `ptz`, `zoom`, `ai`, `image`, `presets`, `active_preset_id`, and `sequence` keys are gone from the top level.
   They now appear only inside each `devices[]` entry.
 - `image.hue` is dropped. No client ever read it.
@@ -366,7 +410,7 @@ An unknown `device_id` (no attached camera has that serial) returns ack `ok:fals
 
 ### Bridge-scoped actions
 
-These four actions act on the bridge itself, not on a camera.
+These actions act on the bridge itself, not on a single camera.
 They ignore any `device_id` on the message:
 
 - `ping`
@@ -374,7 +418,8 @@ They ignore any `device_id` on the message:
 - `pair`
 - `subscribe`
 
-The `device.*` actions below are also bridge-scoped in the sense that they manage the device set rather than drive a gimbal, but they do read the `device_id` argument as their subject.
+The `device.*` actions below manage the device set rather than drive a gimbal; they are bridge-scoped but read the `device_id` argument as their subject.
+The `mix.*` cross-camera sequencer and `library.export` / `library.import` are bridge-scoped as well. They name their subjects (a camera serial inside a cue, a saved entry's `name`) in the arguments rather than through a top-level `device_id`.
 
 ### Command ack shape
 
@@ -452,6 +497,16 @@ Most callers send `final: false` (the default) during drag and `final: true` on 
 Zoom uses the float-API `cameraSetZoomAbsoluteR(value, -1)`.
 On Tiny 2 Lite the uint-API `cameraSetZoomWithSpeedAbsoluteR` does not honor sub-percent targets and gets stuck around 1.33x, so the bridge avoids it.
 
+Zoom at a fixed speed:
+
+```json
+{ "action": "zoom.set_smooth", "id": "21", "device_id": "RMOWLHH3281PMV", "value": 1.5, "speed": 5 }
+```
+
+`value` clamps to the camera's zoom range and `speed` is `1..10`.
+This action calls `cameraSetZoomAbsoluteR(value, speed)` directly, with no motion planner.
+The Tiny 2 Lite firmware ignores the speed argument, so the phone app drives smooth zoom through `zoom.set` with a `duration_ms` instead; `zoom.set_smooth` is kept for callers that want the SDK's own speed path.
+
 ### AI
 
 Set mode:
@@ -476,6 +531,15 @@ Supported `sub_mode` values for `human`:
 - `close_up`
 - `head_hide`
 - `lower_body`
+
+Enable or disable tracking without changing the mode:
+
+```json
+{ "action": "ai.set_enabled", "id": "31", "device_id": "RMOWLHH3281PMV", "enabled": true }
+```
+
+This calls `aiSetEnabledR` on the current mode.
+The phone app turns tracking off by setting `mode` to `none` via `ai.set_mode`, so `ai.set_enabled` is a lower-level toggle most clients do not need.
 
 ### Image
 
@@ -592,7 +656,7 @@ Sleep or wake:
 ### Presets
 
 Presets are scoped per camera.
-Each camera owns its own P1 to P6 slots, persisted under its serial in `presets.json`.
+Each camera owns its own P1 to P6 slots, stored on the camera hardware (`aiAddGimbalPresetR`) and read back per camera, so there is no preset file on disk.
 
 Save current camera position:
 
@@ -695,7 +759,7 @@ Minimum step `seconds` is 3.
 
 ### Device management (new in v2.0)
 
-Three actions manage the device set itself.
+The `device.*` actions manage the device set itself.
 
 #### `device.list`
 
@@ -716,24 +780,29 @@ Response:
   "devices": [
     {
       "device_id": "RMOWLHH3281PMV",
-      "model_display": "Tiny 2 Lite",
       "sn": "RMOWLHH3281PMV",
+      "model_display": "Tiny 2 Lite",
+      "firmware": "6.2.8.1",
+      "friendly_name": "Vocal",
       "connected": true,
-      "friendly_name": "Vocal"
+      "run_status": "run",
+      "active": true
     }
   ],
   "active_device_id": "RMOWLHH3281PMV"
 }
 ```
 
+Each summary entry carries `active: true` for the live camera, and the top-level `active_device_id` names it as well.
+
 #### `device.set_active`
 
 Marks a camera live.
 This sets which camera the MJPEG `active.mjpg` endpoint follows and which one `active_device_id` reports in the state event.
-The bridge persists the choice to `active.json`.
+The bridge persists the choice to `active.json`, and wakes the target first if it is asleep so OBS does not pull a black stream.
 
 ```json
-{ "action": "device.set_active", "id": "2", "device_id": "RMOWLHHC233LOQ" }
+{ "action": "device.set_active", "id": "2", "device_id": "RMOWLHHC233LOQ", "fade_ms": 500 }
 ```
 
 Response:
@@ -742,8 +811,11 @@ Response:
 { "type": "ack", "id": "2", "ok": true }
 ```
 
+The switch is a hard cut by default.
+Pass `fade_ms` greater than zero to fade the incoming camera up from black over that many milliseconds on the `active.mjpg` stream; the value is clamped to `0..5000`.
+As a shorthand, `"transition": "fade"` with no `fade_ms` uses a 500 ms fade, and `"transition": "cut"` (the default) is an instant switch.
 A disconnected or unknown `device_id` is rejected with `err:"not_found"`.
-On success the bridge broadcasts a state event with the new `active_device_id` so every client, including the client shell that feeds OBS, re-points immediately.
+On success the bridge broadcasts a state event with the new `active_device_id` so every client, including the OBS Browser Source, re-points immediately.
 
 #### `device.rename`
 
@@ -763,6 +835,122 @@ Response:
 An empty `name` clears the friendly name, and the UI falls back to model plus last-4 of SN.
 Names are trimmed of surrounding whitespace and capped at 60 characters.
 
+### Mix sequencer (new in v2)
+
+The mix sequencer runs a timeline of cross-camera cues on the bridge.
+Unlike a per-camera `sequence`, a cue names which camera goes on air and can move that camera live while it is the program feed.
+It is bridge-level: there is one mix, not one per camera, and the actions carry no `device_id`.
+The live status and the authored cue list ride in the state event's [`mix` block](#the-mix-block).
+
+A cue is a `MixCue`:
+
+| Field | Meaning |
+| --- | --- |
+| `camera_sn` | Program camera for this cue. Its serial. |
+| `preset_id` | Preset to recall on the program camera when the cue goes on air. `0..5` are P1..P6. A value `< 0` holds the current shot (cut to the camera without moving it). |
+| `move_ms` | Live move duration for the recall, in milliseconds. `0` is an instant snap. The camera moves on air. |
+| `hold_s` | Seconds to dwell on the shot after the move lands. Minimum `1`. |
+| `transition` | How the program switches to this cue: `"cut"` (default, instant) or `"fade"` (fade up from black over 500 ms). |
+| `meanwhile` | Optional. Pre-positions a second camera while this cue holds, so it is framed before a later cue cuts to it. Shape: `{ "camera_sn": <sn>, "preset_id": <slot>, "move_ms": <ms> }`. |
+
+There is no on-air movement lock by design.
+When a cue recalls a preset on the program camera, that camera pans or zooms live on air, which is the point of the mixer.
+
+#### `mix.set`
+
+Replaces the active scratch cue list and loop mode.
+The bridge persists the scratch to `mix.json` and broadcasts a fresh state event with the new `mix.cues`.
+
+```json
+{
+  "action": "mix.set",
+  "id": "80",
+  "mode": "forward",
+  "cues": [
+    { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0, "move_ms": 0, "hold_s": 20, "transition": "cut" },
+    {
+      "camera_sn": "RMOWLHHC233LOQ", "preset_id": 1, "move_ms": 3000, "hold_s": 15, "transition": "fade",
+      "meanwhile": { "camera_sn": "RMOWLHH3281PMV", "preset_id": 2, "move_ms": 2000 }
+    }
+  ]
+}
+```
+
+`mode` is `once`, `forward`, or `ping_pong`.
+
+#### `mix.start` / `mix.stop`
+
+```json
+{ "action": "mix.start", "id": "81" }
+{ "action": "mix.stop",  "id": "82" }
+```
+
+`mix.start` on an empty cue list acks `ok:false`, `err:"invalid_param"`.
+While running, each cue switches the program to `camera_sn` (fading when `transition` is `"fade"`), recalls `preset_id` over `move_ms`, optionally drives the `meanwhile` camera, holds for `hold_s`, then advances by `mode`.
+`mix.stop` ends the run and resets `cue_index` to `-1`.
+
+#### `mix.save_as` / `mix.load` / `mix.delete`
+
+The saved library lives in `mix_sequences.json`, keyed by name.
+
+```json
+{
+  "action": "mix.save_as",
+  "id": "83",
+  "name": "Sunday service",
+  "mode": "forward",
+  "cues": [ { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0, "move_ms": 0, "hold_s": 20, "transition": "cut" } ]
+}
+```
+
+```json
+{ "action": "mix.load",   "id": "84", "name": "Sunday service" }
+{ "action": "mix.delete", "id": "85", "name": "Sunday service" }
+```
+
+`mix.save_as` writes the entry, marks it loaded, and copies its cues into the active scratch.
+`mix.load` on a name that does not exist, and `mix.delete` on one that does not exist, both ack `ok:false`, `err:"not_found"`.
+An empty `name` on `mix.save_as` acks `ok:false`, `err:"invalid_param"`.
+
+### Library export and import (new in v2)
+
+These two actions move the authored library between Macs.
+The blob covers the per-camera saved sequences, the saved cross-camera mixes, and the friendly names.
+Presets are not included, because they live on the camera hardware.
+
+#### `library.export`
+
+```json
+{ "action": "library.export", "id": "90" }
+```
+
+Response:
+
+```json
+{
+  "type": "ack",
+  "id": "90",
+  "ok": true,
+  "library": {
+    "sequences": { "RMOWLHH3281PMV": { "Main": { "mode": "forward", "steps": [] } } },
+    "mix": { "Sunday service": { "mode": "forward", "cues": [] } },
+    "names": { "RMOWLHH3281PMV": "Vocal" }
+  }
+}
+```
+
+`sequences` is the contents of `sequences.json`, `mix` is `mix_sequences.json`, and `names` is `device_names.json`.
+
+#### `library.import`
+
+```json
+{ "action": "library.import", "id": "91", "library": { "sequences": {}, "mix": {}, "names": {} } }
+```
+
+The bridge merges each present key back into the matching file, with incoming entries winning per key.
+Device names re-apply to live sessions right away; restored sequences hydrate on the next camera re-attach.
+A missing or non-object `library` acks `ok:false`, `err:"invalid_param"`.
+
 ## MJPEG preview
 
 Live preview is HTTP MJPEG (`multipart/x-mixed-replace`) on port `8766`, gated by the same token as the WebSocket.
@@ -775,27 +963,39 @@ Live preview is HTTP MJPEG (`multipart/x-mixed-replace`) on port `8766`, gated b
 The per-device path is what the phone remote uses when the operator has one camera selected.
 It streams exactly that camera and never switches.
 
-The `active.mjpg` path is the one the client shell (and therefore OBS) consumes.
-It streams whichever camera is currently marked live, and it re-points to the new source when `active_device_id` changes.
-The intent is that a live-camera switch swaps the frame source mid-stream without dropping the HTTP connection, so a downstream consumer like OBS keeps a single, stable capture running while the person on the phone changes which camera is on air.
-The exact swap mechanism (whether the multipart boundary sequence continues uninterrupted, and any visible black-frame window during the swap) is a bridge implementation detail; see the open questions in [`CLIENT_SHELL_DESIGN.md`](CLIENT_SHELL_DESIGN.md#open-questions).
+The `active.mjpg` path is what the OBS Browser Source consumes.
+It streams whichever camera is currently marked live and re-resolves the source every frame, so when `active_device_id` changes the frame source swaps mid-stream without dropping the HTTP connection.
+OBS keeps one stable capture running while the person on the phone changes which camera is on air.
+During a fade-from-black switch (`device.set_active` with `fade_ms`), the bridge scales the active-stream frames down to black and back up, so the fade is baked into the JPEG bytes OBS receives.
+A brief frozen frame across the swap is expected; see the open questions in [`CLIENT_SHELL_DESIGN.md`](CLIENT_SHELL_DESIGN.md#open-questions).
 
-A `--fake-device` ghost has no video.
-Its `/preview/<SN>.mjpg` returns `404`.
+Request handling:
+
+- A missing or invalid `?t=` token returns `401`.
+- A path that is not a preview path, or a `/preview/<sn>.mjpg` for a serial no camera reports, returns `404`.
+- A camera that has produced no frame yet (asleep, or still starting) returns `503` after a short wait.
+
+A fixed per-serial stream ends when its camera detaches, so the client sees the stream close rather than a silent freeze.
+The `active.mjpg` stream instead holds the connection open with the last frame when no camera is live, because OBS keeps that connection across cuts.
 
 ## Persistence
 
 State lives under `~/Library/Application Support/Open OBSBOT Bridge/`.
-v2 re-keys the per-camera files by serial so two cameras never share a preset bank or a sequence library.
+v2 re-keys the per-camera files by serial so two cameras never share a sequence library.
+The mix files are bridge-level, because a mix spans cameras.
 
 | File | v1 shape | v2 shape |
 | --- | --- | --- |
 | `auth.json` | `{pin, tokens[]}` | unchanged, bridge-wide. |
-| `presets.json` | `[ {id,name,...} ]` | `{ "<sn>": [ {id,name,...} ] }` |
 | `sequence.json` | `{steps, mode}` | `{ "<sn>": {steps, mode} }` |
 | `sequences.json` | `{ "<name>": {...} }` | `{ "<sn>": { "<name>": {...} } }` |
 | `device_names.json` | (did not exist) | `{ "<sn>": "Vocal" }` |
 | `active.json` | (did not exist) | `{ "active_device_sn": "RMOW..." }` |
+| `mix.json` | (did not exist) | `{ mode, cues[] }` |
+| `mix_sequences.json` | (did not exist) | `{ "<name>": { mode, cues[] } }` |
+
+Presets are not on disk.
+They live on the camera hardware (`aiAddGimbalPresetR`) and are read back per camera, so there is no preset file to key or migrate.
 
 ### Migration from v1
 
@@ -803,14 +1003,15 @@ The v1 to v2 migration must never lose user data.
 
 On load, the bridge detects a v1 file by structure, because v1 files carry no version field:
 
-- `presets.json` is v1 if its top-level JSON is a bare array.
-- `sequence.json` and `sequences.json` are v1 if their object values are step-lists rather than per-serial maps.
+- `sequence.json` is v1 if it is a single sequence object with a top-level `steps` array rather than a per-serial map.
+- `sequences.json` is v1 if its first value is a bare sequence rather than a per-serial map.
 
 When a v1 file is detected, the bridge re-keys it under the serial of the first camera that attaches, then writes it back in v2 shape.
 If zero cameras are attached at the moment a v1 file is read, the bridge holds the migration until the first camera attaches.
 It does not discard the file and it does not guess a serial.
 
-This means a user who ran v1 with one camera keeps every preset and every saved sequence when they upgrade, and those land under that camera's serial the first time it plugs in.
+This means a user who ran v1 with one camera keeps every saved sequence when they upgrade, and those land under that camera's serial the first time it plugs in.
+Presets need no migration; they were always on the camera hardware.
 
 ## Live camera lifecycle
 
@@ -821,16 +1022,6 @@ Its lifecycle:
 - It survives restarts via `active.json`.
 - If the persisted active serial is not attached at boot, the bridge falls back to the first attached camera and rewrites `active.json`.
 - If the live camera is unplugged while running, the bridge falls back to the first remaining camera, or to `""` if none remain, and broadcasts a state event.
-
-## `--fake-device <SN>` (dev only)
-
-A CLI flag on `obsbot-bridge` that registers a ghost device with the given serial.
-The ghost reports `model_display: "Tiny 2 Lite (fake)"` and `connected: true`.
-It appears in `devices[]` and accepts every action, but the actions are no-ops that only update the ghost's own snapshot so the UI reacts.
-There are no libdev calls and no MJPEG stream; its `/preview/<SN>.mjpg` returns `404`.
-
-The flag is repeatable: `--fake-device A --fake-device B` registers two ghosts.
-It lets CI and single-camera dev machines exercise the multi-camera UI without two physical cameras.
 
 ## Error Codes
 
@@ -881,7 +1072,6 @@ These are plausible future protocol candidates but are not working commands toda
 - `ai.set_gesture`
 - `image.set_focus`
 - `system.set_sleep_timer`, `system.factory_reset`
-- Cross-camera sequences (a sequence that drives more than one camera). v2.0 keeps sequences per-device; cross-camera sequencing is planned for v2.1+ and would live on the bridge envelope rather than a single device.
 - Delta events such as `state.delta` or `ptz_pos`.
 - Async `device_changed`, `notify`, and `error` event types. Device attach and detach surface today as a fresh full `state` broadcast, not a targeted event.
 

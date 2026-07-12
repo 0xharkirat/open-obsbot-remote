@@ -86,29 +86,6 @@ class MixCue {
     }
     return j;
   }
-
-  MixCue copyWith({
-    String? cameraSn,
-    int? presetId,
-    int? moveMs,
-    int? holdS,
-    String? transition,
-    String? mwSn,
-    int? mwPresetId,
-    int? mwMoveMs,
-    bool clearMeanwhile = false,
-  }) {
-    return MixCue(
-      cameraSn: cameraSn ?? this.cameraSn,
-      presetId: presetId ?? this.presetId,
-      moveMs: moveMs ?? this.moveMs,
-      holdS: holdS ?? this.holdS,
-      transition: transition ?? this.transition,
-      mwSn: clearMeanwhile ? null : (mwSn ?? this.mwSn),
-      mwPresetId: clearMeanwhile ? 0 : (mwPresetId ?? this.mwPresetId),
-      mwMoveMs: clearMeanwhile ? 0 : (mwMoveMs ?? this.mwMoveMs),
-    );
-  }
 }
 
 /// The `mix` block of a v2 state event: the live status of the cross-camera

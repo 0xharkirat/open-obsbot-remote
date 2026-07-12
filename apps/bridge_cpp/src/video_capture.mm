@@ -26,8 +26,16 @@ struct VideoCapture::Impl {
     std::vector<uint8_t> latest;
     std::atomic<uint64_t> seq{0};
 
-    // Written on the hotplug thread (start/stop), read lock-free by the
-    // MJPEG serving threads via VideoCapture::running().
+    // Serialises start/stop. attach() runs on the libdev hotplug thread, but
+    // retry_pending_captures() (after a late camera-permission grant) runs on
+    // an AVFoundation callback thread - so start_unique_id/start_with_device/
+    // stop can be entered concurrently on the same Impl and race the session /
+    // input / output pointers. This lock prevents that. running() stays
+    // lock-free (it only reads the atomic below).
+    std::mutex ctl_mu;
+
+    // Written under ctl_mu (start/stop), read lock-free by the MJPEG serving
+    // threads via VideoCapture::running().
     std::atomic<bool> running{false};
 };
 
@@ -367,7 +375,11 @@ bool VideoCapture::start_with_device(void* device_ptr) {
 bool VideoCapture::start(const std::string& name_substr) {
     @autoreleasepool {
         if (impl_->running) return true;
+        // Permission wait can block up to 60s; do it before taking ctl_mu so a
+        // concurrent start/stop is not stalled behind an unanswered prompt.
         if (!ensure_camera_permission()) return false;
+        std::lock_guard<std::mutex> g(impl_->ctl_mu);
+        if (impl_->running) return true;   // re-check under the lock
         AVCaptureDevice* d = find_device(name_substr);
         if (!d) { LOGW("video: no matching capture device"); return false; }
         return start_with_device((__bridge void*)d);
@@ -379,6 +391,8 @@ bool VideoCapture::start_unique_id(const std::string& unique_id) {
         if (impl_->running) return true;
         if (unique_id.empty()) return false;
         if (!ensure_camera_permission()) return false;
+        std::lock_guard<std::mutex> g(impl_->ctl_mu);
+        if (impl_->running) return true;   // re-check under the lock
 
         NSString* uid = [NSString stringWithUTF8String:unique_id.c_str()];
         // A camera can be visible to libdev slightly before AVFoundation
@@ -407,6 +421,7 @@ bool VideoCapture::start_unique_id(const std::string& unique_id) {
 void VideoCapture::stop() {
     @autoreleasepool {
         if (!impl_) return;
+        std::lock_guard<std::mutex> g(impl_->ctl_mu);
         if (impl_->session) {
             [impl_->session stopRunning];
             impl_->session = nil;

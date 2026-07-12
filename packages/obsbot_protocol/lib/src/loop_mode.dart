@@ -23,10 +23,3 @@ LoopMode loopModeFromWire(String s) => switch (s) {
       'ping_pong' => LoopMode.pingPong,
       _ => LoopMode.forward,
     };
-
-/// Human-readable label for UI menus.
-String loopModeLabel(LoopMode m) => switch (m) {
-      LoopMode.once => 'Once (stop at end)',
-      LoopMode.forward => 'Loop forward (P1 -> P2 -> P3 -> P1 ...)',
-      LoopMode.pingPong => 'Ping-pong (P1 -> P2 -> P3 -> P2 -> P1 ...)',
-    };

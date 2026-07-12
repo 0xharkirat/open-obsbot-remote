@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import 'ws_client.dart';
@@ -436,31 +435,51 @@ class ImageControls extends StatelessWidget {
   /// this (cs.primary / cs.onPrimary) reads correctly in both themes.
   Widget _toggle(BuildContext c, String label, bool on, VoidCallback t) {
     final cs = Theme.of(c).colorScheme;
-    final child = Text(
-      label,
-      textAlign: TextAlign.center,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
+    // A check icon when on is a non-color cue (WCAG 1.4.1) on top of the
+    // filled-vs-outlined shape; Semantics(toggled) exposes the state to screen
+    // readers (4.1.2), which filled-vs-outlined alone does not.
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        if (on) ...<Widget>[
+          const Icon(Icons.check, size: 16),
+          const SizedBox(width: 4),
+        ],
+        Flexible(
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
-    return SizedBox(
-      height: 48,
-      child: on
-          ? FilledButton(
-              onPressed: t,
-              style: FilledButton.styleFrom(
-                backgroundColor: cs.primary,
-                foregroundColor: cs.onPrimary,
+    return Semantics(
+      button: true,
+      toggled: on,
+      label: label,
+      child: SizedBox(
+        height: 48,
+        child: on
+            ? FilledButton(
+                onPressed: t,
+                style: FilledButton.styleFrom(
+                  backgroundColor: cs.primary,
+                  foregroundColor: cs.onPrimary,
+                ),
+                child: child,
+              )
+            : OutlinedButton(
+                onPressed: t,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.onSurface,
+                  side: BorderSide(color: cs.outlineVariant),
+                ),
+                child: child,
               ),
-              child: child,
-            )
-          : OutlinedButton(
-              onPressed: t,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: cs.onSurface,
-                side: BorderSide(color: cs.outlineVariant),
-              ),
-              child: child,
-            ),
+      ),
     );
   }
 }

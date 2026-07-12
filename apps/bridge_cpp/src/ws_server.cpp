@@ -151,7 +151,16 @@ void run_ws_server(uint16_t port,
                 return;
             }
 
-            dispatch_message(mgr, data, [&conn](std::string out){
+            // Device-scoped commands reply LATER on a session worker thread. If
+            // the client disconnected in the meantime, Crow has deleted this
+            // connection, so send only while it is still in authed_conns - the
+            // same membership gate broadcast() uses. onclose erases under
+            // conn_mu before Crow frees the connection, so a present entry means
+            // the connection is still alive. count() on a stale pointer is a
+            // comparison, not a deref, so it is safe either way.
+            dispatch_message(mgr, data, [&conn, &conn_mu, &authed_conns](std::string out){
+                std::lock_guard<std::mutex> g(conn_mu);
+                if (authed_conns.count(&conn) == 0) return;
                 try { conn.send_text(out); } catch (...) {}
             });
         });

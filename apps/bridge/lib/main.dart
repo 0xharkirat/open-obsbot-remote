@@ -374,6 +374,22 @@ class _HomeScreenState extends State<HomeScreen> {
             // a banner rather than a row.
             _statusBanner(context),
             const SizedBox(height: 18),
+            // Pairing first: the PIN/QR is the thing you open this window for
+            // (setting up a phone), so it sits above the fold - no scrolling.
+            _sectionHeader(context, 'Pairing'),
+            const SizedBox(height: 6),
+            _revealCard(context),
+            if (lanIps.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'Offline - no Wi-Fi network detected.',
+                  style: MacosTheme.of(context).typography.subheadline.copyWith(
+                    color: MacosColors.systemGrayColor,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 18),
             _sectionHeader(context, 'Status'),
             const SizedBox(height: 6),
             _groupCard(context, <Widget>[
@@ -408,20 +424,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _sectionHeader(context, 'OBS output'),
             const SizedBox(height: 6),
             _groupCard(context, <Widget>[ObsOutputRow(client: _bridgeClient)]),
-            const SizedBox(height: 18),
-            _sectionHeader(context, 'Pairing'),
-            const SizedBox(height: 6),
-            _revealCard(context),
-            if (lanIps.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  'Offline - no Wi-Fi network detected.',
-                  style: MacosTheme.of(context).typography.subheadline.copyWith(
-                    color: MacosColors.systemGrayColor,
-                  ),
-                ),
-              ),
             const SizedBox(height: 20),
             _logSection(context),
             const AppFooter(),

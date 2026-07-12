@@ -423,78 +423,90 @@ class _PresetTile extends StatelessWidget {
     final theme = Theme.of(context);
     final has = entry != null;
     final label = has && entry!.name.isNotEmpty ? entry!.name : 'P${id + 1}';
-    return GestureDetector(
-      onTap: has
-          ? () {
-              HapticFeedback.lightImpact();
-              client.presetRecall(id);
-            }
-          : null,
-      onLongPress: () async {
-        HapticFeedback.heavyImpact();
-        final name = await _prompt(context, entry?.name ?? 'P${id + 1}');
-        if (name == null) return;
-        client.presetSave(id, name);
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: active
-              ? theme.colorScheme.primary
-              : (has
-                    ? theme.colorScheme.surfaceContainerHigh
-                    : theme.colorScheme.surfaceContainerLowest),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
+    // Expose a button role + state to screen readers; the bare GestureDetector
+    // has neither (WCAG 4.1.2). selected marks the on-air preset.
+    return Semantics(
+      button: true,
+      selected: active,
+      label: has ? '$label preset' : 'Preset ${id + 1}, empty',
+      hint: has ? 'Recall. Long press to rename.' : 'Long press to save.',
+      child: GestureDetector(
+        onTap: has
+            ? () {
+                HapticFeedback.lightImpact();
+                client.presetRecall(id);
+              }
+            : null,
+        onLongPress: () async {
+          HapticFeedback.heavyImpact();
+          final name = await _prompt(context, entry?.name ?? 'P${id + 1}');
+          if (name == null) return;
+          client.presetSave(id, name);
+        },
+        child: Container(
+          decoration: BoxDecoration(
             color: active
                 ? theme.colorScheme.primary
-                : theme.colorScheme.outlineVariant,
+                : (has
+                      ? theme.colorScheme.surfaceContainerHigh
+                      : theme.colorScheme.surfaceContainerLowest),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outlineVariant,
+            ),
           ),
-        ),
-        padding: const EdgeInsets.all(8),
-        child: Stack(
-          children: <Widget>[
-            Center(
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: has ? 18 : 15,
-                  fontWeight: FontWeight.w700,
-                  color: active
-                      ? theme.colorScheme.onPrimary
-                      : (has
-                            ? theme.colorScheme.onSurface
-                            : theme.colorScheme.outline),
+          padding: const EdgeInsets.all(8),
+          child: Stack(
+            children: <Widget>[
+              Center(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: has ? 18 : 15,
+                    fontWeight: FontWeight.w700,
+                    color: active
+                        ? theme.colorScheme.onPrimary
+                        : (has
+                              ? theme.colorScheme.onSurface
+                              : theme.colorScheme.outline),
+                  ),
                 ),
               ),
-            ),
-            // Discoverability: tap-to-recall / hold-to-save is invisible
-            // otherwise. The v2 tiles carried this hint; the studio
-            // dropped it and the operator could not find how to save.
-            Positioned(
-              left: 0,
-              bottom: 0,
-              child: Text(
-                has ? 'P${id + 1}  ·  hold to rename' : 'hold to save here',
-                style: TextStyle(
-                  fontSize: 10,
-                  color:
-                      (active
-                              ? theme.colorScheme.onPrimary
-                              : theme.colorScheme.outline)
-                          .withValues(alpha: 0.75),
+              // Discoverability: tap-to-recall / hold-to-save is invisible
+              // otherwise. The v2 tiles carried this hint; the studio
+              // dropped it and the operator could not find how to save.
+              Positioned(
+                left: 0,
+                bottom: 0,
+                child: Text(
+                  has ? 'P${id + 1}  ·  hold to rename' : 'hold to save here',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color:
+                        (active
+                                ? theme.colorScheme.onPrimary
+                                : theme.colorScheme.outline)
+                            .withValues(alpha: 0.75),
+                  ),
                 ),
               ),
-            ),
-            if (active)
-              const Positioned(
-                right: 0,
-                top: 0,
-                child: Icon(Icons.check_circle, size: 16, color: Colors.white),
-              ),
-          ],
+              if (active)
+                const Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
