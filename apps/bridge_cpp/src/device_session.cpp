@@ -147,19 +147,25 @@ void DeviceSession::start(StateCallback on_state) {
 void DeviceSession::stop() {
     if (!running_) return;
     running_ = false;
-    seq_quit_ = true;
-    seq_running_ = false;
-    seq_cv_.notify_all();
-    // Same trap as cmd_sequence_stop's B2 fix: if the sequencer thread
-    // is blocked in motion_wait_idle() mid-transition, only the planner
-    // thread can wake it - cancel the in-flight move BEFORE joining
-    // seq_thr_. Without this, stop() blocks for the remaining move
-    // duration (client-controlled, unbounded), and stop() runs on the
-    // libdev hotplug thread via DeviceManager::detach - so unplugging
-    // one camera mid-slow-move would stall attach/detach for every
-    // other camera.
-    motion_cancel();
-    if (seq_thr_.joinable()) seq_thr_.join();
+    // Seq teardown under seq_ctl_mu_ so a concurrent cmd_sequence_start/stop on
+    // the worker thread cannot touch seq_thr_ at the same time. Released before
+    // joining the worker thread below (the worker may be blocked on seq_ctl_mu_).
+    {
+        std::lock_guard<std::mutex> ctl(seq_ctl_mu_);
+        seq_quit_ = true;
+        seq_running_ = false;
+        seq_cv_.notify_all();
+        // Same trap as cmd_sequence_stop's B2 fix: if the sequencer thread
+        // is blocked in motion_wait_idle() mid-transition, only the planner
+        // thread can wake it - cancel the in-flight move BEFORE joining
+        // seq_thr_. Without this, stop() blocks for the remaining move
+        // duration (client-controlled, unbounded), and stop() runs on the
+        // libdev hotplug thread via DeviceManager::detach - so unplugging
+        // one camera mid-slow-move would stall attach/detach for every
+        // other camera.
+        motion_cancel();
+        if (seq_thr_.joinable()) seq_thr_.join();
+    }
     motion_quit_ = true;
     motion_cancel_ = true;
     motion_cv_.notify_all();
@@ -1521,6 +1527,11 @@ void DeviceSession::cmd_sequence_delete(const std::string& name, ReplyFn reply) 
 
 void DeviceSession::cmd_sequence_start(ReplyFn reply) {
     submit([this]() -> CmdResult {
+        // seq_ctl_mu_ serialises the seq_thr_ lifecycle against stop() (hotplug
+        // thread) and cmd_sequence_stop. running_ guards a start that races
+        // teardown so it cannot relaunch onto a stopping session.
+        std::lock_guard<std::mutex> ctl(seq_ctl_mu_);
+        if (!running_) return ok();
         if (seq_running_) return ok();
         std::lock_guard<std::mutex> g(seq_mu_);
         if (seq_steps_.empty()) return err("invalid_param", "no sequence configured");
@@ -1547,18 +1558,21 @@ void DeviceSession::cmd_sequence_start(ReplyFn reply) {
 
 void DeviceSession::cmd_sequence_stop(ReplyFn reply) {
     submit([this]() -> CmdResult {
-        seq_running_ = false;
-        seq_quit_ = true;
-        seq_cv_.notify_all();
-        // B2 fix: if the sequencer is currently blocked inside
-        // motion_wait_idle (waiting for a long transition to land),
-        // the planner thread is the only one that can wake it. Cancel
-        // the in-flight move so motion_wait_idle returns and the
-        // sequencer loop exits its CV wait promptly. Without this, a
-        // stop pressed mid-30-second-move would block the worker
-        // thread on seq_thr_.join() for the rest of the move duration.
-        motion_cancel();
-        if (seq_thr_.joinable()) seq_thr_.join();
+        {
+            std::lock_guard<std::mutex> ctl(seq_ctl_mu_);
+            seq_running_ = false;
+            seq_quit_ = true;
+            seq_cv_.notify_all();
+            // B2 fix: if the sequencer is currently blocked inside
+            // motion_wait_idle (waiting for a long transition to land),
+            // the planner thread is the only one that can wake it. Cancel
+            // the in-flight move so motion_wait_idle returns and the
+            // sequencer loop exits its CV wait promptly. Without this, a
+            // stop pressed mid-30-second-move would block the worker
+            // thread on seq_thr_.join() for the rest of the move duration.
+            motion_cancel();
+            if (seq_thr_.joinable()) seq_thr_.join();
+        }
         std::lock_guard<std::mutex> sg(snap_mu_);
         snap_.sequence_running = false;
         snap_.sequence_step_index = -1;
@@ -1655,7 +1669,18 @@ void DeviceSession::sequence_loop() {
         // observable hold time before the next step fired. Fix: wait
         // for the planner to physically complete the move before
         // starting the stay clock.
-        const int transition_ms = seq_steps_[seq_step_index_].transition_ms;
+        // Read under seq_mu_ with a bounds check: a sequence.set / sequence.load
+        // carrying an empty or shorter steps list runs on the worker thread and
+        // can shrink seq_steps_ while this bootstrap runs on the seq thread. The
+        // main loop and trigger_step already guard the index; this line did not.
+        int transition_ms = 0;
+        {
+            std::lock_guard<std::mutex> g(seq_mu_);
+            if (seq_step_index_ >= 0 &&
+                seq_step_index_ < static_cast<int>(seq_steps_.size())) {
+                transition_ms = seq_steps_[seq_step_index_].transition_ms;
+            }
+        }
         if (transition_ms > 0) {
             std::lock_guard<std::mutex> sg(snap_mu_);
             snap_.sequence_phase = "moving";

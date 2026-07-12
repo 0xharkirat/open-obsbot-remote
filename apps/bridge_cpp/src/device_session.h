@@ -241,6 +241,13 @@ private:
     std::thread seq_thr_;
     std::condition_variable seq_cv_;
     std::mutex seq_mu_;
+    // Serialises the seq_thr_ lifecycle (join + relaunch) across the worker
+    // thread (cmd_sequence_start/stop) and the libdev hotplug thread (stop()
+    // via DeviceManager::detach). Without it, unplugging a camera while its
+    // sequence runs races the std::thread object -> std::terminate. The
+    // sequence loop never takes this, so holding it across join() is safe.
+    // Mirrors DeviceManager::mix_ctl_mu_.
+    std::mutex seq_ctl_mu_;
     int seq_step_index_ = 0;
     std::chrono::steady_clock::time_point seq_step_started_{};
 
@@ -251,7 +258,11 @@ private:
     mutable std::mutex snap_mu_;
     DeviceSnapshot snap_;
 
-    std::shared_ptr<Device> dev_;     // touched only by worker thread
+    // Assigned on the worker thread (attach) and read by the motion and
+    // sequence threads. A spurious re-attach that reassigns dev_ mid-move races
+    // those reads (2.x: guard with a mutex + copy to a local shared_ptr under
+    // the lock before use, or quiesce the planner before reassigning).
+    std::shared_ptr<Device> dev_;
     StateCallback on_state_;
 
     // command queue

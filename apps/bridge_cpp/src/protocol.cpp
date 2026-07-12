@@ -177,6 +177,14 @@ void dispatch_message(DeviceManager& mgr,
         reply_send(ack_err("?", "invalid_param", "not valid JSON").dump());
         return;
     }
+    // A non-object but valid JSON (42, "x", [], true) would make the
+    // msg.contains("id") / msg.value("action") calls below throw
+    // json::type_error past this handler and crash the Crow worker (leaving a
+    // zombied connection + fd leak). Reject it here.
+    if (!msg.is_object()) {
+        reply_send(ack_err("?", "invalid_param", "expected a JSON object").dump());
+        return;
+    }
 
     json id = msg.contains("id") ? msg["id"] : json("?");
     string action = msg.value("action", "");

@@ -172,7 +172,9 @@ private:
     std::string active_sn_;
     std::string desired_active_;       // persisted preference, loaded at start()
     Broadcaster broadcaster_;
-    bool started_ = false;
+    // Read on the WS worker thread (mix_start's teardown guard) and written on
+    // the WS/main thread in start()/stop(); atomic so the guard is race-free.
+    std::atomic<bool> started_{false};
 
     // Fade-from-black state for the active stream (set by set_active with
     // fade_ms>0, read per-frame by active_fade_factor()).
