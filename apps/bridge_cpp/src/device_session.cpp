@@ -105,6 +105,20 @@ void DeviceSession::attach(std::shared_ptr<Device> dev) {
                 LOGI("forced HDR off on connect (raw HDR not supported in MJPEG path)");
             }
 
+            // Disable the camera's auto-sleep. The Tiny 2 Lite suspends itself
+            // after an idle timeout; when it does, its UVC video interface drops
+            // and AVFoundation stops getting frames, and waking it does not
+            // reliably bring the capture back - a camera that vanishes mid
+            // service is the worst failure. cameraSetSuspendTimeU(0) disables
+            // the timer (0 or negative = never sleep on the tiny2 series; the
+            // DisableSleepWithoutStream call is meet-series only, so not usable
+            // here).
+            if (dev_->cameraSetSuspendTimeU(0) == 0) {
+                LOGI("disabled camera auto-sleep (suspend time = never)");
+            } else {
+                LOGW("could not disable camera auto-sleep");
+            }
+
             // Pull the camera's saved preset list so the UI can show names.
             refresh_presets_locked();
 
