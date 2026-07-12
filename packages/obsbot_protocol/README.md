@@ -24,8 +24,8 @@ This package is the Dart-side mirror.
   `devices` list + `activeDeviceId` (which camera is currently going
   out to OBS). `BridgeState.deviceById(id)` + `BridgeState.withDevice`
   for routing per-device mutations.
-- `LoopMode` + `loopModeToWire` / `loopModeFromWire` /
-  `loopModeLabel`.
+- `LoopMode` + `loopModeToWire` / `loopModeFromWire`.
+- `MixState` + `MixCue` - the cross-camera mix sequencer's state and cue shape.
 - `MoveDurationPreset` + `kMoveDurationPresets` +
   `formatMoveDuration` - the well-known move-duration chip strip
   (Instant / 1 sec / 5 sec / 15 sec / 30 sec / 1 min / 3 min /
