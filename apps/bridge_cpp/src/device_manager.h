@@ -114,11 +114,14 @@ public:
     // ramps the incoming camera up from black over fade_ms (~500). 0 = hard cut.
     bool set_active(const std::string& sn, std::string& err_code, int fade_ms = 0);
 
-    // Current fade multiplier for the active stream: 1.0 = no fade (full
-    // brightness), 0..1 while a fade-from-black is in progress. The MJPEG
-    // server multiplies active-stream frames by this. Cheap; safe to call
-    // per frame.
-    float active_fade_factor();
+    // Progress of an in-flight program transition on the active stream:
+    // returns 1.0 when no transition is running, else 0..1 (0 = outgoing frame,
+    // 1 = incoming). When a fade is running, `outgoing` is filled with the
+    // frozen frame from the camera that was on air at the switch, so the MJPEG
+    // server can dissolve it into the live incoming frames (jpeg_crossfade). If
+    // `outgoing` comes back empty (first take, nothing to dissolve from), the
+    // server falls back to fade-from-black. Cheap; safe to call per frame.
+    float active_fade(std::vector<uint8_t>& outgoing);
     // Set / clear the friendly name (empty clears). Persists to
     // device_names.json. Returns false + "not_found" for an unknown SN.
     bool rename(const std::string& sn, const std::string& name, std::string& err_code);
@@ -176,11 +179,14 @@ private:
     // the WS/main thread in start()/stop(); atomic so the guard is race-free.
     std::atomic<bool> started_{false};
 
-    // Fade-from-black state for the active stream (set by set_active with
-    // fade_ms>0, read per-frame by active_fade_factor()).
+    // Program-transition state for the active stream (set by set_active with
+    // fade_ms>0, read per-frame by active_fade()). fade_outgoing_ is the frozen
+    // frame from the camera that was on air at the switch, dissolved into the
+    // incoming camera's live frames over the window.
     std::mutex fade_mu_;
     std::chrono::steady_clock::time_point fade_start_{};
     int fade_ms_ = 0;
+    std::vector<uint8_t> fade_outgoing_;
 
     // ---- mix engine ----
     // Guards the cue list + run cursor. Separate from mu_ so the mix thread can

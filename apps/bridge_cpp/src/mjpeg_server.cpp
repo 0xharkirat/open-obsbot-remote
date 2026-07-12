@@ -222,12 +222,13 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
             last_cap = cap;
             last_seq = 0;
         }
-        // Fade-from-black: while a program cut is fading in, ramp the active
-        // stream up from black. Only the follow-active stream fades (a fixed
-        // per-SN stream is a monitor, not the program). During the fade window
-        // we must keep emitting frames even when the camera has no NEW frame,
-        // so the fade animates smoothly regardless of camera fps.
-        const float fade = follow_active ? mgr->active_fade_factor() : 1.0f;
+        // Program transition: while a fade is running, dissolve the frozen
+        // outgoing frame into the incoming camera's live frames. Only the
+        // follow-active stream transitions (a fixed per-SN stream is a monitor).
+        // During the window we keep emitting even without a NEW camera frame, so
+        // the dissolve animates smoothly regardless of camera fps.
+        std::vector<uint8_t> outgoing;
+        const float fade = follow_active ? mgr->active_fade(outgoing) : 1.0f;
         const bool fading = fade < 1.0f;
 
         auto seq = cap->frame_seq();
@@ -241,7 +242,13 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
             continue;
         }
         last_seq = seq;
-        if (fading) jpeg = obs::jpeg_darken(jpeg, fade);
+        if (fading) {
+            // Crossfade from the outgoing camera; fall back to fade-from-black on
+            // the first take, when there is no outgoing frame to dissolve from.
+            jpeg = outgoing.empty()
+                       ? obs::jpeg_darken(jpeg, fade)
+                       : obs::jpeg_crossfade(outgoing, jpeg, fade);
+        }
 
         std::string part = "--obsboundary\r\n"
                            "Content-Type: image/jpeg\r\n"

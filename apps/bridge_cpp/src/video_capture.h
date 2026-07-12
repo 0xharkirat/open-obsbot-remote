@@ -15,7 +15,19 @@ namespace obs {
 // (baked into the MJPEG so OBS sees it, not just the webapp). Returns the input
 // unchanged when factor >= 1 (the no-fade common case, so zero cost normally)
 // or on any decode/encode failure. Uses Core Image + ImageIO (already linked).
+// Kept as the fallback for the first take, when there is no outgoing frame to
+// dissolve from (see jpeg_crossfade).
 std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg, float factor);
+
+// Crossfade (dissolve) two JPEG frames: factor 0 = outgoing, 1 = incoming.
+// The program-transition primitive - on a TAKE/cue with a fade, the bridge
+// grabs the outgoing camera's frame and dissolves it into the incoming
+// camera's live frames over the fade window, baked into active.mjpg so OBS
+// sees the dissolve. Returns incoming unchanged when there is nothing to blend
+// (empty outgoing, or factor >= 1) or on any failure.
+std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
+                                    const std::vector<uint8_t>& incoming,
+                                    float factor);
 
 // Captures one OBSBOT camera as a regular UVC webcam via AVFoundation,
 // JPEG-encodes the latest frame in software, and exposes it to the HTTP

@@ -339,18 +339,29 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
         std::lock_guard<std::mutex> g(mu_);
         auto it = sessions_.find(sn);
         if (it == sessions_.end()) { err_code = "not_found"; return false; }
+        const std::string old_active = active_sn_;   // outgoing camera
         active_sn_ = sn;
         desired_active_ = sn;
-        // Set the fade window atomically with active_sn_ (no 1-frame
-        // full-brightness flash at fade start) and UNCONDITIONALLY: a cut
-        // (fade_ms == 0) must CLEAR any fade still in progress, or the cut
-        // inherits the leftover ramp and darkens the program - the exact bug
-        // an operator hits fading then cutting back. fade_mu_ is a leaf lock,
-        // so nesting it under mu_ keeps lock order consistent.
+        // Set the transition window atomically with active_sn_ (no 1-frame flash
+        // at the start) and UNCONDITIONALLY: a cut (fade_ms == 0) must CLEAR any
+        // fade still in progress, or the cut inherits the leftover dissolve - the
+        // exact bug an operator hits fading then cutting back. fade_mu_ is a leaf
+        // lock, so nesting it under mu_ keeps lock order consistent.
         {
             std::lock_guard<std::mutex> fg(fade_mu_);
             fade_ms_ = fade_ms > 0 ? fade_ms : 0;
             fade_start_ = std::chrono::steady_clock::now();
+            // For a fade, freeze the outgoing camera's current frame so the MJPEG
+            // server can dissolve it into the incoming camera's live frames. On a
+            // cut, clear it. capture_for() would re-lock mu_ (held here), so read
+            // captures_ directly. latest_jpeg() takes the capture's own lock.
+            fade_outgoing_.clear();
+            if (fade_ms > 0 && !old_active.empty()) {
+                auto cit = captures_.find(old_active);
+                if (cit != captures_.end() && cit->second) {
+                    fade_outgoing_ = cit->second->latest_jpeg();
+                }
+            }
         }
         // Implicit wake: if the target is asleep, wake it before it goes live
         // so OBS (which consumes /preview/active.mjpg) does not pull a black
@@ -365,12 +376,17 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
     return true;
 }
 
-float DeviceManager::active_fade_factor() {
+float DeviceManager::active_fade(std::vector<uint8_t>& outgoing) {
     std::lock_guard<std::mutex> g(fade_mu_);
     if (fade_ms_ <= 0) return 1.0f;
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - fade_start_).count();
-    if (elapsed >= fade_ms_) { fade_ms_ = 0; return 1.0f; }  // fade complete
+    if (elapsed >= fade_ms_) {                 // transition complete
+        fade_ms_ = 0;
+        fade_outgoing_.clear();
+        return 1.0f;
+    }
+    outgoing = fade_outgoing_;                 // frozen frame to dissolve from
     const float f = static_cast<float>(elapsed) / static_cast<float>(fade_ms_);
     return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 }
