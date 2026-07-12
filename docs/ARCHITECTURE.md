@@ -19,7 +19,7 @@ libdev's device-changed callback is the single source of truth for attach and de
 
 Two things sit above the per-camera sessions, both on the `DeviceManager`:
 
-- The active (on-air) camera. `active_device_id` names the camera that `/preview/active.mjpg` follows. `device.set_active` changes it, with an optional fade-from-black.
+- The active (on-air) camera. `active_device_id` names the camera that `/preview/active.mjpg` follows. `device.set_active` changes it, with an optional crossfade.
 - The mix engine. A single thread runs a timeline of cross-camera cues, switching the program camera and recalling presets across sessions.
 
 ```
@@ -113,7 +113,7 @@ Responsibilities:
 - Load OBSBOT `libdev.dylib`.
 - Own a `DeviceManager` that holds one `DeviceSession` per camera and routes commands by `device_id`.
 - Own all SDK calls for a camera on that camera's `DeviceSession` worker thread.
-- Track the live camera (`active_device_id`), persist it to `active.json`, and run the fade-from-black ramp on a switch.
+- Track the live camera (`active_device_id`), persist it to `active.json`, and run the crossfade (dissolve) on a switch.
 - Run the cross-camera mix engine.
 - Expose the JSON-over-WebSocket control API at `/v1`.
 - Serve `/health`, `/pair`, and the Flutter web build as static files from `/`.
@@ -147,7 +147,7 @@ It replaces the v1.2 Simple/Advanced split and its tabbed control screen; forui 
 - A staging preview of the camera this phone is lining up, filling the top, with the on-air camera in a red picture-in-picture.
 - A camera bus for selecting and switching cameras, shown when more than one camera is attached.
 - Either the staged camera's preset grid, or, when Frame is tapped, the manual PTZ and zoom controls in its place.
-- A TAKE button that cuts the staged camera on air, optionally fading up from black.
+- A TAKE button that cuts the staged camera on air, optionally crossfading.
 - A gear that opens image controls, sequences, connection, and settings.
 
 Red marks the on-air camera; green marks the staged one.

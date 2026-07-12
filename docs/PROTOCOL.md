@@ -812,8 +812,9 @@ Response:
 ```
 
 The switch is a hard cut by default.
-Pass `fade_ms` greater than zero to fade the incoming camera up from black over that many milliseconds on the `active.mjpg` stream; the value is clamped to `0..5000`.
-As a shorthand, `"transition": "fade"` with no `fade_ms` uses a 500 ms fade, and `"transition": "cut"` (the default) is an instant switch.
+Pass `fade_ms` greater than zero to crossfade over that many milliseconds on the `active.mjpg` stream: the bridge freezes the outgoing camera's frame and dissolves it into the incoming camera's live frames.
+The value is clamped to `0..5000`.
+As a shorthand, `"transition": "fade"` with no `fade_ms` uses a 500 ms crossfade, and `"transition": "cut"` (the default) is an instant switch.
 A disconnected or unknown `device_id` is rejected with `err:"not_found"`.
 On success the bridge broadcasts a state event with the new `active_device_id` so every client, including the OBS Browser Source, re-points immediately.
 
@@ -850,7 +851,7 @@ A cue is a `MixCue`:
 | `preset_id` | Preset to recall on the program camera when the cue goes on air. `0..5` are P1..P6. A value `< 0` holds the current shot (cut to the camera without moving it). |
 | `move_ms` | Live move duration for the recall, in milliseconds. `0` is an instant snap. The camera moves on air. |
 | `hold_s` | Seconds to dwell on the shot after the move lands. Minimum `1`. |
-| `transition` | How the program switches to this cue: `"cut"` (default, instant) or `"fade"` (fade up from black over 500 ms). |
+| `transition` | How the program switches to this cue: `"cut"` (default, instant) or `"fade"` (crossfade over 500 ms). |
 | `meanwhile` | Optional. Pre-positions a second camera while this cue holds, so it is framed before a later cue cuts to it. Shape: `{ "camera_sn": <sn>, "preset_id": <slot>, "move_ms": <ms> }`. |
 
 There is no on-air movement lock by design.
@@ -966,7 +967,7 @@ It streams exactly that camera and never switches.
 The `active.mjpg` path is what the OBS Browser Source consumes.
 It streams whichever camera is currently marked live and re-resolves the source every frame, so when `active_device_id` changes the frame source swaps mid-stream without dropping the HTTP connection.
 OBS keeps one stable capture running while the person on the phone changes which camera is on air.
-During a fade-from-black switch (`device.set_active` with `fade_ms`), the bridge scales the active-stream frames down to black and back up, so the fade is baked into the JPEG bytes OBS receives.
+During a crossfade switch (`device.set_active` with `fade_ms`), the bridge dissolves the outgoing camera's frozen frame into the incoming camera's live frames, so the transition is baked into the JPEG bytes OBS receives. The first take, when there is no outgoing frame, falls back to a fade from black.
 A brief frozen frame across the swap is expected; see the open questions in [`CLIENT_SHELL_DESIGN.md`](CLIENT_SHELL_DESIGN.md#open-questions).
 
 Request handling:

@@ -49,8 +49,8 @@ Two ideas stay separate:
 - On air (active) is which camera OBS is showing, that is, which camera `/preview/active.mjpg` follows.
 
 You stage a camera by selecting it, frame it, then press TAKE to put it on air.
-A take is a hard cut by default, or a fade from black.
-Because OBS follows `active.mjpg`, the cut happens inside the bridge and OBS needs no scene change.
+A take is a hard cut by default, or a crossfade that dissolves the outgoing camera into the incoming one.
+Because OBS follows `active.mjpg`, the switch happens inside the bridge and OBS needs no scene change.
 
 ## Features
 
@@ -58,7 +58,7 @@ Because OBS follows `active.mjpg`, the cut happens inside the bridge and OBS nee
 
 - Any number of attached cameras appear in the remote and in the bridge window, each with its own status, name, and preview.
 - The camera bus on the Live screen shows every camera and marks the one on air.
-- TAKE commits the staged camera to air, as a cut or a fade from black.
+- TAKE commits the staged camera to air, as a cut or a crossfade.
 - OBS reads one Browser Source (`/preview/active.mjpg`); the URL carries the pairing token.
 
 ### Live control

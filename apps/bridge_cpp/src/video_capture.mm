@@ -209,6 +209,83 @@ std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg_in,
     }
 }
 
+std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
+                                    const std::vector<uint8_t>& incoming,
+                                    float factor) {
+    // Dissolve outgoing -> incoming. factor 0 = outgoing, 1 = incoming.
+    if (incoming.empty()) return incoming;
+    if (outgoing.empty() || factor >= 1.0f) return incoming;  // nothing to blend
+    if (factor < 0.0f) factor = 0.0f;
+    @autoreleasepool {
+        auto decode = [](const std::vector<uint8_t>& j) -> CIImage* {
+            NSData* d = [NSData dataWithBytesNoCopy:(void*)j.data()
+                                             length:j.size()
+                                       freeWhenDone:NO];
+            CGImageSourceRef s =
+                CGImageSourceCreateWithData((__bridge CFDataRef)d, nullptr);
+            if (!s) return nil;
+            CGImageRef cg = CGImageSourceCreateImageAtIndex(s, 0, nullptr);
+            CFRelease(s);
+            if (!cg) return nil;
+            CIImage* ci = [CIImage imageWithCGImage:cg];
+            CGImageRelease(cg);
+            return ci;
+        };
+        CIImage* a = decode(outgoing);
+        CIImage* b = decode(incoming);
+        if (!a || !b) return incoming;
+
+        CIFilter* diss = [CIFilter filterWithName:@"CIDissolveTransition"];
+        [diss setValue:a forKey:kCIInputImageKey];        // time 0 = outgoing
+        [diss setValue:b forKey:kCIInputTargetImageKey];  // time 1 = incoming
+        [diss setValue:@(factor) forKey:kCIInputTimeKey];
+        CIImage* out = diss.outputImage;
+        if (!out) return incoming;
+
+        static CIContext* xctx = nil;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            CGColorSpaceRef ws = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+            xctx = [CIContext contextWithOptions:@{
+                kCIContextWorkingColorSpace: (__bridge id)ws,
+                kCIContextOutputColorSpace:  (__bridge id)ws,
+            }];
+            CGColorSpaceRelease(ws);
+        });
+
+        CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        // Render at the incoming frame's extent (the destination size).
+        CGImageRef outCg = [xctx createCGImage:out
+                                      fromRect:b.extent
+                                        format:kCIFormatRGBA8
+                                    colorSpace:srgb];
+        CGColorSpaceRelease(srgb);
+        if (!outCg) return incoming;
+
+        NSMutableData* outData = [NSMutableData data];
+        CFStringRef utType =
+#if defined(__has_builtin) && __has_builtin(__builtin_available)
+            (__bridge CFStringRef)UTTypeJPEG.identifier;
+#else
+            CFSTR("public.jpeg");
+#endif
+        CGImageDestinationRef dest = CGImageDestinationCreateWithData(
+            (__bridge CFMutableDataRef)outData, utType, 1, nullptr);
+        if (!dest) { CGImageRelease(outCg); return incoming; }
+        NSDictionary* props =
+            @{ (id)kCGImageDestinationLossyCompressionQuality: @0.80 };
+        CGImageDestinationAddImage(dest, outCg, (__bridge CFDictionaryRef)props);
+        bool ok = CGImageDestinationFinalize(dest);
+        CFRelease(dest);
+        CGImageRelease(outCg);
+        if (!ok) return incoming;
+
+        return std::vector<uint8_t>(
+            (const uint8_t*)outData.bytes,
+            (const uint8_t*)outData.bytes + outData.length);
+    }
+}
+
 static NSArray<AVCaptureDevice*>* discover_devices() {
     AVCaptureDeviceDiscoverySession* disc = nil;
     if (@available(macOS 14.0, *)) {
