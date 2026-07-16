@@ -211,8 +211,9 @@ void run_ws_server(uint16_t port,
             res.code = 404; res.end(); return;
         }
         res.set_header("Content-Type", mime_for(rel));
-        // index.html: never cache (so updates ship). Everything else:
-        // cache for a year  -  Flutter web's asset filenames are hashed.
+        // no_cache=true means a rebuild always ships. Flutter web does NOT
+        // content-hash its filenames, so only genuinely version-pinned
+        // payloads (canvaskit) may be hard-cached. See the caller.
         if (no_cache) {
             res.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
             res.set_header("Pragma", "no-cache");
@@ -308,18 +309,17 @@ void run_ws_server(uint16_t port,
                 );
                 res.end(); return;
             }
-            // index.html and json manifests should not be hard-cached.
-            // main.dart.js + flutter_bootstrap.js are unhashed top-level
-            // entry points  -  must not be served as immutable, otherwise
-            // every code change ships invisible until users hard-reload.
-            const bool no_cache = (path == "index.html" || path == "manifest.json" ||
-                                   path == "flutter_service_worker.js" ||
-                                   path == "version.json" ||
-                                   path == "main.dart.js" ||
-                                   path == "flutter_bootstrap.js" ||
-                                   path == "main.dart.mjs" ||
-                                   path == "main.dart.wasm");
-            serve_static(path, res, no_cache);
+            // Nothing Flutter web emits is content-hashed: index.html,
+            // main.dart.js, flutter_bootstrap.js and everything under
+            // assets/ keep the same filename while their bytes change on
+            // every build. The icon font is the worst case - Flutter
+            // tree-shakes MaterialIcons-Regular.otf down to only the glyphs
+            // a given build uses, so a copy cached from an older build is
+            // missing the new codepoints and every icon renders blank.
+            // Default to no-cache; hard-cache only canvaskit, which is ~37MB
+            // and changes only when the Flutter SDK is bumped.
+            const bool cacheable = (path.rfind("canvaskit/", 0) == 0);
+            serve_static(path, res, /*no_cache=*/!cacheable);
         });
 
         CROW_ROUTE(app, "/<path>/<path>")

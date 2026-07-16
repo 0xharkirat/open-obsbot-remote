@@ -4,6 +4,15 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-14
+
+Patch release. Two fixes that matter for phones and Macs already in the field, so update the bridge on any machine running 2.0.0.
+
+### Fixed
+
+- Web assets are no longer served as `immutable`. Flutter tree-shakes the Material icon font to only the glyphs a given build uses, under a filename that never changes, so a phone holding a copy cached from an older build was missing the new codepoints and every icon rendered blank. Everything except `canvaskit/` (which changes only on a Flutter SDK bump) is now served `no-cache`. Note: a phone already showing blank icons cannot be fixed from the server, because `immutable` means the browser never revalidates - clear that site's data once.
+- The mix sequencer's Hold field no longer closes the on-screen keyboard on every keystroke. It pushed a `mix.set` per character, and the state-event echo of an earlier keystroke disposed the text field mid-typing. The push is now debounced.
+
 ## [2.0.0] - 2026-07-12
 
 Multi-camera release.
