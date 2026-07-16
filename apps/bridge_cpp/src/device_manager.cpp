@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <set>
 
 namespace obs {
 
@@ -42,39 +44,52 @@ static LoopMode parse_loop_mode(const std::string& s) {
 
 static nlohmann::json cue_to_json(const MixCue& c) {
     nlohmann::json j{
-        {"camera_sn", c.camera_sn},
         {"preset_id", c.preset_id},
-        {"move_ms",   c.move_ms},
         {"hold_s",    c.hold_s},
-        {"transition", c.transition},
+        {"enabled",   c.enabled},
+        {"fade_ms",   c.fade_ms},
+        {"move_ms",   c.move_ms},
     };
-    if (c.has_meanwhile) {
-        j["meanwhile"] = {
-            {"camera_sn", c.mw_sn},
-            {"preset_id", c.mw_preset_id},
-            {"move_ms",   c.mw_move_ms},
-        };
-    }
+    // Emit a camera ONLY when it is genuinely pinned. A derived cue carries no
+    // serial at all, which is precisely what makes a saved sequence portable to
+    // any rig - export it, import it on another machine, and it still runs.
+    // The legacy `meanwhile` and `transition` fields are deliberately not
+    // written back: both are now derived, so re-saving an old file migrates it.
+    if (!c.camera_sn.empty()) j["camera_sn"] = c.camera_sn;
     return j;
 }
 
 static MixCue cue_from_json(const nlohmann::json& j) {
     MixCue c;
-    c.camera_sn  = j.value("camera_sn", std::string{});
-    c.preset_id  = j.value("preset_id", -1);   // absent = hold current shot
-    c.move_ms    = j.value("move_ms", 0);
-    c.hold_s     = j.value("hold_s", 10);
-    c.transition = j.value("transition", std::string("cut"));
+    c.preset_id = j.value("preset_id", -1);   // absent = hold current shot
+    c.hold_s    = j.value("hold_s", 10);
+    c.enabled   = j.value("enabled", true);   // absent (pre-2.1) = enabled
+    c.move_ms   = j.value("move_ms", 0);
+    c.camera_sn = j.value("camera_sn", std::string{});  // now a PIN, not program
     if (c.hold_s < 1) c.hold_s = 1;
     if (c.move_ms < 0) c.move_ms = 0;
+
+    // fade_ms is authoritative. A pre-2.1 file has no fade_ms, only a
+    // transition string, so migrate it and preserve the old behaviour exactly:
+    // "fade" was a 500ms crossfade, "cut" was instant.
+    if (j.contains("fade_ms") && j["fade_ms"].is_number()) {
+        c.fade_ms = j["fade_ms"].get<int>();
+        if (c.fade_ms < -1)   c.fade_ms = -1;      // <0 = inherit the default
+        if (c.fade_ms > 5000) c.fade_ms = 5000;
+    } else {
+        c.transition = j.value("transition", std::string("cut"));
+        c.fade_ms = (c.transition == "fade") ? kDefaultFadeMs : 0;
+    }
+
+    // The meanwhile is derived now - it was always just "the next cue that needs
+    // the other camera". Parse it so old files load, then let the solver
+    // recompute it. Nothing here is read again.
     if (j.contains("meanwhile") && j["meanwhile"].is_object()) {
         auto& m = j["meanwhile"];
         c.has_meanwhile = true;
         c.mw_sn        = m.value("camera_sn", std::string{});
         c.mw_preset_id = m.value("preset_id", 0);
         c.mw_move_ms   = m.value("move_ms", 0);
-        if (c.mw_move_ms < 0) c.mw_move_ms = 0;
-        if (c.mw_sn.empty()) c.has_meanwhile = false;
     }
     return c;
 }
@@ -236,6 +251,11 @@ void DeviceManager::attach(const std::string& sn) {
                  sn.c_str(), uid.c_str());
         }
     }
+    // The roster just changed, and the roster IS the colour palette: a third
+    // camera makes an odd loop solvable, a second one makes crossfades possible
+    // at all. Re-solve. mu_ is released by here - mix_replan() takes it itself,
+    // and taking it twice would deadlock the process.
+    mix_replan();
     broadcast();
 }
 
@@ -257,6 +277,9 @@ void DeviceManager::detach(const std::string& sn) {
     // Join the session's worker + motion + sequence threads with mu_ released.
     if (dead) dead->stop();
     dead.reset();
+    // A camera left, so the colouring changes (and a running mix may now be
+    // down to one camera, where every transition has to move on air). Re-solve.
+    mix_replan();
     broadcast();
 }
 
@@ -485,17 +508,51 @@ static void persist_mix_scratch(const std::vector<MixCue>& cues, LoopMode mode) 
 nlohmann::json DeviceManager::mix_state_locked() {
     nlohmann::json cues = nlohmann::json::array();
     for (auto& c : mix_cues_) cues.push_back(cue_to_json(c));
+
+    // The solved plan. Camera and meanwhile are DERIVED, so the client renders
+    // them read-only instead of asking the operator to retype a pointer the
+    // engine already knows.
+    nlohmann::json plan = nlohmann::json::array();
+    for (const auto& pc : mix_plan_.cues) {
+        nlohmann::json mw = nlohmann::json::array();
+        for (const auto& m : pc.meanwhile) {
+            mw.push_back({{"camera_sn", m.camera_sn}, {"preset_id", m.preset_id}});
+        }
+        plan.push_back({
+            {"cue_index",   pc.cue_index},   // maps back to the authored card
+            {"camera_sn",   pc.camera_sn},
+            {"preset_id",   pc.preset_id},
+            {"hold_s",      pc.hold_s},
+            {"fade_ms",     pc.fade_ms},
+            {"on_air_move", pc.on_air_move},
+            {"move_ms",     pc.move_ms},
+            {"meanwhile",   std::move(mw)},
+        });
+    }
+
+    // The run cursor indexes the PLAN (enabled cues only). Hand the client the
+    // AUTHORED index as `cue_index` so it can highlight the right card without
+    // redoing the mapping, and the raw plan cursor separately.
+    int live_cue = -1;
+    if (mix_cue_index_ >= 0 && mix_cue_index_ < (int)mix_plan_.cues.size())
+        live_cue = mix_plan_.cues[mix_cue_index_].cue_index;
+
     return nlohmann::json{
-        {"running",   mix_running_.load()},
-        {"cue_index", mix_cue_index_},
-        {"cue_count", (int)mix_cues_.size()},
-        {"phase",     mix_phase_},
-        {"elapsed_s", mix_elapsed_s_},
-        {"total_s",   mix_total_s_},
-        {"mode",      loop_mode_str(mix_mode_)},
-        {"loaded",    mix_loaded_},
-        {"cues",      std::move(cues)},
-        {"available", mix_available_},
+        {"running",    mix_running_.load()},
+        {"cue_index",  live_cue},
+        {"plan_index", mix_cue_index_},
+        {"cue_count",  (int)mix_cues_.size()},
+        {"phase",      mix_phase_},
+        {"elapsed_s",  mix_elapsed_s_},
+        {"total_s",    mix_total_s_},
+        {"mode",       loop_mode_str(mix_mode_)},
+        {"loaded",     mix_loaded_},
+        {"cues",       std::move(cues)},
+        {"plan",       std::move(plan)},
+        {"forced_move_at", mix_plan_.forced_move_at},
+        {"forced_reason",  mix_plan_.forced_reason},
+        {"warnings",       mix_plan_.warnings},
+        {"available",  mix_available_},
     };
 }
 
@@ -504,16 +561,80 @@ nlohmann::json DeviceManager::mix_state() {
     return mix_state_locked();
 }
 
+void DeviceManager::mix_replan() {
+    // Snapshot the roster and preset poses under mu_ FIRST, release it, and only
+    // then take mix_mu_. The documented hierarchy is mu_ -> mix_mu_ and taking
+    // them the other way round is how you deadlock this process.
+    std::vector<std::string> cams;
+    std::map<std::string, std::map<int, std::pair<float, float>>> poses;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        for (auto& kv : sessions_) {
+            if (!kv.second) continue;
+            cams.push_back(kv.first);
+            for (const auto& p : kv.second->snapshot().presets) {
+                poses[kv.first][p.id] = {p.yaw, p.pitch};
+            }
+        }
+    }
+
+    // Only ever used to decide WHICH edge to sacrifice when an odd loop forces
+    // one on-air pan. An unknown pose scores high, so we never sacrifice an edge
+    // whose cost we cannot actually see.
+    mix::PanCost cost = [&poses](const std::string& sn, int a, int b) -> float {
+        auto d = poses.find(sn);
+        if (d == poses.end()) return 1e6f;
+        auto pa = d->second.find(a);
+        auto pb = d->second.find(b);
+        if (pa == d->second.end() || pb == d->second.end()) return 1e6f;
+        const float dy = pa->second.first - pb->second.first;
+        const float dp = pa->second.second - pb->second.second;
+        return std::sqrt(dy * dy + dp * dp);
+    };
+
+    std::lock_guard<std::mutex> g(mix_mu_);
+    std::vector<mix::Cue> in;
+    in.reserve(mix_cues_.size());
+    for (const auto& c : mix_cues_) {
+        mix::Cue mc;
+        mc.preset_id = c.preset_id;
+        mc.hold_s    = c.hold_s;
+        mc.enabled   = c.enabled;
+        mc.fade_ms   = c.fade_ms;
+        mc.move_ms   = c.move_ms;
+        mc.pin_sn    = c.camera_sn;   // empty = derive
+        in.push_back(mc);
+    }
+    // A forward loop wraps, so it is a CYCLE (and only an even one 2-colours).
+    // Ping-pong and once walk a PATH, which has no wrap edge to violate - that
+    // is why ping-pong is the free escape from an odd cue count.
+    const bool is_cycle = (mix_mode_ == LoopMode::forward);
+    mix_plan_ = mix::solve(in, cams, is_cycle, cost, kDefaultFadeMs);
+
+    if (!mix_plan_.forced_reason.empty()) {
+        LOGW("mix: %s", mix_plan_.forced_reason.c_str());
+    }
+}
+
 void DeviceManager::mix_set(const std::vector<MixCue>& cues, LoopMode mode) {
     {
         std::lock_guard<std::mutex> g(mix_mu_);
         mix_cues_ = cues;
         mix_mode_ = mode;
         mix_loaded_.clear();   // editing scratch
+    }
+    // The camera and the meanwhile are derived, so every edit re-solves. This is
+    // also all that "disable a step" needs: the cue drops out of the plan and
+    // the colouring closes over the hole by itself.
+    mix_replan();
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        // The run cursor indexes the PLAN (enabled cues only), not the authored
+        // list, so it has to be re-clamped against the new plan length.
+        const int n = (int)mix_plan_.cues.size();
         if (mix_running_) {
-            if (mix_cues_.empty()) { mix_running_ = false; mix_quit_ = true; }
-            else if (mix_cue_index_ >= (int)mix_cues_.size())
-                mix_cue_index_ = (int)mix_cues_.size() - 1;
+            if (n == 0) { mix_running_ = false; mix_quit_ = true; }
+            else if (mix_cue_index_ >= n) mix_cue_index_ = n - 1;
         }
     }
     persist_mix_scratch(cues, mode);
@@ -531,9 +652,15 @@ CmdResult DeviceManager::mix_start() {
     // from relaunching the thread onto sessions that are about to be freed.
     if (!started_) return mok();
     if (mix_running_) return mok();
+    // Re-solve against the roster as it is RIGHT NOW: a camera may have been
+    // plugged in or pulled since the cues were authored, and that changes the
+    // colouring (three cameras make an odd loop clean; one camera makes every
+    // transition an on-air pan).
+    mix_replan();
     {
         std::lock_guard<std::mutex> g(mix_mu_);
-        if (mix_cues_.empty()) return merr("invalid_param", "no mix configured");
+        if (mix_plan_.cues.empty())
+            return merr("invalid_param", "no enabled cues to run");
         mix_cue_index_ = 0;
         mix_direction_ = 1;
     }
@@ -604,8 +731,15 @@ CmdResult DeviceManager::mix_load(const std::string& name) {
         mix_cues_ = cues;
         mix_mode_ = mode;
         mix_loaded_ = name;
-        if (mix_running_ && mix_cue_index_ >= (int)mix_cues_.size())
-            mix_cue_index_ = mix_cues_.empty() ? -1 : (int)mix_cues_.size() - 1;
+    }
+    // A loaded sequence carries shots, not cameras (unless it is a pre-2.1 file,
+    // which arrives fully pinned). Solve it against whatever is plugged in here.
+    mix_replan();
+    {
+        std::lock_guard<std::mutex> g(mix_mu_);
+        const int n = (int)mix_plan_.cues.size();
+        if (mix_running_ && mix_cue_index_ >= n)
+            mix_cue_index_ = (n == 0) ? -1 : n - 1;
     }
     persist_mix_scratch(cues, mode);
     mix_cv_.notify_all();
@@ -631,6 +765,53 @@ CmdResult DeviceManager::mix_delete(const std::string& name) {
     return mok();
 }
 
+// While one cue is live, every OTHER camera walks to the shot it will next be
+// live on. In a forward loop that is simply "the next cue that uses it", but
+// ping-pong reverses at the ends, so the answer depends on which way we are
+// currently travelling. Hence this walks the real run order rather than reading
+// the plan's forward-pass snapshot (which is only what the UI displays).
+static std::vector<mix::Meanwhile> meanwhile_at(const mix::Plan& plan, int i,
+                                                int dir, LoopMode mode) {
+    const int n = (int)plan.cues.size();
+    std::vector<mix::Meanwhile> out;
+    if (n <= 1 || i < 0 || i >= n) return out;
+
+    std::set<std::string> idle;
+    for (const auto& c : plan.cues) idle.insert(c.camera_sn);
+    idle.erase(plan.cues[i].camera_sn);
+    if (idle.empty()) return out;
+
+    int cur = i, d = dir;
+    for (int step = 0; step < 2 * n && !idle.empty(); ++step) {
+        int nxt;
+        switch (mode) {
+            case LoopMode::once:
+                nxt = cur + 1;
+                if (nxt >= n) return out;      // nothing further is coming
+                break;
+            case LoopMode::forward:
+                nxt = (cur + 1) % n;
+                break;
+            case LoopMode::ping_pong: {
+                int cand = cur + d;
+                if (cand >= n)     { d = -1; cand = cur - 1; }
+                else if (cand < 0) { d =  1; cand = cur + 1; }
+                nxt = cand;
+                break;
+            }
+            default:
+                return out;
+        }
+        if (nxt == i) break;                   // came all the way round
+        const mix::PlannedCue& pc = plan.cues[nxt];
+        if (idle.erase(pc.camera_sn) > 0) {
+            out.push_back(mix::Meanwhile{pc.camera_sn, pc.preset_id});
+        }
+        cur = nxt;
+    }
+    return out;
+}
+
 void DeviceManager::mix_loop() {
     LOGI("mix: started");
 
@@ -644,53 +825,59 @@ void DeviceManager::mix_loop() {
     };
 
     while (mix_running_ && !mix_quit_) {
-        MixCue cue;
+        mix::PlannedCue pc;
+        std::vector<mix::Meanwhile> mw;
         {
             std::lock_guard<std::mutex> g(mix_mu_);
-            int n = (int)mix_cues_.size();
+            int n = (int)mix_plan_.cues.size();
             if (n == 0) { mix_running_ = false; break; }
             if (mix_cue_index_ < 0 || mix_cue_index_ >= n) mix_cue_index_ = 0;
-            cue = mix_cues_[mix_cue_index_];
+            pc = mix_plan_.cues[mix_cue_index_];
+            mw = meanwhile_at(mix_plan_, mix_cue_index_, mix_direction_, mix_mode_);
             mix_phase_ = "moving";
             mix_elapsed_s_ = 0;
-            mix_total_s_ = cue.hold_s;
+            mix_total_s_ = pc.hold_s;
         }
         broadcast();
 
-        // 1) Program switch + live moves. NO on-air lock: the program camera
-        //    physically moves to its preset ON AIR (cmd_preset_recall ramps it
-        //    over move_ms) - the whole point of the mixer. Held lock-free so
-        //    set_active()/session_by_sn() (which take mu_) never self-deadlock.
-        if (!cue.camera_sn.empty()) {
+        // 1) Program switch. fade_ms is per-cue now. A cue the solver marked
+        //    on_air_move carries fade_ms == 0 by construction: the same camera is
+        //    live either side of it, so there is no second feed to dissolve into
+        //    and it pans LIVE instead. Held lock-free so set_active() /
+        //    session_by_sn() (which take mu_) never self-deadlock.
+        if (!pc.camera_sn.empty()) {
             std::string ec;
-            // A "fade" cue fades the program up from black; "cut" is instant.
-            set_active(cue.camera_sn, ec,
-                       cue.transition == "fade" ? kDefaultFadeMs : 0);
+            set_active(pc.camera_sn, ec, pc.fade_ms);
         }
-        if (cue.preset_id >= 0) {   // <0 = hold current shot (no recall)
-            if (auto s = session_by_sn(cue.camera_sn))
-                s->cmd_preset_recall(cue.preset_id, cue.move_ms, [](CmdResult) {});
-        }
-        if (cue.has_meanwhile && cue.mw_preset_id >= 0) {
-            if (auto s = session_by_sn(cue.mw_sn))
-                s->cmd_preset_recall(cue.mw_preset_id, cue.mw_move_ms, [](CmdResult) {});
+        if (pc.preset_id >= 0) {   // <0 = hold current shot (no recall)
+            if (auto s = session_by_sn(pc.camera_sn))
+                s->cmd_preset_recall(pc.preset_id, pc.move_ms, [](CmdResult) {});
         }
 
-        // 2) Moving phase: let the live move land before the hold clock starts.
-        if (cue.move_ms > 0) {
-            if (!wait_ms(cue.move_ms)) break;
+        // 2) The meanwhile, derived: every idle camera walks to the shot it will
+        //    next be live on. It is off air, so nobody can see it - it goes as
+        //    fast as the gimbal allows and carries no duration to tune.
+        for (const auto& m : mw) {
+            if (m.preset_id < 0) continue;
+            if (auto s = session_by_sn(m.camera_sn))
+                s->cmd_preset_recall(m.preset_id, 0, [](CmdResult) {});
         }
 
-        // 3) Holding phase: dwell on the shot, ticking elapsed once a second.
+        // 3) Moving phase: let a live pan land before the hold clock starts.
+        if (pc.move_ms > 0) {
+            if (!wait_ms(pc.move_ms)) break;
+        }
+
+        // 4) Holding phase: dwell on the shot, ticking elapsed once a second.
         {
             std::lock_guard<std::mutex> g(mix_mu_);
             mix_phase_ = "holding";
             mix_elapsed_s_ = 0;
-            mix_total_s_ = cue.hold_s;
+            mix_total_s_ = pc.hold_s;
         }
         broadcast();
         bool stopping = false;
-        for (int e = 0; e < cue.hold_s; ++e) {
+        for (int e = 0; e < pc.hold_s; ++e) {
             if (!wait_ms(1000)) { stopping = true; break; }
             {
                 std::lock_guard<std::mutex> g(mix_mu_);
@@ -700,11 +887,11 @@ void DeviceManager::mix_loop() {
         }
         if (stopping) break;
 
-        // 4) Advance per loop mode (mirrors the per-camera sequencer).
+        // 5) Advance per loop mode (mirrors the per-camera sequencer).
         {
             std::lock_guard<std::mutex> g(mix_mu_);
             int cur = mix_cue_index_;
-            int cnt = (int)mix_cues_.size();
+            int cnt = (int)mix_plan_.cues.size();
             if (cnt == 0) { mix_running_ = false; break; }
             int next = cur;
             switch (mix_mode_) {
