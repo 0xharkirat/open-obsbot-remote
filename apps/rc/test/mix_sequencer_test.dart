@@ -1,8 +1,9 @@
-// Widget tests for the v3 mix (cross-camera) sequencer editor + run bar.
+// Widget tests for the v2.1 mix (cross-camera) sequencer editor + run bar.
 //
-// The invariant under test is the feature's whole point: a mix is built from
-// cues that name a program camera and a shot, it needs two cameras, and while
-// running the ON AIR run bar surfaces the live cue.
+// The invariant under test is the feature's whole point: you author SHOTS, the
+// bridge derives the camera (and the meanwhile), the editor shows that derived
+// camera read-only, a disabled cue drops out, and a forced on-air pan is
+// surfaced rather than shown silently.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -71,10 +72,14 @@ void main() {
     expect(run.onPressed, isNull); // no cues -> Run disabled
   });
 
-  testWidgets('a cue renders its program camera and shot', (tester) async {
+  testWidgets('a cue shows the DERIVED camera (read-only) and its shot', (
+    tester,
+  ) async {
+    // The authored cue names NO camera. The plan does: the solver picked A.
     final mix = MixState.empty.copyWith(
-      cues: <MixCue>[
-        const MixCue(cameraSn: 'A', presetId: 0, moveMs: 800, holdS: 20),
+      cues: <MixCue>[const MixCue(presetId: 0, holdS: 20)],
+      plan: <PlannedCue>[
+        const PlannedCue(cueIndex: 0, cameraSn: 'A', presetId: 0),
       ],
     );
     await _pump(
@@ -84,23 +89,67 @@ void main() {
         _device('B', name: 'Stage'),
       ], mix: mix),
     );
-    // The program camera dropdown shows the camera name; the shot dropdown the preset.
+    // Derived camera chip shows the name and marks itself auto; shot dropdown
+    // shows the preset. There is NO camera dropdown to change.
     expect(find.text('Vocal'), findsWidgets);
+    expect(find.text('auto'), findsOneWidget);
     expect(find.text('P1  Wide'), findsOneWidget);
-    expect(find.text('Run'), findsOneWidget);
+    expect(find.byType(DropdownButton<String>), findsNothing);
+  });
+
+  testWidgets('a disabled cue reads Skipped', (tester) async {
+    // Disabled -> dropped from the plan entirely (the colouring re-solves).
+    final mix = MixState.empty.copyWith(
+      cues: <MixCue>[const MixCue(presetId: 0, holdS: 20, enabled: false)],
+      plan: const <PlannedCue>[],
+    );
+    await _pump(
+      tester,
+      _bridge(<DeviceState>[_device('A'), _device('B')], mix: mix),
+    );
+    expect(find.text('Skipped'), findsOneWidget);
+  });
+
+  testWidgets('a forced on-air pan surfaces the odd-loop banner', (
+    tester,
+  ) async {
+    final mix = MixState.empty.copyWith(
+      cues: <MixCue>[const MixCue(presetId: 0, holdS: 20)],
+      plan: <PlannedCue>[
+        const PlannedCue(
+          cueIndex: 0,
+          cameraSn: 'A',
+          presetId: 0,
+          onAirMove: true,
+          moveMs: 3000,
+        ),
+      ],
+      forcedMoveAt: 0,
+      forcedReason: 'odd loop with 2 cameras',
+    );
+    await _pump(
+      tester,
+      _bridge(<DeviceState>[_device('A'), _device('B')], mix: mix),
+    );
+    // The engine says it out loud instead of quietly moving on air.
+    expect(find.textContaining('pans on air'), findsOneWidget);
   });
 
   testWidgets('running mix shows the ON AIR run bar with Stop', (tester) async {
     final mix = MixState.empty.copyWith(
       running: true,
-      cueIndex: 0,
+      cueIndex: 0, // authored index of the live cue
       cueCount: 2,
       phase: 'holding',
       elapsedS: 5,
       totalS: 20,
       cues: <MixCue>[
-        const MixCue(cameraSn: 'A', presetId: 0, holdS: 20),
-        const MixCue(cameraSn: 'B', presetId: 0, holdS: 15),
+        const MixCue(presetId: 0, holdS: 20),
+        const MixCue(presetId: 1, holdS: 15),
+      ],
+      plan: <PlannedCue>[
+        const PlannedCue(cueIndex: 0, cameraSn: 'A', presetId: 0),
+        const PlannedCue(cueIndex: 1, cameraSn: 'B', presetId: 1),
       ],
     );
     await _pump(
