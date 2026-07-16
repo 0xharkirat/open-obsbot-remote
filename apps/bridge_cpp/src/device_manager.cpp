@@ -24,6 +24,11 @@ static int64_t now_ms() {
 // Default fade-from-black duration for a "fade" transition (mix cue or TAKE).
 static constexpr int kDefaultFadeMs = 500;
 
+// CmdResult helpers, defined lower down but used by add_source/remove_source
+// (which sit above them so the source API reads next to available_sources).
+static CmdResult mok();
+static CmdResult merr(const char* code, const std::string& msg);
+
 // LoopMode <-> string. The per-camera sequencer has its own file-local copies
 // in device_session.cpp; these small twins keep the mix engine self-contained
 // rather than exporting them across a header. ponytail: two five-line funcs is
@@ -305,13 +310,39 @@ void DeviceManager::broadcast() {
     } catch (...) {}
 }
 
+// A generic source has no DeviceSession, so it has no DeviceSnapshot to run
+// through build_device_entry. Emit a stripped entry: identity + connected, the
+// "video" kind so the UI hides the PTZ/preset/image controls, and empty preset
+// list. Everything else the Dart DeviceState defaults (it reads every block as
+// `?? default`), so a control-less source parses cleanly.
+static nlohmann::json source_state_entry(const SourceMeta& m) {
+    return nlohmann::json{
+        {"device_id", m.id},
+        {"kind", "video"},
+        {"device", {
+            {"sn", m.id},
+            {"model_display", m.label},
+            {"firmware", ""},
+            {"connected", true},
+            {"run_status", "run"},
+            {"friendly_name", m.label},
+        }},
+        {"presets", nlohmann::json::array()},
+        {"active_preset_id", -1},
+    };
+}
+
 nlohmann::json DeviceManager::build_state_event() {
     std::lock_guard<std::mutex> g(mu_);
     nlohmann::json devs = nlohmann::json::array();
     for (auto& sn : order_) {
         auto it = sessions_.find(sn);
-        if (it == sessions_.end()) continue;
-        devs.push_back(build_device_entry(it->second->snapshot()));
+        if (it != sessions_.end()) {
+            devs.push_back(build_device_entry(it->second->snapshot()));
+            continue;
+        }
+        auto sit = sources_.find(sn);
+        if (sit != sources_.end()) devs.push_back(source_state_entry(sit->second));
     }
     return nlohmann::json{
         {"event", "state"},
@@ -321,6 +352,85 @@ nlohmann::json DeviceManager::build_state_event() {
         {"devices", std::move(devs)},
         {"mix", mix_state()},
     };
+}
+
+nlohmann::json DeviceManager::available_sources() {
+    // Snapshot which uniqueIDs are already bound (OBSBOT sessions store their
+    // uid in capture_uid_) so the UI can grey those out. Held under mu_.
+    std::set<std::string> in_use;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        for (auto& kv : capture_uid_) {
+            if (!kv.second.empty()) in_use.insert(kv.second);
+        }
+    }
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& d : list_av_devices()) {
+        arr.push_back({
+            {"unique_id", d.unique_id},
+            {"name", d.name},
+            {"obsbot", d.is_obsbot},
+            {"in_use", in_use.count(d.unique_id) > 0},
+        });
+    }
+    return arr;
+}
+
+CmdResult DeviceManager::add_source(const std::string& unique_id,
+                                    const std::string& label) {
+    if (unique_id.empty()) return merr("invalid_param", "unique_id required");
+    const std::string id = "av:" + unique_id;
+    VideoCapture* cap = nullptr;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        if (captures_.count(id)) return mok();   // idempotent: already added
+        // Never shadow an OBSBOT camera already bound to a session.
+        for (auto& kv : capture_uid_) {
+            if (kv.second == unique_id)
+                return merr("in_use", "that camera is already a source");
+        }
+        auto vc = std::make_unique<VideoCapture>();
+        cap = vc.get();
+        captures_[id] = std::move(vc);
+        capture_uid_[id] = unique_id;
+        sources_[id] = SourceMeta{id, label.empty() ? id : label, unique_id};
+        order_.push_back(id);
+        if (active_sn_.empty()) active_sn_ = id;   // first source goes on air
+    }
+    // Start capture with mu_ released: it touches AVFoundation (and may block on
+    // the TCC prompt), exactly as attach() does for OBSBOT captures.
+    if (cap) {
+        if (cap->start_unique_id(unique_id))
+            LOGI("source: added %s '%s'", id.c_str(), label.c_str());
+        else
+            LOGW("source: %s failed to start (uid=%s); preview unavailable",
+                 id.c_str(), unique_id.c_str());
+    }
+    broadcast();
+    return mok();
+}
+
+CmdResult DeviceManager::remove_source(const std::string& id) {
+    std::unique_ptr<VideoCapture> dead;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        auto sit = sources_.find(id);
+        if (sit == sources_.end()) return merr("not_found", "no source " + id);
+        auto cit = captures_.find(id);
+        if (cit != captures_.end()) {
+            cit->second->stop();
+            dead = std::move(cit->second);
+            captures_.erase(cit);
+        }
+        capture_uid_.erase(id);
+        sources_.erase(sit);
+        order_.erase(std::remove(order_.begin(), order_.end(), id), order_.end());
+        if (active_sn_ == id) recompute_active_locked();
+    }
+    dead.reset();   // destroy the capture with mu_ released
+    LOGI("source: removed %s", id.c_str());
+    broadcast();
+    return mok();
 }
 
 nlohmann::json DeviceManager::device_summaries() {
@@ -361,7 +471,14 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
     {
         std::lock_guard<std::mutex> g(mu_);
         auto it = sessions_.find(sn);
-        if (it == sessions_.end()) { err_code = "not_found"; return false; }
+        // A generic source has no session but is still a valid program target:
+        // accept it if it has a capture. Only the sleep/wake block below is
+        // session-specific (a webcam does not sleep the way an OBSBOT does).
+        const bool has_session = (it != sessions_.end());
+        if (!has_session && captures_.find(sn) == captures_.end()) {
+            err_code = "not_found";
+            return false;
+        }
         const std::string old_active = active_sn_;   // outgoing camera
         active_sn_ = sn;
         desired_active_ = sn;
@@ -388,8 +505,9 @@ bool DeviceManager::set_active(const std::string& sn, std::string& err_code,
         }
         // Implicit wake: if the target is asleep, wake it before it goes live
         // so OBS (which consumes /preview/active.mjpg) does not pull a black
-        // stream. Async - the camera takes ~1 s to wake regardless.
-        if (it->second->snapshot().run_status == 3 /*sleep*/) {
+        // stream. Async - the camera takes ~1 s to wake regardless. Sources
+        // have no session and never sleep, so this whole block is OBSBOT-only.
+        if (has_session && it->second->snapshot().run_status == 3 /*sleep*/) {
             LOGI("set_active: %s is asleep, waking before switch", sn.c_str());
             it->second->cmd_system_run_status("run", [](CmdResult) {});
             // The camera's UVC video interface drops while asleep and returns a

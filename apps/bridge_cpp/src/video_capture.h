@@ -29,6 +29,20 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
                                     const std::vector<uint8_t>& incoming,
                                     float factor);
 
+// A capturable camera as AVFoundation sees it. The any-cam path offers these
+// (built-in FaceTime cam, USB webcams, iPhone Continuity) as generic video
+// sources - captured and switchable, but with no PTZ / presets / libdev control.
+struct AvVideoDevice {
+    std::string unique_id;  // AVCaptureDevice.uniqueID, stable per device
+    std::string name;       // localizedName
+    bool is_obsbot = false; // name contains "obsbot" (already driven via libdev)
+};
+
+// Enumerate every capturable camera with NO OBSBOT name filter. The generic
+// source path uses this; OBSBOT cameras still arrive through libdev discovery,
+// so `is_obsbot` lets callers skip the ones already owned by a DeviceSession.
+std::vector<AvVideoDevice> list_av_devices();
+
 // Captures one OBSBOT camera as a regular UVC webcam via AVFoundation,
 // JPEG-encodes the latest frame in software, and exposes it to the HTTP
 // route. libdev is unaffected  -  control + video go to the same USB device
