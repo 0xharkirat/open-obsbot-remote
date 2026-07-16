@@ -33,8 +33,16 @@ class _LiveScreenState extends State<LiveScreen> {
   WsClient get client => widget.client;
   bool _framing = false;
   // When on, a manual TAKE crossfades (dissolves) to the program instead of
-  // cutting.
+  // cutting. _fadeMs is how long that dissolve takes (was hardcoded 500).
   bool _fadeTake = false;
+  int _fadeMs = 500;
+  static const List<(String, int)> _fadeChoices = <(String, int)>[
+    ('0.3s', 300),
+    ('0.5s', 500),
+    ('1s', 1000),
+    ('1.5s', 1500),
+    ('2s', 2000),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +147,33 @@ class _LiveScreenState extends State<LiveScreen> {
                 ),
               ),
             ),
+            // Crossfade duration, shown only when crossfade is on. Was hard
+            // wired to 500ms; now the operator picks how slow the dissolve is.
+            if (_fadeTake)
+              PopupMenuButton<int>(
+                tooltip: 'Crossfade length',
+                initialValue: _fadeMs,
+                onSelected: (v) => setState(() => _fadeMs = v),
+                itemBuilder: (_) => <PopupMenuEntry<int>>[
+                  for (final c in _fadeChoices)
+                    PopupMenuItem<int>(value: c.$2, child: Text(c.$1)),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Text(
+                    _fadeChoices
+                        .firstWhere(
+                          (c) => c.$2 == _fadeMs,
+                          orElse: () => ('${_fadeMs}ms', _fadeMs),
+                        )
+                        .$1,
+                    style: TextStyle(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(width: 4),
             Expanded(
               child: FilledButton(
@@ -151,7 +186,7 @@ class _LiveScreenState extends State<LiveScreen> {
                         HapticFeedback.mediumImpact();
                         client.makeLive(
                           client.selectedDeviceId,
-                          fadeMs: _fadeTake ? 500 : 0,
+                          fadeMs: _fadeTake ? _fadeMs : 0,
                         );
                       },
                 style: FilledButton.styleFrom(
@@ -387,21 +422,75 @@ class _PresetGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = client.state;
     final byId = <int, PresetEntry>{for (final p in s.presets) p.id: p};
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      crossAxisSpacing: 8,
-      mainAxisSpacing: 8,
-      childAspectRatio: 2.1,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        for (int i = 0; i < 6; i++)
-          _PresetTile(
-            client: client,
-            id: i,
-            entry: byId[i],
-            active: s.activePresetId == i,
+        // How fast a preset recall glides. This is the control the v3 redesign
+        // dropped - recall was stuck at the fixed default with no way to change
+        // the speed. Bound to the same moveDuration the recall actually uses.
+        _PresetGlideRow(client: client),
+        const SizedBox(height: 8),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 2.1,
+          children: <Widget>[
+            for (int i = 0; i < 6; i++)
+              _PresetTile(
+                client: client,
+                id: i,
+                entry: byId[i],
+                active: s.activePresetId == i,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The preset glide-speed selector: how long a tapped preset takes to move the
+/// camera into position. Instant snaps; the rest run the bridge MotionPlanner.
+class _PresetGlideRow extends StatelessWidget {
+  const _PresetGlideRow({required this.client});
+  final WsClient client;
+
+  static const List<(String, int)> _choices = <(String, int)>[
+    ('Instant', 0),
+    ('1s', 1000),
+    ('2s', 2000),
+    ('5s', 5000),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cur = client.moveDuration.inMilliseconds;
+    return Row(
+      children: <Widget>[
+        Icon(Icons.speed, size: 16, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 6),
+        Text('Glide', style: theme.textTheme.labelMedium),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            children: <Widget>[
+              for (final c in _choices)
+                ChoiceChip(
+                  label: Text(c.$1),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  selected: cur == c.$2,
+                  onSelected: (_) =>
+                      client.setMoveDuration(Duration(milliseconds: c.$2)),
+                ),
+            ],
           ),
+        ),
       ],
     );
   }
