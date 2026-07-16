@@ -234,6 +234,25 @@ void dispatch_message(DeviceManager& mgr,
         return;
     }
 
+    // Any-cam: enumerate every camera AVFoundation can see (built-in, USB,
+    // Continuity), so a client can add a non-OBSBOT one as a generic source.
+    if (action == "source.list") {
+        json resp = ack_ok(id);
+        resp["sources"] = mgr.available_sources();
+        reply_send(resp.dump());
+        return;
+    }
+    if (action == "source.add") {
+        string uid = msg.value("unique_id", string{});
+        string label = msg.value("label", string{});
+        reply_cb(mgr.add_source(uid, label));
+        return;
+    }
+    if (action == "source.remove") {
+        reply_cb(mgr.remove_source(msg.value("device_id", string{})));
+        return;
+    }
+
     if (action == "device.set_active") {
         string sn = msg.value("device_id", string{});
         // Optional fade-from-black on the cut: explicit fade_ms, or

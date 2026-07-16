@@ -303,6 +303,19 @@ static NSArray<AVCaptureDevice*>* discover_devices() {
     return disc.devices;
 }
 
+std::vector<AvVideoDevice> list_av_devices() {
+    std::vector<AvVideoDevice> out;
+    for (AVCaptureDevice* d in discover_devices()) {
+        AvVideoDevice v;
+        v.unique_id = d.uniqueID.UTF8String;
+        v.name = d.localizedName.UTF8String;
+        NSString* lname = [d.localizedName lowercaseString];
+        v.is_obsbot = [lname containsString:@"obsbot"];
+        out.push_back(std::move(v));
+    }
+    return out;
+}
+
 static AVCaptureDevice* find_device(const std::string& substr) {
     NSString* needle = nil;
     if (!substr.empty()) {
