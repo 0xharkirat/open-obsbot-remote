@@ -20,6 +20,7 @@
 //   sequences.json      saved library,  v2 shape { "<sn>": { "<name>": {...} } }
 //   device_names.json   friendly names, { "<sn>": "Vocal" }
 //   active.json         live camera,    { "active_device_sn": "RMOW..." }
+//   sources.json        generic sources, { "<unique_id>": "<label>" }
 //
 // presets.json is intentionally absent: presets are stored on the camera
 // hardware (aiAddGimbalPresetR) and read back per-camera, so multi-cam preset
@@ -60,6 +61,12 @@ void store_device_name(const std::string& sn, const std::string& name);
 // Which camera the live preview + active_device_id follow. Empty if unset.
 std::string load_active_device();
 void store_active_device(const std::string& sn);
+
+// Generic (non-OBSBOT) video sources the operator added, keyed by their
+// AVFoundation uniqueID, so they survive a bridge restart. Empty label
+// removes the entry (mirrors store_device_name).
+std::map<std::string, std::string> load_sources();
+void store_source(const std::string& unique_id, const std::string& label);
 
 // One-shot v1 -> v2 migration keyed under `sn`. Safe to call on every attach:
 // only files still in v1 shape are rewritten. v1 is detected by structure, not

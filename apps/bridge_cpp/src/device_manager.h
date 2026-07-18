@@ -111,9 +111,16 @@ public:
     nlohmann::json available_sources();
 
     // Add / remove a generic video source by AVFoundation uniqueID. add is
-    // idempotent (re-adding a live source is a no-op ok). Both re-broadcast.
+    // idempotent (re-adding a live source is a no-op ok). Both re-broadcast
+    // and persist to sources.json, so sources survive a bridge restart
+    // (start() re-adds them; one absent at boot stays listed connected:false).
     CmdResult add_source(const std::string& unique_id, const std::string& label);
     CmdResult remove_source(const std::string& id);
+
+    // True if `id` names a known generic source. protocol.cpp uses this to ack
+    // camera-control actions aimed at a source as "unsupported", not
+    // "not_found" - the id is real, there is just nothing to control.
+    bool is_source(const std::string& id);
 
     // ---- routing helpers (used by protocol.cpp) ----
     size_t device_count();
@@ -177,6 +184,10 @@ private:
     void on_dev_changed(const std::string& sn, bool plugged);
     void attach(const std::string& sn);
     void detach(const std::string& sn);
+    // AVFoundation hotplug for GENERIC sources only (stop capture on unplug,
+    // restart on replug of a known uniqueID). OBSBOT attach / detach stays
+    // owned by the libdev callback above. Runs on an AVFoundation thread.
+    void on_av_device_changed(const std::string& unique_id, bool connected);
     // Assemble + hand the current envelope to the broadcaster. Must NOT be
     // called while holding mu_.
     void broadcast();
@@ -193,6 +204,11 @@ private:
     // retry_pending_captures() can re-issue start_unique_id after a late
     // permission grant.
     std::map<std::string, std::string> capture_uid_;
+    // Stopped captures of REMOVED generic sources. Never freed: MJPEG serving
+    // threads and the AV hotplug observer hold raw VideoCapture* across mu_,
+    // so destruction would be a use-after-free (see remove_source). Bounded by
+    // the number of user-initiated removes per process lifetime.
+    std::vector<std::unique_ptr<VideoCapture>> retired_captures_;
 
     // Generic (non-OBSBOT) sources, keyed by their "av:<uniqueID>" id. These
     // have an entry in order_ + captures_ + capture_uid_ but NO session, so

@@ -172,6 +172,28 @@ void store_active_device(const std::string& sn) {
     write_json(path_for("active.json"), j);
 }
 
+std::map<std::string, std::string> load_sources() {
+    std::lock_guard<std::mutex> g(g_mu);
+    nlohmann::json j = read_json(path_for("sources.json"));
+    std::map<std::string, std::string> out;
+    if (j.is_object()) {
+        for (auto& it : j.items()) {
+            if (it.value().is_string()) out[it.key()] = it.value().get<std::string>();
+        }
+    }
+    return out;
+}
+
+void store_source(const std::string& unique_id, const std::string& label) {
+    std::lock_guard<std::mutex> g(g_mu);
+    std::string path = path_for("sources.json");
+    nlohmann::json j = read_json(path);
+    if (!j.is_object()) j = nlohmann::json::object();
+    if (label.empty()) j.erase(unique_id);
+    else j[unique_id] = label;
+    write_json(path, j);
+}
+
 void migrate_v1_if_needed(const std::string& sn) {
     if (sn.empty()) return;
     std::lock_guard<std::mutex> g(g_mu);

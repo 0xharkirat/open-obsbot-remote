@@ -43,6 +43,14 @@ struct AvVideoDevice {
 // so `is_obsbot` lets callers skip the ones already owned by a DeviceSession.
 std::vector<AvVideoDevice> list_av_devices();
 
+// Watch AVFoundation camera hotplug (AVCaptureDeviceWasConnected /
+// WasDisconnected). `cb(unique_id, connected)` fires on an arbitrary
+// AVFoundation thread, video devices only. Process-lifetime - there is no
+// unobserve. The generic-source path uses this to stop / restart captures on
+// unplug / replug; OBSBOT attach / detach stays owned by libdev callbacks.
+void observe_av_devices(std::function<void(std::string unique_id,
+                                           bool connected)> cb);
+
 // Captures one OBSBOT camera as a regular UVC webcam via AVFoundation,
 // JPEG-encodes the latest frame in software, and exposes it to the HTTP
 // route. libdev is unaffected  -  control + video go to the same USB device
