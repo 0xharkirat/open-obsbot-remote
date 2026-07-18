@@ -43,7 +43,9 @@ void main() {
       _bridge(<DeviceState>[_device('A', name: 'Vocal')], 'A'),
     );
     expect(find.text('TAKE'), findsNothing);
-    // No second camera to switch to, so the bus is hidden.
+    // The bus still shows (its "+" chip is how a second camera gets
+    // added), but with nothing to cut to there is no TAKE.
+    expect(find.text('Add'), findsOneWidget);
     expect(find.text('Frame'), findsOneWidget); // controls still present
   });
 

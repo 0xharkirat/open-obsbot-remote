@@ -24,6 +24,10 @@ class SettingsScreen extends StatelessWidget {
       builder: (BuildContext ctx, _) {
         final s = client.state;
         final multi = client.bridge.devices.length > 1;
+        // A generic video source has no session behind it: rename,
+        // sleep, recenter, and every image/AI control would come back
+        // not_found from the bridge, so none of it renders.
+        final video = s.isVideoSource;
         return Scaffold(
           appBar: AppBar(title: const Text('Settings')),
           body: SafeArea(
@@ -35,37 +39,41 @@ class SettingsScreen extends StatelessWidget {
                   _CameraSelector(client: client),
                   const SizedBox(height: 8),
                 ],
-                // Maintenance for the selected camera.
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: <Widget>[
-                    OutlinedButton.icon(
-                      onPressed: () => _rename(ctx, s),
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text('Rename'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => client.runStatus(
-                        s.runStatus == 'sleep' ? 'run' : 'sleep',
+                if (!video) ...<Widget>[
+                  // Maintenance for the selected camera.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      OutlinedButton.icon(
+                        onPressed: () => _rename(ctx, s),
+                        icon: const Icon(Icons.edit, size: 18),
+                        label: const Text('Rename'),
                       ),
-                      icon: Icon(
-                        s.runStatus == 'sleep' ? Icons.wb_sunny : Icons.bedtime,
-                        size: 18,
+                      OutlinedButton.icon(
+                        onPressed: () => client.runStatus(
+                          s.runStatus == 'sleep' ? 'run' : 'sleep',
+                        ),
+                        icon: Icon(
+                          s.runStatus == 'sleep'
+                              ? Icons.wb_sunny
+                              : Icons.bedtime,
+                          size: 18,
+                        ),
+                        label: Text(s.runStatus == 'sleep' ? 'Wake' : 'Sleep'),
                       ),
-                      label: Text(s.runStatus == 'sleep' ? 'Wake' : 'Sleep'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: client.ptzRecenter,
-                      icon: const Icon(Icons.filter_center_focus, size: 18),
-                      label: const Text('Recenter'),
-                    ),
-                  ],
-                ),
-                const Divider(height: 28),
-                _label(ctx, 'Image  -  ${s.displayName}'),
-                ImageControls(client: client),
-                const Divider(height: 28),
+                      OutlinedButton.icon(
+                        onPressed: client.ptzRecenter,
+                        icon: const Icon(Icons.filter_center_focus, size: 18),
+                        label: const Text('Recenter'),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 28),
+                  _label(ctx, 'Image  -  ${s.displayName}'),
+                  ImageControls(client: client),
+                  const Divider(height: 28),
+                ],
                 _label(ctx, 'Grid overlay'),
                 _GridToggles(client: client),
                 const Divider(height: 28),
