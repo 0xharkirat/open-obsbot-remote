@@ -403,7 +403,7 @@ void main() {
         'and the forced on-air pan an odd loop cannot avoid', () {
       final m = MixState.fromJson(const <String, dynamic>{
         'running': true,
-        'cue_index': 1,
+        'cue_index': 2,
         'cue_count': 3,
         'phase': 'moving',
         'mode': 'forward',
@@ -434,6 +434,7 @@ void main() {
             'move_ms': 3000,
           },
         ],
+        'plan_index': 1,
         'forced_move_at': 1,
         'forced_reason': 'odd loop with 2 cameras',
         'warnings': <String>['cue 3 arrives with an on-air pan'],
@@ -441,6 +442,11 @@ void main() {
 
       expect(m.cues, hasLength(3));
       expect(m.cues[1].enabled, isFalse);
+
+      // cue_index is the AUTHORED index of the live cue; plan_index is the raw
+      // run cursor into the (shorter) plan. With a disabled cue they differ.
+      expect(m.cueIndex, 2);
+      expect(m.planIndex, 1);
 
       // The disabled cue is dropped from the plan, so plan index != cue index.
       expect(m.plan, hasLength(2));
