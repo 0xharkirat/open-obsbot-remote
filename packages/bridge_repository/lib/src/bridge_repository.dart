@@ -96,6 +96,41 @@ class BridgeRepository {
     });
   }
 
+  // ---- source.* : generic (non-OBSBOT) video sources ----
+
+  /// Every camera AVFoundation can see (built-in, USB, Continuity),
+  /// including OBSBOT hardware and already-added sources - the picker
+  /// shows those disabled via [AvailableSource.obsbot] / `inUse`.
+  Future<List<AvailableSource>> listSources() async {
+    final ack = await _api.send(<String, dynamic>{'action': 'source.list'});
+    final raw = ack['sources'];
+    if (raw is! List) return const <AvailableSource>[];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(AvailableSource.fromJson)
+        .toList(growable: false);
+  }
+
+  /// Adds the camera with AVFoundation [uniqueId] as a generic video
+  /// source (device_id `av:<uniqueId>`). Idempotent on the bridge; the
+  /// ack is followed by a state event carrying the new device entry.
+  Future<void> addSource(String uniqueId, String label) async {
+    await _api.send(<String, dynamic>{
+      'action': 'source.add',
+      'unique_id': uniqueId,
+      'label': label,
+    });
+  }
+
+  /// Removes a generic source by its `av:<uniqueId>` device id. The
+  /// physical camera is untouched; it reappears in [listSources].
+  Future<void> removeSource(String deviceId) async {
+    await _api.send(<String, dynamic>{
+      'action': 'source.remove',
+      'device_id': deviceId,
+    });
+  }
+
   // ---- mix.* : cross-camera sequencer (bridge-scoped, spans cameras) ----
 
   /// Replaces the active scratch cue list. Persists on the bridge and
@@ -139,8 +174,9 @@ class BridgeRepository {
 
   /// Merges [library] back into the bridge's stored files (incoming wins per
   /// key). Names refresh live; sequences apply on the next camera re-attach.
-  Future<void> importLibrary(Map<String, dynamic> library) => _api
-      .send(<String, dynamic>{'action': 'library.import', 'library': library});
+  Future<void> importLibrary(Map<String, dynamic> library) => _api.send(
+    <String, dynamic>{'action': 'library.import', 'library': library},
+  );
 
   /// Builds the MJPEG preview URL on the HTTP port (`ws_port + 1`).
   ///
@@ -154,8 +190,9 @@ class BridgeRepository {
     required String token,
     String? deviceId,
   }) {
-    final path =
-        deviceId == null ? '/preview/active.mjpg' : '/preview/$deviceId.mjpg';
+    final path = deviceId == null
+        ? '/preview/active.mjpg'
+        : '/preview/$deviceId.mjpg';
     return Uri(
       scheme: 'http',
       host: host,

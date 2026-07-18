@@ -517,4 +517,93 @@ void main() {
       expect(b.mix.cues, isEmpty);
     });
   });
+
+  group('DeviceState.kind (generic video sources)', () {
+    test('missing kind defaults to obsbot - old bridges parse unchanged', () {
+      final d = DeviceState.fromEvent(const <String, dynamic>{
+        'device_id': 'RMOW1234',
+        'device': <String, dynamic>{'sn': 'RMOW1234', 'connected': true},
+      });
+      expect(d.kind, 'obsbot');
+      expect(d.isVideoSource, isFalse);
+    });
+
+    test('parses the stripped source_state_entry the bridge emits', () {
+      // Exact shape from device_manager.cpp source_state_entry().
+      final d = DeviceState.fromEvent(const <String, dynamic>{
+        'device_id': 'av:0x1234abcd',
+        'kind': 'video',
+        'device': <String, dynamic>{
+          'sn': 'av:0x1234abcd',
+          'model_display': 'FaceTime HD Camera',
+          'firmware': '',
+          'connected': true,
+          'run_status': 'run',
+          'friendly_name': 'FaceTime HD Camera',
+        },
+        'presets': <Map<String, dynamic>>[],
+        'active_preset_id': -1,
+      });
+      expect(d.kind, 'video');
+      expect(d.isVideoSource, isTrue);
+      expect(d.deviceId, 'av:0x1234abcd');
+      expect(d.connected, isTrue);
+      expect(d.runStatus, 'run');
+      expect(d.presets, isEmpty);
+      expect(d.displayName, 'FaceTime HD Camera');
+      // Missing blocks fall back to DeviceState defaults.
+      expect(d.zoom, 1);
+      expect(d.sequence.running, isFalse);
+    });
+
+    test('copyWith carries and overrides kind', () {
+      final d = DeviceState.empty.copyWith(kind: 'video');
+      expect(d.isVideoSource, isTrue);
+      expect(d.copyWith(sn: 'X').kind, 'video'); // carried
+      expect(d.copyWith(kind: 'obsbot').isVideoSource, isFalse);
+    });
+  });
+
+  group('AvailableSource', () {
+    test('fromJson reads the source.list row shape', () {
+      final s = AvailableSource.fromJson(const <String, dynamic>{
+        'unique_id': '0xabc',
+        'name': 'Camo Studio Virtual Camera',
+        'obsbot': false,
+        'in_use': false,
+      });
+      expect(s.uniqueId, '0xabc');
+      expect(s.name, 'Camo Studio Virtual Camera');
+      expect(s.addable, isTrue);
+    });
+
+    test('obsbot and in-use rows are not addable', () {
+      expect(
+        AvailableSource.fromJson(const <String, dynamic>{
+          'unique_id': 'u',
+          'name': 'Tiny 2 Lite',
+          'obsbot': true,
+          'in_use': true,
+        }).addable,
+        isFalse,
+      );
+      expect(
+        AvailableSource.fromJson(const <String, dynamic>{
+          'unique_id': 'u',
+          'name': 'FaceTime HD',
+          'obsbot': false,
+          'in_use': true,
+        }).addable,
+        isFalse,
+      );
+    });
+
+    test('missing fields fall back to safe defaults', () {
+      final s = AvailableSource.fromJson(const <String, dynamic>{});
+      expect(s.uniqueId, '');
+      expect(s.name, '');
+      expect(s.obsbot, isFalse);
+      expect(s.inUse, isFalse);
+    });
+  });
 }

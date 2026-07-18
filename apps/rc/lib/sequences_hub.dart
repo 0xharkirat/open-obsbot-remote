@@ -24,11 +24,15 @@ class _SequencesHubState extends State<SequencesHub> {
       animation: widget.client,
       builder: (BuildContext context, _) {
         final multi = widget.client.bridge.devices.length > 1;
-        final showMix = multi && _mix;
+        // A staged video source has no presets and no per-device
+        // sequencer session; only the bridge-scoped MIX applies, so the
+        // "This camera" editor (and the toggle to reach it) is hidden.
+        final videoSel = widget.client.state.isVideoSource;
+        final showMix = videoSel || (multi && _mix);
         return Scaffold(
           appBar: AppBar(
             title: Text(showMix ? 'Mix' : 'Sequence'),
-            bottom: multi
+            bottom: (multi && !videoSel)
                 ? PreferredSize(
                     preferredSize: const Size.fromHeight(52),
                     child: Padding(

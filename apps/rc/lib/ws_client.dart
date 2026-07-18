@@ -205,6 +205,49 @@ class WsClient extends ChangeNotifier {
   Future<void> mixLoad(String name) => _mix((r) => r.loadMix(name));
   Future<void> mixDelete(String name) => _mix((r) => r.deleteMix(name));
 
+  // ---- source.* : generic (non-OBSBOT) video sources ----
+
+  /// Cameras this Mac can see, for the add-camera picker. Null when not
+  /// connected or on an error ack (the picker shows a retry message);
+  /// an empty list means the Mac genuinely sees no cameras.
+  Future<List<AvailableSource>?> listSources() async {
+    final repo = _bridgeRepo;
+    if (repo == null) return null;
+    try {
+      return await repo.listSources();
+    } on ApiException catch (e) {
+      _fail(e);
+      return null;
+    }
+  }
+
+  /// Adds [source] as a generic video source. True only when acked.
+  Future<bool> addSource(AvailableSource source) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return false;
+    try {
+      await repo.addSource(source.uniqueId, source.name);
+      return true;
+    } on ApiException catch (e) {
+      _fail(e);
+      return false;
+    }
+  }
+
+  /// Removes the generic source with [deviceId] (`av:<uid>`). True only
+  /// when acked. The physical camera is untouched.
+  Future<bool> removeSource(String deviceId) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return false;
+    try {
+      await repo.removeSource(deviceId);
+      return true;
+    } on ApiException catch (e) {
+      _fail(e);
+      return false;
+    }
+  }
+
   // ---- library export/import (for migrating to a new Mac) ----
 
   /// The whole authored library (sequences + mix + names) as a JSON map, or
