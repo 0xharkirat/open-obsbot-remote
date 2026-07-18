@@ -302,20 +302,33 @@ The first is live (`active_device_id` matches its `device_id`).
   "mix": {
     "running": false,
     "cue_index": -1,
+    "plan_index": -1,
     "cue_count": 2,
     "phase": "holding",
     "elapsed_s": 0,
     "total_s": 0,
     "mode": "forward",
     "loaded": "Sunday service",
-    "available": ["Sunday service"],
     "cues": [
-      { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0, "move_ms": 0, "hold_s": 20, "transition": "cut" },
+      { "preset_id": 0, "hold_s": 20, "enabled": true, "fade_ms": -1, "move_ms": 0 },
+      { "preset_id": 1, "hold_s": 15, "enabled": true, "fade_ms": 500, "move_ms": 0 }
+    ],
+    "plan": [
       {
-        "camera_sn": "RMOWLHHC233LOQ", "preset_id": 1, "move_ms": 3000, "hold_s": 15, "transition": "fade",
-        "meanwhile": { "camera_sn": "RMOWLHH3281PMV", "preset_id": 2, "move_ms": 2000 }
+        "cue_index": 0, "camera_sn": "RMOWLHH3281PMV", "preset_id": 0,
+        "hold_s": 20, "fade_ms": 500, "on_air_move": false, "move_ms": 0,
+        "meanwhile": [ { "camera_sn": "RMOWLHHC233LOQ", "preset_id": 1 } ]
+      },
+      {
+        "cue_index": 1, "camera_sn": "RMOWLHHC233LOQ", "preset_id": 1,
+        "hold_s": 15, "fade_ms": 500, "on_air_move": false, "move_ms": 0,
+        "meanwhile": [ { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0 } ]
       }
-    ]
+    ],
+    "forced_move_at": -1,
+    "forced_reason": "",
+    "warnings": [],
+    "available": ["Sunday service"]
   }
 }
 ```
@@ -362,15 +375,23 @@ A v1 bridge and a v2 bridge that predates the mixer omit it; clients treat an ab
 | Field | Meaning |
 | --- | --- |
 | `running` | True while the mix engine is running. |
-| `cue_index` | Index of the cue on air, or `-1` when idle. |
-| `cue_count` | Number of cues in the authored list. |
+| `cue_index` | Index into the AUTHORED `cues` list of the cue on air, or `-1` when idle. With a disabled cue present this is not the plan cursor; the bridge maps it back so the client can highlight the right card. |
+| `plan_index` | The raw run cursor into `plan` (enabled cues only), or `-1` when idle. |
+| `cue_count` | Number of cues in the authored list, disabled ones included. |
 | `phase` | `"moving"` while the live move is in flight, `"holding"` while dwelling on the shot. |
 | `elapsed_s` | Seconds elapsed in the current cue's hold. |
 | `total_s` | The current cue's `hold_s`. |
 | `mode` | Loop mode: `once`, `forward`, or `ping_pong`. |
 | `loaded` | Name of the loaded library entry, or `""` for unsaved scratch. |
-| `cues` | The authored cue list. Each entry is a `MixCue`; see [`mix.set`](#mixset) for the shape. |
+| `cues` | The authored cue list. Each entry is a `MixCue`; see [The authored cue](#the-authored-cue) for the shape. |
+| `plan` | The solved plan: one `PlannedCue` per ENABLED cue, with the camera and the meanwhile derived. See [The solved plan](#the-solved-plan). |
+| `forced_move_at` | Index into `plan` whose arrival is a forced on-air pan, or `-1` when every transition is a crossfade. |
+| `forced_reason` | Plain-English reason the engine had to force that pan, or `""`. |
+| `warnings` | Anything the operator should know before going live, as an array of strings. |
 | `available` | Saved mix names in the library. |
+
+The `plan`, `forced_move_at`, `forced_reason`, and `warnings` fields are new in v2.1.
+A v2.0 bridge omits them; clients treat an absent `plan` as empty.
 
 ### Changes vs v1
 
@@ -419,7 +440,7 @@ They ignore any `device_id` on the message:
 - `subscribe`
 
 The `device.*` actions below manage the device set rather than drive a gimbal; they are bridge-scoped but read the `device_id` argument as their subject.
-The `mix.*` cross-camera sequencer and `library.export` / `library.import` are bridge-scoped as well. They name their subjects (a camera serial inside a cue, a saved entry's `name`) in the arguments rather than through a top-level `device_id`.
+The `mix.*` cross-camera sequencer and `library.export` / `library.import` are bridge-scoped as well. They name their subjects (an optional camera pin inside a cue, a saved entry's `name`) in the arguments rather than through a top-level `device_id`.
 
 ### Command ack shape
 
@@ -836,31 +857,72 @@ Response:
 An empty `name` clears the friendly name, and the UI falls back to model plus last-4 of SN.
 Names are trimmed of surrounding whitespace and capped at 60 characters.
 
-### Mix sequencer (new in v2)
+### Mix sequencer (new in v2, cue shape changed in v2.1)
 
 The mix sequencer runs a timeline of cross-camera cues on the bridge.
-Unlike a per-camera `sequence`, a cue names which camera goes on air and can move that camera live while it is the program feed.
 It is bridge-level: there is one mix, not one per camera, and the actions carry no `device_id`.
-The live status and the authored cue list ride in the state event's [`mix` block](#the-mix-block).
+The live status, the authored cue list, and the solved plan ride in the state event's [`mix` block](#the-mix-block).
+
+As of v2.1 the operator authors SHOTS, not cameras.
+The bridge decides which camera takes each shot, because the assignment is forced by one rule: a crossfade dissolves between two camera feeds, so every crossfade swaps which camera is live, so two consecutive cues can never use the same camera.
+The "meanwhile" (walking an idle camera to the shot it will next be live on) is derived for the same reason; it was always just "the next cue that needs the other camera".
+
+There is still no on-air movement lock by design.
+When a cue recalls a preset on the program camera (an on-air pan, or a pinned same-camera pair), that camera moves live, which is the point of the mixer.
+
+#### The authored cue
 
 A cue is a `MixCue`:
 
 | Field | Meaning |
 | --- | --- |
-| `camera_sn` | Program camera for this cue. Its serial. |
-| `preset_id` | Preset to recall on the program camera when the cue goes on air. `0..5` are P1..P6. A value `< 0` holds the current shot (cut to the camera without moving it). |
-| `move_ms` | Live move duration for the recall, in milliseconds. `0` is an instant snap. The camera moves on air. |
-| `hold_s` | Seconds to dwell on the shot after the move lands. Minimum `1`. |
-| `transition` | How the program switches to this cue: `"cut"` (default, instant) or `"fade"` (crossfade over 500 ms). |
-| `meanwhile` | Optional. Pre-positions a second camera while this cue holds, so it is framed before a later cue cuts to it. Shape: `{ "camera_sn": <sn>, "preset_id": <slot>, "move_ms": <ms> }`. |
+| `preset_id` | The shot: the preset to land on. `0..5` are P1..P6. A value `< 0` holds the current framing (switch to the camera without moving it). Default `-1`. |
+| `hold_s` | Seconds to dwell on the shot. Clamped to a minimum of `1`. Default `10`. |
+| `enabled` | A disabled cue is dropped from the plan entirely; the camera assignment and every derived meanwhile close over the hole. Absent means `true`. |
+| `fade_ms` | Crossfade duration on arrival, in milliseconds. `0` is a hard cut. Below `0` inherits the sequence default of 500 ms. Clamped to `-1..5000`. Ignored where the solver had to make the arrival an on-air pan, because the camera does not change there and a dissolve needs a second feed. Default `-1`. |
+| `move_ms` | Pan duration in milliseconds, used only when a move lands on air. `0` on a forced pan is replaced by the 3000 ms default described under [Solver semantics](#solver-semantics). Default `0`. |
+| `camera_sn` | OPTIONAL camera pin. Absent or empty means the bridge derives the camera. Set it to force a cue onto that serial; the solver colours around pins. |
 
-There is no on-air movement lock by design.
-When a cue recalls a preset on the program camera, that camera pans or zooms live on air, which is the point of the mixer.
+The bridge serialises `camera_sn` (to the state event, `mix.json`, and the library) only when the cue is genuinely pinned; a derived cue carries no serial at all.
+That is what makes a saved sequence portable between venues: export it, import it on another machine with different cameras, and it still runs.
 
-#### `mix.set`
+#### The solved plan
 
-Replaces the active scratch cue list and loop mode.
-The bridge persists the scratch to `mix.json` and broadcasts a fresh state event with the new `mix.cues`.
+Every edit re-solves the cue list against the connected roster, and the result is published as `mix.plan` in the state event.
+The camera and the meanwhile are derived, so the client renders them read-only instead of asking the operator to retype a pointer the engine already knows.
+Each entry is a `PlannedCue`:
+
+| Field | Meaning |
+| --- | --- |
+| `cue_index` | Index back into the AUTHORED `cues` list, so the UI can map the plan entry to its card. With a disabled cue present this is not the plan position. |
+| `camera_sn` | The camera the solver picked, or the pin. |
+| `preset_id` | The shot, copied from the authored cue. |
+| `hold_s` | The dwell, copied from the authored cue (minimum `1`). |
+| `fade_ms` | The crossfade the engine will actually run: the authored value, or the 500 ms default where the cue inherited it, or `0` on an on-air pan. |
+| `on_air_move` | True when the PREVIOUS planned cue uses the same camera, so there is no second feed to dissolve into and this arrival pans live, on air. |
+| `move_ms` | The pan duration the engine will use. On an on-air pan with no authored duration this is the forced 3000 ms. |
+| `meanwhile` | One entry per idle camera, each `{ "camera_sn": <sn>, "preset_id": <slot> }`: while this cue holds, that camera walks (off air, at full gimbal speed) to the shot it will next be live on. Three cameras means two entries. |
+
+Alongside the array, the `mix` block carries `forced_move_at` (index into `plan` whose arrival is a forced on-air pan, `-1` when the sequence is clean), `forced_reason` (a plain-English explanation, `""` when clean), and `warnings` (strings the operator should read before going live).
+
+For ping-pong the meanwhile depends on the direction of travel, so the engine recomputes it per step at run time; the `plan` field shows the forward pass, which is what the UI displays.
+
+The bridge re-solves on `mix.set`, `mix.load`, `mix.start`, and every camera attach or detach, because the roster is the palette: a third camera makes an odd loop solvable, and losing the second one makes every transition an on-air pan.
+
+#### Solver semantics
+
+Assigning cameras so consecutive cues alternate is graph 2-colouring.
+A forward loop wraps, so its cue list is a CYCLE; ping-pong and once walk a PATH.
+
+- A path is always 2-colourable, at any length, so ping-pong and once are always clean.
+- An even cycle is 2-colourable, so a forward loop with an even number of enabled cues is clean.
+- An odd cycle with 3 or more cameras is clean: the last cue takes a third camera.
+- An odd cycle with 2 cameras is impossible to colour: exactly one transition must keep the same camera and pan on air. The solver chooses which one by scoring every candidate edge by how far the camera would actually have to pan (from the two presets' saved poses) and sacrifices the cheapest. That arrival gets `on_air_move: true`, `fade_ms: 0`, and, when the cue authored no `move_ms`, a 3000 ms eased pan, because a slow pan between neighbouring shots reads as a cameraman following the room where a snap reads as a jump cut. `forced_move_at` points at it and `forced_reason` explains it.
+- Disabled cues are dropped before colouring, so the sequence re-links around them; enabling or disabling one cue flips the parity of a forward loop.
+- Pinned cues are honoured verbatim and the solver colours the gaps around them. A cue boxed in by pins so that no clean camera exists arrives as an on-air pan, with a warning naming the cue.
+- With one camera connected every transition moves on air, with a warning. With zero cameras the plan is empty, with a warning.
+
+A worked example: three enabled cues in a forward loop with two cameras attached is an odd cycle.
 
 ```json
 {
@@ -868,16 +930,74 @@ The bridge persists the scratch to `mix.json` and broadcasts a fresh state event
   "id": "80",
   "mode": "forward",
   "cues": [
-    { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0, "move_ms": 0, "hold_s": 20, "transition": "cut" },
-    {
-      "camera_sn": "RMOWLHHC233LOQ", "preset_id": 1, "move_ms": 3000, "hold_s": 15, "transition": "fade",
-      "meanwhile": { "camera_sn": "RMOWLHH3281PMV", "preset_id": 2, "move_ms": 2000 }
-    }
+    { "preset_id": 0, "hold_s": 20 },
+    { "preset_id": 1, "hold_s": 15 },
+    { "preset_id": 2, "hold_s": 10 }
+  ]
+}
+```
+
+The next state event's `mix` block carries the solved plan (`RMOWLHH3281PMV` and `RMOWLHHC233LOQ` attached, and the cheapest sacrifice found between preset 0 and preset 1):
+
+```json
+"plan": [
+  {
+    "cue_index": 0, "camera_sn": "RMOWLHH3281PMV", "preset_id": 0,
+    "hold_s": 20, "fade_ms": 500, "on_air_move": false, "move_ms": 0,
+    "meanwhile": [ { "camera_sn": "RMOWLHHC233LOQ", "preset_id": 2 } ]
+  },
+  {
+    "cue_index": 1, "camera_sn": "RMOWLHH3281PMV", "preset_id": 1,
+    "hold_s": 15, "fade_ms": 0, "on_air_move": true, "move_ms": 3000,
+    "meanwhile": [ { "camera_sn": "RMOWLHHC233LOQ", "preset_id": 2 } ]
+  },
+  {
+    "cue_index": 2, "camera_sn": "RMOWLHHC233LOQ", "preset_id": 2,
+    "hold_s": 10, "fade_ms": 500, "on_air_move": false, "move_ms": 0,
+    "meanwhile": [ { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0 } ]
+  }
+],
+"forced_move_at": 1,
+"forced_reason": "this loop has 3 steps, which is odd, so with 2 cameras one transition has to move on air; it was placed where the pan is shortest",
+"warnings": [
+  "cue 2 arrives with an on-air pan (odd loop, 2 cameras). Switch to ping-pong, or enable/disable one more cue, to remove it."
+]
+```
+
+Switching the same cue list to `"mode": "ping_pong"`, or toggling one cue's `enabled`, removes the forced pan entirely.
+
+#### Legacy cues (pre-2.1)
+
+A v2.0 cue authored `camera_sn` on every cue, a `transition` string, and an optional hand-typed `meanwhile` block.
+Old saved files and old clients keep working:
+
+- `camera_sn` present on every cue means the sequence arrives fully pinned, and the solver honours it verbatim, so a pre-2.1 sequence runs exactly as it always did.
+- A cue with no `fade_ms` falls back to its `transition` string: `"fade"` migrates to `fade_ms: 500` and `"cut"` (the default) to `fade_ms: 0`. When both are present, `fade_ms` wins.
+- An authored `meanwhile` block is parsed and then dropped: the meanwhile is now derived per step at run time. Its `move_ms` is discarded too, because an off-air camera just moves at full speed.
+- An absent `enabled` means `true`.
+
+None of the legacy fields are written back, so re-saving an old sequence migrates it to the v2.1 shape on disk.
+
+#### `mix.set`
+
+Replaces the active scratch cue list and loop mode.
+The bridge re-solves, persists the scratch to `mix.json`, and broadcasts a fresh state event with the new `mix.cues` and `mix.plan`.
+
+```json
+{
+  "action": "mix.set",
+  "id": "80",
+  "mode": "forward",
+  "cues": [
+    { "preset_id": 0, "hold_s": 20 },
+    { "preset_id": 1, "hold_s": 15, "fade_ms": 1000, "camera_sn": "RMOWLHHC233LOQ" }
   ]
 }
 ```
 
 `mode` is `once`, `forward`, or `ping_pong`.
+Every cue field except `preset_id` may be omitted; the defaults in [the cue table](#the-authored-cue) apply.
+The second cue above is pinned; the first leaves its camera to the solver.
 
 #### `mix.start` / `mix.stop`
 
@@ -886,9 +1006,10 @@ The bridge persists the scratch to `mix.json` and broadcasts a fresh state event
 { "action": "mix.stop",  "id": "82" }
 ```
 
-`mix.start` on an empty cue list acks `ok:false`, `err:"invalid_param"`.
-While running, each cue switches the program to `camera_sn` (fading when `transition` is `"fade"`), recalls `preset_id` over `move_ms`, optionally drives the `meanwhile` camera, holds for `hold_s`, then advances by `mode`.
-`mix.stop` ends the run and resets `cue_index` to `-1`.
+`mix.start` re-solves against the cameras attached at that moment, then runs the PLAN, not the authored list.
+`mix.start` with an empty plan (no enabled cues, or no cameras connected) acks `ok:false`, `err:"invalid_param"`, `msg:"no enabled cues to run"`.
+While running, each planned cue switches the program to its `camera_sn` (crossfading over its `fade_ms`, where `0` is a hard cut), recalls `preset_id` over `move_ms` (a negative `preset_id` holds the current framing), walks every `meanwhile` camera to its next shot at full speed, waits out `move_ms` in the `"moving"` phase, holds for `hold_s` in the `"holding"` phase, then advances by `mode`.
+`mix.stop` ends the run and resets `cue_index` and `plan_index` to `-1`.
 
 #### `mix.save_as` / `mix.load` / `mix.delete`
 
@@ -900,7 +1021,7 @@ The saved library lives in `mix_sequences.json`, keyed by name.
   "id": "83",
   "name": "Sunday service",
   "mode": "forward",
-  "cues": [ { "camera_sn": "RMOWLHH3281PMV", "preset_id": 0, "move_ms": 0, "hold_s": 20, "transition": "cut" } ]
+  "cues": [ { "preset_id": 0, "hold_s": 20 } ]
 }
 ```
 
@@ -910,6 +1031,7 @@ The saved library lives in `mix_sequences.json`, keyed by name.
 ```
 
 `mix.save_as` writes the entry, marks it loaded, and copies its cues into the active scratch.
+`mix.load` copies the entry into the scratch and re-solves it against whatever is plugged in here, because a saved sequence carries shots, not cameras (unless it is a pre-2.1 file, which arrives fully pinned).
 `mix.load` on a name that does not exist, and `mix.delete` on one that does not exist, both ack `ok:false`, `err:"not_found"`.
 An empty `name` on `mix.save_as` acks `ok:false`, `err:"invalid_param"`.
 
