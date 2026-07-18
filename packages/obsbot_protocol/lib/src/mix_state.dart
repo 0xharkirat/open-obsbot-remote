@@ -175,6 +175,7 @@ class MixState {
     required this.cues,
     required this.available,
     this.plan = const <PlannedCue>[],
+    this.planIndex = -1,
     this.forcedMoveAt = -1,
     this.forcedReason = '',
     this.warnings = const <String>[],
@@ -206,6 +207,7 @@ class MixState {
               .whereType<Map<String, dynamic>>()
               .map(PlannedCue.fromJson)
               .toList(growable: false),
+      planIndex: (j['plan_index'] as num?)?.toInt() ?? -1,
       forcedMoveAt: (j['forced_move_at'] as num?)?.toInt() ?? -1,
       forcedReason: j['forced_reason'] as String? ?? '',
       warnings: warnRaw == null
@@ -255,6 +257,10 @@ class MixState {
   /// The solved plan: one entry per ENABLED cue, with the camera derived.
   final List<PlannedCue> plan;
 
+  /// The raw run cursor into [plan] (enabled cues only), or -1 when idle.
+  /// [cueIndex] is this mapped back to the authored list.
+  final int planIndex;
+
   /// Index into [plan] whose arrival is a forced on-air pan, or -1 when the
   /// whole sequence is clean.
   final int forcedMoveAt;
@@ -290,6 +296,7 @@ class MixState {
     String? loaded,
     List<MixCue>? cues,
     List<PlannedCue>? plan,
+    int? planIndex,
     int? forcedMoveAt,
     String? forcedReason,
     List<String>? warnings,
@@ -306,6 +313,7 @@ class MixState {
       loaded: loaded ?? this.loaded,
       cues: cues ?? this.cues,
       plan: plan ?? this.plan,
+      planIndex: planIndex ?? this.planIndex,
       forcedMoveAt: forcedMoveAt ?? this.forcedMoveAt,
       forcedReason: forcedReason ?? this.forcedReason,
       warnings: warnings ?? this.warnings,
