@@ -4,10 +4,31 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-19
+
+The live-stream hardening release, plus the mix rework and any-camera sources.
+Driven by two real multi-hour services: every stream-stability failure they surfaced is root-caused and fixed here.
+
 ### Fixed
 
 - The MJPEG stream no longer freezes after exactly 2 hours. The serving loop had a hard 2-hour deadline per connection; OBS's Browser Source never reconnects on stream end, so a long service hit a frozen frame that needed a manual source refresh. Streams now live as long as the client holds the connection.
 - The stream now delivers the camera's full frame rate. The serving loop slept 50 ms after every frame (a hard ~20 fps ceiling) and every frame was JPEG-encoded in software through Core Image (~54 ms at 1080p, ~80% CPU). Frames are now encoded by VideoToolbox straight off the capture buffer and sent the moment they arrive: camera-rate delivery at roughly 13% bridge CPU.
+- One canonical program format. Every source is scaled (letterboxed if needed) to 1920x1080 at capture time, so `active.mjpg` never changes dimensions mid-stream - a dimension change made OBS re-init its decoder, which showed as a white flash and abrupt cut on every fade involving a differently-sized camera.
+- The bridge Settings sheet is native macOS now (MacosSheet + MacosSwitch, quick fade instead of the scale-pop), and the last Material island in the shell is gone.
+
+### Added
+
+- Mix sequencer 2.1: author SHOTS, the bridge derives the cameras. Crossfades force consecutive cues onto different cameras (graph 2-colouring); an odd forward loop with 2 cameras sacrifices exactly one transition as a slow on-air pan, chosen where the pan is shortest; disabling a cue re-links the sequence around it; per-cue crossfade lengths; saved sequences carry no serial numbers, so they are portable between rigs (pre-2.1 files run verbatim as fully pinned).
+- Any camera as a source. Add the Mac's built-in camera, a phone-camera app, or any UVC device as a session-less video source: preview it, TAKE it on air, crossfade with the PTZ cameras. Sources persist across restarts and survive unplug/replug. No PTZ/preset/image controls, by construction.
+- Continuous zoom rocker (T/W hold keys) at a smooth 0.25x/s, driven through the motion planner because the SDK's own continuous-zoom routes latch and cannot stop on this camera. The zoom slider commands on a 0.05x grid so the readout no longer drifts a hundredth after release.
+- Desktop remote. 'Open OBSBOT Remote' builds and runs on macOS - including on the bridge machine itself. On any surface 900px or wider (Mac window, iPad landscape, desktop browser) the Live screen becomes a desk: PREVIEW and PROGRAM panes side by side, camera bus, and a control rail with transition cluster, presets, and framing all visible at once.
+- One-scan pairing. The bridge QR now encodes a connection link with the PIN in the URL fragment: a phone browser opens the web remote already paired, the phone app's new Scan QR button connects and pairs in one step, and desktops use the new Copy link / Paste link buttons.
+- The remote holds a wake lock while open - the operator's screen no longer dims or locks mid-service.
+- Android release signing: the phone app now builds as a Play-Store-ready signed APK/AAB.
+
+### Known limits
+
+- The venue checklist for this release is issues #56 and #57: two-camera load, solver behaviour with real cameras, and physical unplug/replug of generic sources.
 
 ## [2.0.1] - 2026-07-18
 
