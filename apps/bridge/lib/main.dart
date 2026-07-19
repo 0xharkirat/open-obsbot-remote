@@ -600,7 +600,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _qrCard(BuildContext ctx, String firstIp) {
+    // The connection LINK carries the PIN in the URL FRAGMENT, which a
+    // browser never sends over the network. One link, three consumers: a
+    // phone browser opens the web remote and it pairs itself; the phone
+    // app's Scan QR parses it; a desktop remote pastes it via Copy link.
+    // Only ever rendered inside the reveal-gated card, same as the PIN.
     final url = 'http://$firstIp:8765/';
+    final link = supervisor.pin.isEmpty
+        ? url
+        : '$url#pair?pin=${supervisor.pin}';
     final macosTheme = MacosTheme.of(ctx);
     final mutedColor = MacosTheme.brightnessOf(ctx).isDark
         ? MacosColors.systemGrayColor
@@ -620,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: QrImageView(
-                  data: url,
+                  data: link,
                   version: QrVersions.auto,
                   size: 140,
                   backgroundColor: Colors.white,
@@ -645,19 +653,42 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 4),
-              PushButton(
-                controlSize: ControlSize.small,
-                secondary: true,
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: url));
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(
-                      content: Text('URL copied'),
-                      duration: Duration(milliseconds: 700),
-                    ),
-                  );
-                },
-                child: const Text('Copy URL'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  PushButton(
+                    controlSize: ControlSize.small,
+                    secondary: true,
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: url));
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text('URL copied'),
+                          duration: Duration(milliseconds: 700),
+                        ),
+                      );
+                    },
+                    child: const Text('Copy URL'),
+                  ),
+                  const SizedBox(width: 6),
+                  // The pairing link (URL + PIN fragment): paste into the
+                  // desktop or phone app's Connect screen to connect AND
+                  // pair in one step.
+                  PushButton(
+                    controlSize: ControlSize.small,
+                    secondary: true,
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: link));
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(
+                          content: Text('Pairing link copied'),
+                          duration: Duration(milliseconds: 700),
+                        ),
+                      );
+                    },
+                    child: const Text('Copy link'),
+                  ),
+                ],
               ),
             ],
           ),

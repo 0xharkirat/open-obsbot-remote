@@ -363,9 +363,14 @@ class WsClient extends ChangeNotifier {
   /// path tear down the SECOND attempt's freshly-built layers.
   int _connectGen = 0;
 
-  Future<void> connect(String hostPort) async {
+  // PIN captured from a scanned/pasted/opened connection link, consumed the
+  // first time the bridge answers auth_required so pairing needs no typing.
+  String? _autoPin;
+
+  Future<void> connect(String hostPort, {String? autoPin}) async {
     await close();
     final gen = ++_connectGen;
+    _autoPin = autoPin;
     _serverUri = hostPort;
     _connecting = true;
     _lastError = null;
@@ -403,6 +408,13 @@ class WsClient extends ChangeNotifier {
       });
       _authSub = auth.status.listen((AuthStatus s) {
         _needsPairing = s == AuthStatus.unauthenticated;
+        // A link-borne PIN pairs by itself; one attempt only, so a stale or
+        // wrong pin falls through to the normal pair screen.
+        if (_needsPairing && _autoPin != null) {
+          final p = _autoPin!;
+          _autoPin = null;
+          pair(p);
+        }
         notifyListeners();
       });
 

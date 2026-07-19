@@ -67,7 +67,16 @@ class _ObsbotAppState extends State<ObsbotApp> {
     if (kIsWeb) {
       final hp = autoDetectHostPort();
       if (hp != null && hp.isNotEmpty) {
-        client.connect(hp);
+        // The bridge QR appends '#pair?pin=NNNNNN'. A fragment never leaves
+        // the browser, and it means a phone that scanned the QR pairs with
+        // zero typing - open, connected, paired.
+        String? pin;
+        final frag = Uri.base.fragment;
+        if (frag.startsWith('pair')) {
+          pin = Uri.tryParse('x://x/$frag')?.queryParameters['pin'];
+          if (pin != null && pin.isEmpty) pin = null;
+        }
+        client.connect(hp, autoPin: pin);
       }
     }
   }

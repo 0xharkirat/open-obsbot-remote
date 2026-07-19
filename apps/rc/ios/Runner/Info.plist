@@ -73,5 +73,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan the QR code shown on the Open OBSBOT Bridge to connect and pair.</string>
 </dict>
 </plist>

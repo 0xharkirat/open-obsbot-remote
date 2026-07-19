@@ -52,6 +52,7 @@ dependencies:
     path: ../../packages/device_repository
   marionette_flutter: ^0.6.0
   wakelock_plus: ^1.5.2
+  mobile_scanner: ^7.3.0
 
 dev_dependencies:
   flutter_test:
