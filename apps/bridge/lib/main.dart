@@ -1030,104 +1030,125 @@ class _HomeScreenState extends State<HomeScreen> {
     // Native macOS sheet, not a Material AlertDialog - the shell is macos_ui
     // (v1.4.1 native pass) and this dialog was the one Material island left:
     // Material switch + dialog chrome read wrong against MacosScaffold.
-    await showMacosSheet<void>(
+    // Hand-rolled route instead of showMacosSheet: its default transition
+    // scale-pops on open, which reads as a glitch, not macOS. A plain quick
+    // fade matches how AppKit presents centered panels.
+    await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (BuildContext c) {
+      barrierLabel: 'Settings',
+      barrierColor: const Color(0x33000000),
+      transitionDuration: const Duration(milliseconds: 160),
+      transitionBuilder:
+          (BuildContext c, Animation<double> anim, _, Widget child) {
+            return FadeTransition(
+              opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+              child: child,
+            );
+          },
+      pageBuilder: (BuildContext c, _, _) {
         final MacosTypography type = MacosTheme.of(c).typography;
         return StatefulBuilder(
           builder: (BuildContext c, void Function(void Function()) setSt) {
-            return MacosSheet(
-              insetPadding: const EdgeInsets.symmetric(
-                horizontal: 60,
-                vertical: 40,
-              ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text('Settings', style: type.title2),
-                      const SizedBox(height: 14),
-                      Row(
+            // Center + transparent Material: showGeneralDialog gives a raw
+            // fullscreen page (no centering), and SelectableText's context
+            // menu wants a Material ancestor the macos_ui route never had.
+            return Center(
+              child: Material(
+                type: MaterialType.transparency,
+                child: MacosSheet(
+                  insetPadding: const EdgeInsets.symmetric(
+                    horizontal: 60,
+                    vertical: 40,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  'Start hidden in menubar',
-                                  style: type.body,
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  'Launch directly into the menubar with no '
-                                  'window or dock icon. Show the window any '
-                                  'time from the tray. Until at least one '
-                                  'phone is paired, the window will still '
-                                  'appear on launch so you can see the PIN.',
-                                  style: type.caption1.copyWith(
-                                    color: MacosColors.systemGrayColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          MacosSwitch(
-                            value: startHidden,
-                            onChanged: (bool v) async {
-                              setSt(() => startHidden = v);
-                              await widget.prefs.setStartHidden(v);
-                            },
-                          ),
-                        ],
-                      ),
-                      if (startHidden != initial)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 10),
-                          child: Row(
+                          Text('Settings', style: type.title2),
+                          const SizedBox(height: 14),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
-                              const MacosIcon(
-                                CupertinoIcons.info_circle,
-                                size: 14,
-                                color: MacosColors.systemGrayColor,
-                              ),
-                              const SizedBox(width: 6),
                               Expanded(
-                                child: Text(
-                                  'Applies on next launch. The dock icon '
-                                  'already follows the window automatically.',
-                                  style: type.caption1.copyWith(
-                                    color: MacosColors.systemGrayColor,
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      'Start hidden in menubar',
+                                      style: type.body,
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      'Launch directly into the menubar with no '
+                                      'window or dock icon. Show the window any '
+                                      'time from the tray. Until at least one '
+                                      'phone is paired, the window will still '
+                                      'appear on launch so you can see the PIN.',
+                                      style: type.caption1.copyWith(
+                                        color: MacosColors.systemGrayColor,
+                                      ),
+                                    ),
+                                  ],
                                 ),
+                              ),
+                              const SizedBox(width: 12),
+                              MacosSwitch(
+                                value: startHidden,
+                                onChanged: (bool v) async {
+                                  setSt(() => startHidden = v);
+                                  await widget.prefs.setStartHidden(v);
+                                },
                               ),
                             ],
                           ),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Container(
-                          height: 1,
-                          color: MacosTheme.of(c).dividerColor,
-                        ),
+                          if (startHidden != initial)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Row(
+                                children: <Widget>[
+                                  const MacosIcon(
+                                    CupertinoIcons.info_circle,
+                                    size: 14,
+                                    color: MacosColors.systemGrayColor,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Applies on next launch. The dock icon '
+                                      'already follows the window automatically.',
+                                      style: type.caption1.copyWith(
+                                        color: MacosColors.systemGrayColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Container(
+                              height: 1,
+                              color: MacosTheme.of(c).dividerColor,
+                            ),
+                          ),
+                          _aboutSection(c),
+                          const SizedBox(height: 16),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: PushButton(
+                              controlSize: ControlSize.regular,
+                              onPressed: () => Navigator.of(c).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ),
+                        ],
                       ),
-                      _aboutSection(c),
-                      const SizedBox(height: 16),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: PushButton(
-                          controlSize: ControlSize.regular,
-                          onPressed: () => Navigator.of(c).pop(),
-                          child: const Text('Close'),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),

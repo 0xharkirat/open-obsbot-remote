@@ -53,8 +53,22 @@ struct VideoCapture::Impl {
     // no locking is needed around it.
     VTCompressionSessionRef vtSession;
     int vtW, vtH;
+    // Hardware scaler + reusable canonical-size buffer for cameras that do
+    // not capture at the program format (lazily created, same thread rule).
+    VTPixelTransferSessionRef vtScaler;
+    CVPixelBufferRef vtCanonBuf;
 }
 @end
+
+// The canonical program format. EVERY source is scaled (letterboxed if the
+// aspect differs) to this before encoding, so active.mjpg never changes
+// dimensions mid-stream. A dimension change is not cosmetic: OBS re-inits its
+// decoder and scene transform on one, which shows as a flash + abrupt cut on
+// every TAKE between differently-sized cameras (a 720p Camo against 1080p
+// OBSBOTs), and mixed-size crossfades would blend mismatched extents. A real
+// vision mixer has one program format for the same reason.
+static const int kCanonW = 1920;
+static const int kCanonH = 1080;
 
 @implementation ObsCaptureDelegate
 
@@ -65,12 +79,51 @@ struct VideoCapture::Impl {
 // same frame in a few ms, so the stream runs at the camera's native rate.
 // Color: VT reads the buffer's own colorimetry tags (the sRGB forcing below
 // was only ever a fix for Core Image's wide-gamut misread).
+// Scale an off-format frame to the canonical program size on the VT hardware
+// path. Returns the reused canonical buffer (valid until the next call), or
+// null on failure (caller falls back to Core Image).
+- (CVPixelBufferRef)canonicalize:(CVPixelBufferRef)pb {
+    if (!vtScaler) {
+        if (VTPixelTransferSessionCreate(kCFAllocatorDefault, &vtScaler) !=
+            noErr) {
+            vtScaler = nullptr;
+            return nullptr;
+        }
+        VTSessionSetProperty(vtScaler,
+                             kVTPixelTransferPropertyKey_ScalingMode,
+                             kVTScalingMode_Letterbox);
+    }
+    if (!vtCanonBuf) {
+        NSDictionary* attrs = @{
+            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+        };
+        if (CVPixelBufferCreate(kCFAllocatorDefault, kCanonW, kCanonH,
+                                kCVPixelFormatType_32BGRA,
+                                (__bridge CFDictionaryRef)attrs,
+                                &vtCanonBuf) != kCVReturnSuccess) {
+            vtCanonBuf = nullptr;
+            return nullptr;
+        }
+    }
+    if (VTPixelTransferSessionTransferImage(vtScaler, pb, vtCanonBuf) != noErr)
+        return nullptr;
+    return vtCanonBuf;
+}
+
 - (bool)vtEncode:(CVPixelBufferRef)pb
              pts:(CMTime)pts
             into:(std::vector<uint8_t>&)out {
-    const int w = (int)CVPixelBufferGetWidth(pb);
-    const int h = (int)CVPixelBufferGetHeight(pb);
+    int w = (int)CVPixelBufferGetWidth(pb);
+    int h = (int)CVPixelBufferGetHeight(pb);
     if (w <= 0 || h <= 0) return false;
+    if (w != kCanonW || h != kCanonH) {
+        CVPixelBufferRef canon = [self canonicalize:pb];
+        if (!canon) return false;
+        pb = canon;
+        w = kCanonW;
+        h = kCanonH;
+    }
 
     if (vtSession && (vtW != w || vtH != h)) {
         VTCompressionSessionInvalidate(vtSession);
@@ -119,28 +172,21 @@ struct VideoCapture::Impl {
     CVImageBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     if (!pixelBuffer) return;
 
-    // Fast path: VideoToolbox JPEG at native resolution. Falls through to the
-    // Core Image path only when VT fails or the frame is larger than the
-    // serving cap (a hypothetical 4K camera would need the CI downscale;
-    // every camera we drive captures at 1080p, which is the cap exactly).
-    // ponytail: no VT-side scaler - add VTPixelTransferSession if a >1920px
-    // camera ever shows up.
+    // Fast path: VideoToolbox JPEG at the canonical program size (off-format
+    // frames go through the VT hardware scaler first, so a 720p or 4K source
+    // serves the same 1920x1080 as everything else). Core Image below is the
+    // fallback for VT failure only.
     {
-        const CGFloat kServeMaxDim = 1920.0;
-        const size_t pw = CVPixelBufferGetWidth(pixelBuffer);
-        const size_t ph = CVPixelBufferGetHeight(pixelBuffer);
-        if (pw <= kServeMaxDim && ph <= kServeMaxDim) {
-            std::vector<uint8_t> jpeg;
-            if ([self vtEncode:pixelBuffer
-                           pts:CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                          into:jpeg]) {
-                {
-                    std::lock_guard<std::mutex> g(impl->jpeg_mu);
-                    impl->latest = std::move(jpeg);
-                }
-                impl->seq.fetch_add(1, std::memory_order_release);
-                return;
+        std::vector<uint8_t> jpeg;
+        if ([self vtEncode:pixelBuffer
+                       pts:CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                      into:jpeg]) {
+            {
+                std::lock_guard<std::mutex> g(impl->jpeg_mu);
+                impl->latest = std::move(jpeg);
             }
+            impl->seq.fetch_add(1, std::memory_order_release);
+            return;
         }
     }
 
@@ -321,6 +367,17 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
         CIImage* a = decode(outgoing);
         CIImage* b = decode(incoming);
         if (!a || !b) return incoming;
+
+        // Every capture is canonicalized to one program size, so the extents
+        // match in practice. Insurance for a mismatch anyway: stretch the
+        // outgoing to the incoming's extent, because a partial-coverage
+        // dissolve leaves transparency that JPEG flattens to white.
+        if (!CGRectEqualToRect(a.extent, b.extent) && a.extent.size.width > 0 &&
+            a.extent.size.height > 0) {
+            a = [a imageByApplyingTransform:CGAffineTransformMakeScale(
+                        b.extent.size.width / a.extent.size.width,
+                        b.extent.size.height / a.extent.size.height)];
+        }
 
         CIFilter* diss = [CIFilter filterWithName:@"CIDissolveTransition"];
         [diss setValue:a forKey:kCIInputImageKey];        // time 0 = outgoing
