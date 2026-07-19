@@ -19,6 +19,12 @@ class DeviceState {
   /// Survives unplug + replug to a different USB port.
   final String deviceId;
 
+  /// What this device is: `"obsbot"` (full DeviceSession - PTZ, presets,
+  /// image, AI, sequencer) or `"video"` (a generic session-less source
+  /// added via `source.add` - preview + TAKE only). Old bridges omit the
+  /// field, so the default keeps every OBSBOT camera parsing unchanged.
+  final String kind;
+
   // ---- Device identity / lifecycle ----
   /// Same value as [deviceId]. Kept as a separate field so the
   /// existing UI code that reads `state.sn` keeps working.
@@ -108,8 +114,14 @@ class DeviceState {
   /// [BridgeState] instead.
   final SequenceState sequence;
 
+  /// True for a generic session-less video source: the UI shows preview
+  /// and TAKE only and must not render PTZ / preset / image / AI /
+  /// sequencer affordances for it.
+  bool get isVideoSource => kind == 'video';
+
   const DeviceState({
     required this.deviceId,
+    this.kind = 'obsbot',
     required this.sn,
     required this.modelDisplay,
     required this.firmware,
@@ -206,8 +218,7 @@ class DeviceState {
   factory DeviceState.fromEvent(Map<String, dynamic> j) {
     final dev =
         (j['device'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
-    final ptz =
-        (j['ptz'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+    final ptz = (j['ptz'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     final zoom =
         (j['zoom'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     final ai = (j['ai'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
@@ -216,8 +227,7 @@ class DeviceState {
     final seq =
         (j['sequence'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
 
-    double d(Object? v, [double def = 0]) =>
-        v is num ? v.toDouble() : def;
+    double d(Object? v, [double def = 0]) => v is num ? v.toDouble() : def;
     int i(Object? v, [int def = 0]) => v is num ? v.toInt() : def;
 
     final List<dynamic> pl =
@@ -234,6 +244,7 @@ class DeviceState {
 
     return DeviceState(
       deviceId: deviceId,
+      kind: j['kind'] as String? ?? 'obsbot',
       sn: sn,
       modelDisplay: dev['model_display'] as String? ?? '',
       firmware: dev['firmware'] as String? ?? '',
@@ -289,6 +300,7 @@ class DeviceState {
   /// corrects it if the camera clamped or rejected).
   DeviceState copyWith({
     String? deviceId,
+    String? kind,
     String? sn,
     String? modelDisplay,
     String? firmware,
@@ -326,6 +338,7 @@ class DeviceState {
   }) {
     return DeviceState(
       deviceId: deviceId ?? this.deviceId,
+      kind: kind ?? this.kind,
       sn: sn ?? this.sn,
       modelDisplay: modelDisplay ?? this.modelDisplay,
       firmware: firmware ?? this.firmware,

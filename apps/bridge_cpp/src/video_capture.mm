@@ -286,21 +286,72 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
     }
 }
 
+// One process-lifetime discovery session. Its `devices` property tracks
+// hotplug on its own, so every discover_devices() call sees the current set,
+// and holding a live discovery session is also what makes AVFoundation post
+// the WasConnected / WasDisconnected notifications observe_av_devices relies
+// on even while zero capture sessions are running.
+static AVCaptureDeviceDiscoverySession* discovery_session() {
+    static AVCaptureDeviceDiscoverySession* disc = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        if (@available(macOS 14.0, *)) {
+            disc = [AVCaptureDeviceDiscoverySession
+                discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeExternal,
+                                                   AVCaptureDeviceTypeBuiltInWideAngleCamera ]
+                                      mediaType:AVMediaTypeVideo
+                                       position:AVCaptureDevicePositionUnspecified];
+        } else {
+            disc = [AVCaptureDeviceDiscoverySession
+                discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeBuiltInWideAngleCamera ]
+                                      mediaType:AVMediaTypeVideo
+                                       position:AVCaptureDevicePositionUnspecified];
+        }
+    });
+    return disc;
+}
+
 static NSArray<AVCaptureDevice*>* discover_devices() {
-    AVCaptureDeviceDiscoverySession* disc = nil;
-    if (@available(macOS 14.0, *)) {
-        disc = [AVCaptureDeviceDiscoverySession
-            discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeExternal,
-                                               AVCaptureDeviceTypeBuiltInWideAngleCamera ]
-                                  mediaType:AVMediaTypeVideo
-                                   position:AVCaptureDevicePositionUnspecified];
-    } else {
-        disc = [AVCaptureDeviceDiscoverySession
-            discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeBuiltInWideAngleCamera ]
-                                  mediaType:AVMediaTypeVideo
-                                   position:AVCaptureDevicePositionUnspecified];
+    return discovery_session().devices;
+}
+
+void observe_av_devices(std::function<void(std::string, bool)> cb) {
+    discovery_session();   // keep-alive that makes the notifications fire
+    // Each block copies `fn`; both copies live as long as the observers (the
+    // process). The observer tokens are deliberately dropped - this is a
+    // register-once, process-lifetime watch, same as the libdev callback.
+    std::function<void(std::string, bool)> fn = std::move(cb);
+    NSNotificationCenter* nc = [NSNotificationCenter defaultCenter];
+    [nc addObserverForName:AVCaptureDeviceWasConnectedNotification
+                    object:nil
+                     queue:nil
+                usingBlock:^(NSNotification* n) {
+        AVCaptureDevice* d = (AVCaptureDevice*)n.object;
+        // The same notifications fire for microphones; video only.
+        if (d && [d hasMediaType:AVMediaTypeVideo])
+            fn(std::string(d.uniqueID.UTF8String), true);
+    }];
+    [nc addObserverForName:AVCaptureDeviceWasDisconnectedNotification
+                    object:nil
+                     queue:nil
+                usingBlock:^(NSNotification* n) {
+        AVCaptureDevice* d = (AVCaptureDevice*)n.object;
+        if (d && [d hasMediaType:AVMediaTypeVideo])
+            fn(std::string(d.uniqueID.UTF8String), false);
+    }];
+}
+
+std::vector<AvVideoDevice> list_av_devices() {
+    std::vector<AvVideoDevice> out;
+    for (AVCaptureDevice* d in discover_devices()) {
+        AvVideoDevice v;
+        v.unique_id = d.uniqueID.UTF8String;
+        v.name = d.localizedName.UTF8String;
+        NSString* lname = [d.localizedName lowercaseString];
+        v.is_obsbot = [lname containsString:@"obsbot"];
+        out.push_back(std::move(v));
     }
-    return disc.devices;
+    return out;
 }
 
 static AVCaptureDevice* find_device(const std::string& substr) {

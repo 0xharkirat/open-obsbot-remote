@@ -137,12 +137,22 @@ json ack_err(const json& id, const string& code, const string& msg) {
 static std::shared_ptr<DeviceSession> route_target(
         DeviceManager& mgr, const json& msg, const json& id,
         const std::function<void(std::string)>& reply_send) {
+    string did = msg.value("device_id", string{});
+    // A generic video source is a real device_id with no session - nothing to
+    // control (no PTZ / presets / libdev). Ack "unsupported" so clients can
+    // tell a control-less source from a typo'd id, and check it before the
+    // camera-count branches: with zero OBSBOT cameras attached the source
+    // would otherwise ack "no_device".
+    if (!did.empty() && mgr.is_source(did)) {
+        reply_send(ack_err(id, "unsupported",
+            "generic video source has no camera controls").dump());
+        return nullptr;
+    }
     size_t n = mgr.device_count();
     if (n == 0) {
         reply_send(ack_err(id, "no_device", "no camera attached").dump());
         return nullptr;
     }
-    string did = msg.value("device_id", string{});
     if (did.empty()) {
         if (n == 1) {
             // TOCTOU: device_count() and sole_session() lock separately;
@@ -231,6 +241,25 @@ void dispatch_message(DeviceManager& mgr,
         resp["devices"] = mgr.device_summaries();
         resp["active_device_id"] = mgr.active_sn();
         reply_send(resp.dump());
+        return;
+    }
+
+    // Any-cam: enumerate every camera AVFoundation can see (built-in, USB,
+    // Continuity), so a client can add a non-OBSBOT one as a generic source.
+    if (action == "source.list") {
+        json resp = ack_ok(id);
+        resp["sources"] = mgr.available_sources();
+        reply_send(resp.dump());
+        return;
+    }
+    if (action == "source.add") {
+        string uid = msg.value("unique_id", string{});
+        string label = msg.value("label", string{});
+        reply_cb(mgr.add_source(uid, label));
+        return;
+    }
+    if (action == "source.remove") {
+        reply_cb(mgr.remove_source(msg.value("device_id", string{})));
         return;
     }
 

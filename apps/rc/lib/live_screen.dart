@@ -7,6 +7,7 @@ import 'ptz_tuning.dart';
 import 'ptz_widgets.dart';
 import 'sequences_hub.dart';
 import 'settings_screen.dart';
+import 'source_picker_sheet.dart';
 import 'ws_client.dart';
 
 /// v3 root: the pocket vision mixer.
@@ -54,6 +55,14 @@ class _LiveScreenState extends State<LiveScreen> {
         final onAirId = client.activeDeviceId;
         final stagedIsLive = staged.deviceId == onAirId && onAirId.isNotEmpty;
         final multi = bridge.devices.length > 1;
+        // Session-less video source staged: preview + TAKE only. None of
+        // the control affordances may render - there is no session to
+        // drive, so they would all error on the bridge.
+        final videoStaged = staged.isVideoSource;
+        // The bus always shows once anything is connected: its trailing
+        // "+" chip is how a second (generic) camera gets added, so it
+        // must exist even while there is only one - or zero - cameras.
+        final showBus = bridge.devices.isNotEmpty || client.socketOpen;
         return Scaffold(
           body: SafeArea(
             child: Column(
@@ -64,20 +73,23 @@ class _LiveScreenState extends State<LiveScreen> {
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
                     child: Column(
                       children: <Widget>[
-                        _stage(ctx, multi, onAirId),
+                        _stage(ctx, multi, onAirId, videoStaged),
                         const SizedBox(height: 8),
-                        if (multi) ...<Widget>[
+                        if (showBus) ...<Widget>[
                           _CameraBus(client: client),
                           const SizedBox(height: 8),
                         ],
-                        _framing
-                            ? _FramingPanel(client: client)
-                            : _PresetGrid(client: client),
+                        if (videoStaged)
+                          const _VideoSourceNote()
+                        else
+                          _framing
+                              ? _FramingPanel(client: client)
+                              : _PresetGrid(client: client),
                       ],
                     ),
                   ),
                 ),
-                _actionBar(ctx, stagedIsLive, multi),
+                _actionBar(ctx, stagedIsLive, multi, videoStaged),
                 const AppFooter(),
               ],
             ),
@@ -88,13 +100,15 @@ class _LiveScreenState extends State<LiveScreen> {
   }
 
   /// Staging preview (large) with the on-air camera as a tap-to-swap PiP.
-  Widget _stage(BuildContext ctx, bool multi, String onAirId) {
+  Widget _stage(BuildContext ctx, bool multi, String onAirId, bool video) {
     final preview = PreviewWidget(
       client: client,
       showCrosshair: client.gridCrosshair,
       showCenterLines: client.gridCenterLines,
       showThirds: client.gridThirds,
-      showReadout: client.gridReadout,
+      // A generic source has no gimbal, so a Pan/Tilt readout would show
+      // fake zeros. The composition guides stay - they apply to any feed.
+      showReadout: client.gridReadout && !video,
     );
     if (!multi || onAirId.isEmpty || onAirId == client.selectedDeviceId) {
       // Single camera, or the staged camera IS on air: no separate PiP.
@@ -113,22 +127,30 @@ class _LiveScreenState extends State<LiveScreen> {
     );
   }
 
-  Widget _actionBar(BuildContext ctx, bool stagedIsLive, bool multi) {
+  Widget _actionBar(
+    BuildContext ctx,
+    bool stagedIsLive,
+    bool multi,
+    bool videoStaged,
+  ) {
     final theme = Theme.of(ctx);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
       child: Row(
         children: <Widget>[
           // Frame toggle: swaps the preset area for manual controls.
-          OutlinedButton.icon(
-            onPressed: () => setState(() => _framing = !_framing),
-            icon: Icon(
-              _framing ? Icons.grid_view : Icons.control_camera,
-              size: 18,
+          // A video source has neither, so the toggle disappears.
+          if (!videoStaged) ...<Widget>[
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _framing = !_framing),
+              icon: Icon(
+                _framing ? Icons.grid_view : Icons.control_camera,
+                size: 18,
+              ),
+              label: Text(_framing ? 'Presets' : 'Frame'),
             ),
-            label: Text(_framing ? 'Presets' : 'Frame'),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+          ],
           if (multi) ...<Widget>[
             // Cut vs crossfade for the manual TAKE. Semantics.toggled carries
             // the on/off state to screen readers (isSelected alone doesn't
@@ -335,29 +357,60 @@ class _ProgramPip extends StatelessWidget {
 }
 
 /// Camera bus: one chip per camera. Tap stages it. Outline = staged;
-/// red dot = on air; the status dot carries run/sleep/gone.
+/// red dot = on air; the status dot carries run/sleep/gone. The trailing
+/// "+" chip opens the add-camera picker; a generic source's chip
+/// long-presses to remove.
 class _CameraBus extends StatelessWidget {
   const _CameraBus({required this.client});
   final WsClient client;
+
+  Future<void> _confirmRemove(BuildContext context, DeviceState d) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) => AlertDialog(
+        title: const Text('Remove camera'),
+        content: Text(
+          'Remove "${d.displayName}" from the bridge? '
+          'The camera itself is not affected.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok ?? false) await client.removeSource(d.deviceId);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final selectedId = client.selectedDeviceId;
     final onAirId = client.activeDeviceId;
+    final devices = client.bridge.devices;
     return SizedBox(
       height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: client.bridge.devices.length,
+        itemCount: devices.length + 1, // trailing add chip
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (BuildContext c, int i) {
-          final d = client.bridge.devices[i];
+          if (i == devices.length) return _AddCameraChip(client: client);
+          final d = devices[i];
           final staged = d.deviceId == selectedId;
           final onAir = d.deviceId == onAirId;
           return InkWell(
             borderRadius: BorderRadius.circular(10),
             onTap: () => client.selectDevice(d.deviceId),
+            // Only generic sources are removable from the phone; OBSBOT
+            // cameras attach and detach with their USB cable.
+            onLongPress: d.isVideoSource ? () => _confirmRemove(c, d) : null,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
@@ -374,10 +427,17 @@ class _CameraBus extends StatelessWidget {
                 children: <Widget>[
                   _StatusDot(runStatus: d.runStatus, connected: d.connected),
                   const SizedBox(width: 8),
-                  Text(
-                    d.displayName,
-                    style: TextStyle(
-                      fontWeight: staged ? FontWeight.w700 : FontWeight.w500,
+                  // Source labels can be long ("Camo Studio Virtual
+                  // Camera"); cap the chip so the bus stays scannable.
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 132),
+                    child: Text(
+                      d.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: staged ? FontWeight.w700 : FontWeight.w500,
+                      ),
                     ),
                   ),
                   if (onAir) ...<Widget>[
@@ -407,6 +467,87 @@ class _CameraBus extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Trailing "+" chip on the camera bus: opens the add-camera picker
+/// listing everything AVFoundation on the bridge Mac can see.
+class _AddCameraChip extends StatelessWidget {
+  const _AddCameraChip({required this.client});
+  final WsClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      button: true,
+      label: 'Add camera',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => SourcePickerSheet.show(context, client),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+            color: theme.colorScheme.surfaceContainer,
+          ),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                Icons.add,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Add',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What a staged video source shows in place of presets and framing
+/// controls: nothing to drive, so say so once and stay out of the way.
+class _VideoSourceNote extends StatelessWidget {
+  const _VideoSourceNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.videocam_outlined,
+            size: 18,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Video source - preview and TAKE only. '
+              'No pan, zoom, or presets.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

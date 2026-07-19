@@ -58,6 +58,17 @@ struct MixCue {
 std::vector<MixCue> parse_mix_cues(const nlohmann::json& cues_json);
 LoopMode parse_mix_mode(const std::string& s);
 
+// A generic (non-OBSBOT) video source: the built-in cam, a USB webcam, an
+// iPhone. It has a capture but NO DeviceSession, because there is nothing to
+// control - no PTZ, no presets, no libdev. Keyed in order_/captures_ by a
+// synthetic id "av:<uniqueID>", so every SN-keyed map takes it verbatim and the
+// "av:" prefix makes every OBSBOT-only assumption greppable.
+struct SourceMeta {
+    std::string id;         // "av:<uniqueID>"
+    std::string label;      // localizedName, shown in the UI
+    std::string unique_id;  // AVCaptureDevice.uniqueID (capture binds to this)
+};
+
 // Owns every attached camera for the lifetime of the process.
 //
 // One DeviceSession per camera (keyed by the 14-char serial number), each with
@@ -106,6 +117,23 @@ public:
     nlohmann::json build_state_event();
     // Compact per-device identity array for `hello` / `device.list` acks.
     nlohmann::json device_summaries();
+
+    // Any-cam: every camera AVFoundation can see, each flagged `obsbot` (already
+    // driven by libdev) and `in_use` (already bound to a session/source), so a
+    // client can offer the rest as generic video sources. Bridge-scoped.
+    nlohmann::json available_sources();
+
+    // Add / remove a generic video source by AVFoundation uniqueID. add is
+    // idempotent (re-adding a live source is a no-op ok). Both re-broadcast
+    // and persist to sources.json, so sources survive a bridge restart
+    // (start() re-adds them; one absent at boot stays listed connected:false).
+    CmdResult add_source(const std::string& unique_id, const std::string& label);
+    CmdResult remove_source(const std::string& id);
+
+    // True if `id` names a known generic source. protocol.cpp uses this to ack
+    // camera-control actions aimed at a source as "unsupported", not
+    // "not_found" - the id is real, there is just nothing to control.
+    bool is_source(const std::string& id);
 
     // ---- routing helpers (used by protocol.cpp) ----
     size_t device_count();
@@ -169,6 +197,10 @@ private:
     void on_dev_changed(const std::string& sn, bool plugged);
     void attach(const std::string& sn);
     void detach(const std::string& sn);
+    // AVFoundation hotplug for GENERIC sources only (stop capture on unplug,
+    // restart on replug of a known uniqueID). OBSBOT attach / detach stays
+    // owned by the libdev callback above. Runs on an AVFoundation thread.
+    void on_av_device_changed(const std::string& unique_id, bool connected);
     // Assemble + hand the current envelope to the broadcaster. Must NOT be
     // called while holding mu_.
     void broadcast();
@@ -185,6 +217,16 @@ private:
     // retry_pending_captures() can re-issue start_unique_id after a late
     // permission grant.
     std::map<std::string, std::string> capture_uid_;
+    // Stopped captures of REMOVED generic sources. Never freed: MJPEG serving
+    // threads and the AV hotplug observer hold raw VideoCapture* across mu_,
+    // so destruction would be a use-after-free (see remove_source). Bounded by
+    // the number of user-initiated removes per process lifetime.
+    std::vector<std::unique_ptr<VideoCapture>> retired_captures_;
+
+    // Generic (non-OBSBOT) sources, keyed by their "av:<uniqueID>" id. These
+    // have an entry in order_ + captures_ + capture_uid_ but NO session, so
+    // build_state_event emits a stripped entry for them.
+    std::map<std::string, SourceMeta> sources_;
     std::string active_sn_;
     std::string desired_active_;       // persisted preference, loaded at start()
     Broadcaster broadcaster_;
