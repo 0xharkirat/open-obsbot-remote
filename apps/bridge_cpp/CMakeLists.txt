@@ -70,6 +70,7 @@ target_include_directories(obsbot-bridge PRIVATE
 target_link_directories(obsbot-bridge PRIVATE ${SDK_LIB_DIR})
 target_link_libraries(obsbot-bridge PRIVATE dev
     "-framework AVFoundation"
+    "-framework VideoToolbox"
     "-framework CoreMedia"
     "-framework CoreVideo"
     "-framework CoreImage"

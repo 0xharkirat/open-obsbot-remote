@@ -190,15 +190,29 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
 
     uint64_t last_seq = 0;
     VideoCapture* last_cap = nullptr;
-    const auto period = std::chrono::milliseconds(50);  // ~20 fps
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(2);
+    // Frame pacing is driven by the CAMERA, not by this loop: a new frame is
+    // sent the moment frame_seq ticks, and `poll` is only how often we check.
+    // The old design slept 50ms after every send - a hard ~20fps ceiling that
+    // capped a 30fps camera at 18-19fps no matter how fast the encoder was.
+    // `fade_tick` paces dissolve re-renders of the SAME camera frame during a
+    // crossfade (each one is a decode+blend+encode; 100Hz of those is waste).
+    //
+    // No deadline: this loop used to self-terminate after 2 hours, which is
+    // exactly the "stream freezes after an hour or two and needs a manual
+    // refresh in OBS" a real 3+ hour live service hit - OBS's Browser Source
+    // never reconnects on stream end. A healthy stream must outlive the
+    // service; dead peers are reaped by SO_SNDTIMEO/keepalive, wedged sends
+    // break out of send_all, and detached specific-SN cameras end the stream
+    // explicitly below.
+    const auto poll = std::chrono::milliseconds(10);
+    const auto fade_tick = std::chrono::milliseconds(33);
 
-    while (std::chrono::steady_clock::now() < deadline) {
+    while (true) {
         VideoCapture* cap = resolve();
         if (cap == nullptr) {
             // Active stream with no live camera right now: keep the connection
             // open (OBS holds it); the client shows its last frame frozen.
-            std::this_thread::sleep_for(period);
+            std::this_thread::sleep_for(poll);
             continue;
         }
         // A specific-SN stream whose camera detached must END, not freeze:
@@ -233,12 +247,12 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
 
         auto seq = cap->frame_seq();
         if (seq == last_seq && !fading) {
-            std::this_thread::sleep_for(period);
+            std::this_thread::sleep_for(poll);
             continue;
         }
         auto jpeg = cap->latest_jpeg();
         if (jpeg.empty()) {
-            std::this_thread::sleep_for(period);
+            std::this_thread::sleep_for(poll);
             continue;
         }
         last_seq = seq;
@@ -257,7 +271,9 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
         if (!send_all(fd, part.data(), part.size())) break;
         if (!send_all(fd, reinterpret_cast<const char*>(jpeg.data()), jpeg.size())) break;
         if (!send_all(fd, "\r\n", 2)) break;
-        std::this_thread::sleep_for(period);
+        // No sleep after a real frame - the seq check above is the pacer. Only
+        // dissolve re-renders (same frame, new blend factor) are throttled.
+        if (fading) std::this_thread::sleep_for(fade_tick);
     }
 
     LOGI("mjpeg: client disconnected fd=%d path=%s", fd, path.c_str());

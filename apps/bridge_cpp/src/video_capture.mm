@@ -1,4 +1,5 @@
 #import <AVFoundation/AVFoundation.h>
+#import <VideoToolbox/VideoToolbox.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ImageIO/ImageIO.h>
@@ -46,16 +47,102 @@ struct VideoCapture::Impl {
 @interface ObsCaptureDelegate : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {
 @public
     obs::VideoCapture::Impl* impl;
+    // VideoToolbox JPEG session, created lazily off the first frame's
+    // dimensions and torn down if they ever change. One per capture (per
+    // camera), used only from that capture's AVFoundation callback queue, so
+    // no locking is needed around it.
+    VTCompressionSessionRef vtSession;
+    int vtW, vtH;
 }
 @end
 
 @implementation ObsCaptureDelegate
+
+// VideoToolbox JPEG straight off the CVPixelBuffer. The old (still present,
+// now fallback) path rendered through Core Image - GPU render + readback +
+// software ImageIO encode - which costs ~54ms per 1080p frame and capped the
+// whole preview at ~18fps with the bridge burning ~80% CPU. VT encodes the
+// same frame in a few ms, so the stream runs at the camera's native rate.
+// Color: VT reads the buffer's own colorimetry tags (the sRGB forcing below
+// was only ever a fix for Core Image's wide-gamut misread).
+- (bool)vtEncode:(CVPixelBufferRef)pb
+             pts:(CMTime)pts
+            into:(std::vector<uint8_t>&)out {
+    const int w = (int)CVPixelBufferGetWidth(pb);
+    const int h = (int)CVPixelBufferGetHeight(pb);
+    if (w <= 0 || h <= 0) return false;
+
+    if (vtSession && (vtW != w || vtH != h)) {
+        VTCompressionSessionInvalidate(vtSession);
+        CFRelease(vtSession);
+        vtSession = nullptr;
+    }
+    if (!vtSession) {
+        OSStatus st = VTCompressionSessionCreate(
+            kCFAllocatorDefault, w, h, kCMVideoCodecType_JPEG,
+            nullptr, nullptr, nullptr, nullptr, nullptr, &vtSession);
+        if (st != noErr || !vtSession) { vtSession = nullptr; return false; }
+        vtW = w; vtH = h;
+        float q = 0.85f;
+        CFNumberRef qn = CFNumberCreate(nullptr, kCFNumberFloat32Type, &q);
+        VTSessionSetProperty(vtSession, kVTCompressionPropertyKey_Quality, qn);
+        CFRelease(qn);
+        VTSessionSetProperty(vtSession, kVTCompressionPropertyKey_RealTime,
+                             kCFBooleanTrue);
+    }
+
+    __block std::vector<uint8_t>* sink = &out;
+    __block bool got = false;
+    OSStatus st = VTCompressionSessionEncodeFrameWithOutputHandler(
+        vtSession, pb, pts, kCMTimeInvalid, nullptr, nullptr,
+        ^(OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sb) {
+            if (status != noErr || !sb) return;
+            CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sb);
+            if (!bb) return;
+            size_t len = CMBlockBufferGetDataLength(bb);
+            if (len == 0) return;
+            sink->resize(len);
+            if (CMBlockBufferCopyDataBytes(bb, 0, len, sink->data()) == noErr)
+                got = true;
+        });
+    if (st != noErr) return false;
+    // Blocks until the handler above has run, so `sink`/`got` are safe to
+    // read after this returns (the handler fires on VT's queue, before this
+    // completes).
+    VTCompressionSessionCompleteFrames(vtSession, kCMTimeInvalid);
+    return got && !sink->empty();
+}
 
 - (void)captureOutput:(AVCaptureOutput*)output
        didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
        fromConnection:(AVCaptureConnection*)connection {
     CVImageBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     if (!pixelBuffer) return;
+
+    // Fast path: VideoToolbox JPEG at native resolution. Falls through to the
+    // Core Image path only when VT fails or the frame is larger than the
+    // serving cap (a hypothetical 4K camera would need the CI downscale;
+    // every camera we drive captures at 1080p, which is the cap exactly).
+    // ponytail: no VT-side scaler - add VTPixelTransferSession if a >1920px
+    // camera ever shows up.
+    {
+        const CGFloat kServeMaxDim = 1920.0;
+        const size_t pw = CVPixelBufferGetWidth(pixelBuffer);
+        const size_t ph = CVPixelBufferGetHeight(pixelBuffer);
+        if (pw <= kServeMaxDim && ph <= kServeMaxDim) {
+            std::vector<uint8_t> jpeg;
+            if ([self vtEncode:pixelBuffer
+                           pts:CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                          into:jpeg]) {
+                {
+                    std::lock_guard<std::mutex> g(impl->jpeg_mu);
+                    impl->latest = std::move(jpeg);
+                }
+                impl->seq.fetch_add(1, std::memory_order_release);
+                return;
+            }
+        }
+    }
 
     // Force sRGB color space on the input. Without this, CIImage adopts
     // whatever ICC profile the camera buffer carries (some Tiny 2 Lite

@@ -4,6 +4,11 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- The MJPEG stream no longer freezes after exactly 2 hours. The serving loop had a hard 2-hour deadline per connection; OBS's Browser Source never reconnects on stream end, so a long service hit a frozen frame that needed a manual source refresh. Streams now live as long as the client holds the connection.
+- The stream now delivers the camera's full frame rate. The serving loop slept 50 ms after every frame (a hard ~20 fps ceiling) and every frame was JPEG-encoded in software through Core Image (~54 ms at 1080p, ~80% CPU). Frames are now encoded by VideoToolbox straight off the capture buffer and sent the moment they arrive: camera-rate delivery at roughly 13% bridge CPU.
+
 ## [2.0.1] - 2026-07-18
 
 Patch release driven by the first real multi-camera live streams. Update the bridge on any machine running 2.0.0.
