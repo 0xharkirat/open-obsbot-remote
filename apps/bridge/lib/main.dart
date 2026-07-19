@@ -1027,69 +1027,110 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showSettings() async {
     bool startHidden = widget.prefs.startHidden;
     final initial = startHidden;
-    await showDialog<void>(
+    // Native macOS sheet, not a Material AlertDialog - the shell is macos_ui
+    // (v1.4.1 native pass) and this dialog was the one Material island left:
+    // Material switch + dialog chrome read wrong against MacosScaffold.
+    await showMacosSheet<void>(
       context: context,
+      barrierDismissible: true,
       builder: (BuildContext c) {
+        final MacosTypography type = MacosTheme.of(c).typography;
         return StatefulBuilder(
           builder: (BuildContext c, void Function(void Function()) setSt) {
-            return AlertDialog(
-              title: const Text('Settings'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Start hidden in menubar'),
-                    subtitle: const Text(
-                      'Launch directly into the menubar with no window or '
-                      'dock icon. Show the window any time from the tray. '
-                      'Until at least one phone is paired, the window will '
-                      'still appear on launch so you can see the PIN.',
-                    ),
-                    value: startHidden,
-                    onChanged: (bool v) async {
-                      setSt(() => startHidden = v);
-                      await widget.prefs.setStartHidden(v);
-                    },
-                  ),
-                  if (startHidden != initial)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Row(
+            return MacosSheet(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 60,
+                vertical: 40,
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text('Settings', style: type.title2),
+                      const SizedBox(height: 14),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Icon(
-                            Icons.info_outline,
-                            size: 16,
-                            color: Theme.of(c).colorScheme.tertiary,
-                          ),
-                          const SizedBox(width: 6),
                           Expanded(
-                            child: Text(
-                              'Applies on next launch. The dock icon '
-                              'already follows the window automatically.',
-                              style: TextStyle(
-                                color: Theme.of(c).colorScheme.tertiary,
-                                fontSize: 12,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Start hidden in menubar',
+                                  style: type.body,
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  'Launch directly into the menubar with no '
+                                  'window or dock icon. Show the window any '
+                                  'time from the tray. Until at least one '
+                                  'phone is paired, the window will still '
+                                  'appear on launch so you can see the PIN.',
+                                  style: type.caption1.copyWith(
+                                    color: MacosColors.systemGrayColor,
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                          const SizedBox(width: 12),
+                          MacosSwitch(
+                            value: startHidden,
+                            onChanged: (bool v) async {
+                              setSt(() => startHidden = v);
+                              await widget.prefs.setStartHidden(v);
+                            },
                           ),
                         ],
                       ),
-                    ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Divider(height: 1),
+                      if (startHidden != initial)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Row(
+                            children: <Widget>[
+                              const MacosIcon(
+                                CupertinoIcons.info_circle,
+                                size: 14,
+                                color: MacosColors.systemGrayColor,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Applies on next launch. The dock icon '
+                                  'already follows the window automatically.',
+                                  style: type.caption1.copyWith(
+                                    color: MacosColors.systemGrayColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Container(
+                          height: 1,
+                          color: MacosTheme.of(c).dividerColor,
+                        ),
+                      ),
+                      _aboutSection(c),
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: PushButton(
+                          controlSize: ControlSize.regular,
+                          onPressed: () => Navigator.of(c).pop(),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                    ],
                   ),
-                  _aboutSection(c),
-                ],
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(c).pop(),
-                  child: const Text('Close'),
                 ),
-              ],
+              ),
             );
           },
         );
@@ -1102,10 +1143,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// (clickable to open in Finder), source / changelog / issues links,
   /// and a short credit line.
   Widget _aboutSection(BuildContext ctx) {
-    final theme = Theme.of(ctx);
-    final mutedStyle = TextStyle(
-      color: theme.colorScheme.outline,
-      fontSize: 11,
+    final MacosTypography type = MacosTheme.of(ctx).typography;
+    final TextStyle mutedStyle = type.caption1.copyWith(
+      color: MacosColors.systemGrayColor,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1113,8 +1153,9 @@ class _HomeScreenState extends State<HomeScreen> {
       children: <Widget>[
         Text(
           'About',
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: theme.colorScheme.primary,
+          style: type.caption1.copyWith(
+            color: MacosTheme.of(ctx).primaryColor,
+            fontWeight: FontWeight.w600,
             letterSpacing: 1.0,
           ),
         ),
@@ -1182,7 +1223,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String value,
     required VoidCallback onTap,
   }) {
-    final theme = Theme.of(ctx);
+    final MacosTypography type = MacosTheme.of(ctx).typography;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -1192,7 +1233,7 @@ class _HomeScreenState extends State<HomeScreen> {
             width: 80,
             child: Text(
               label,
-              style: TextStyle(color: theme.colorScheme.outline, fontSize: 11),
+              style: type.caption1.copyWith(color: MacosColors.systemGrayColor),
             ),
           ),
           Expanded(
@@ -1201,12 +1242,14 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
             ),
           ),
-          IconButton(
-            tooltip: 'Reveal in Finder',
-            icon: const Icon(Icons.folder_open, size: 14),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-            onPressed: onTap,
+          MacosTooltip(
+            message: 'Reveal in Finder',
+            child: MacosIconButton(
+              icon: const MacosIcon(CupertinoIcons.folder, size: 14),
+              padding: EdgeInsets.zero,
+              boxConstraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              onPressed: onTap,
+            ),
           ),
         ],
       ),
@@ -1219,19 +1262,25 @@ class _HomeScreenState extends State<HomeScreen> {
     required String label,
     required String url,
   }) {
-    return TextButton.icon(
-      style: TextButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      ),
-      icon: Icon(icon, size: 14),
-      label: Text(label),
+    // Small secondary PushButton: the inline-with-text micro-affordance size
+    // (the same rule as the Copy URL button under the QR).
+    return PushButton(
+      controlSize: ControlSize.small,
+      secondary: true,
       onPressed: () async {
         final uri = Uri.parse(url);
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri);
         }
       },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          MacosIcon(icon, size: 12),
+          const SizedBox(width: 4),
+          Text(label),
+        ],
+      ),
     );
   }
 
