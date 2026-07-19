@@ -94,8 +94,8 @@ class DeviceRepository {
   DeviceRepository({
     required ObsbotApiClient api,
     required BridgeRepository bridge,
-  }) : _api = api,
-       _bridge = bridge {
+  })  : _api = api,
+        _bridge = bridge {
     _lastReal = _bridge.current;
     _merged = _lastReal;
     _sub = _bridge.state.listen(_onReal);
@@ -231,13 +231,14 @@ class DeviceRepository {
     required String deviceId,
     double yawSpeed = 0,
     double pitchSpeed = 0,
-  }) => _command(<String, dynamic>{
-    'action': 'ptz.velocity',
-    'device_id': deviceId,
-    'yaw_speed': yawSpeed,
-    'pitch_speed': pitchSpeed,
-    'roll_speed': 0,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'ptz.velocity',
+        'device_id': deviceId,
+        'yaw_speed': yawSpeed,
+        'pitch_speed': pitchSpeed,
+        'roll_speed': 0,
+      });
 
   /// Absolute-position move. Re-added for v3 tap-to-nudge: a position
   /// command of a fixed small step cannot overshoot the way a velocity
@@ -248,20 +249,21 @@ class DeviceRepository {
     required double yaw,
     required double pitch,
     Duration duration = const Duration(milliseconds: 200),
-  }) => _command(<String, dynamic>{
-    'action': 'ptz.angle',
-    'device_id': deviceId,
-    'yaw': yaw,
-    'pitch': pitch,
-    'duration_ms': duration.inMilliseconds,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'ptz.angle',
+        'device_id': deviceId,
+        'yaw': yaw,
+        'pitch': pitch,
+        'duration_ms': duration.inMilliseconds,
+      });
 
   Future<void> ptzStop({required String deviceId}) =>
       _command(<String, dynamic>{'action': 'ptz.stop', 'device_id': deviceId});
 
   Future<void> recenter({required String deviceId}) => _command(
-    <String, dynamic>{'action': 'ptz.recenter', 'device_id': deviceId},
-  );
+        <String, dynamic>{'action': 'ptz.recenter', 'device_id': deviceId},
+      );
 
   // ---- Zoom (overlay) ----
 
@@ -294,23 +296,37 @@ class DeviceRepository {
     );
   }
 
+  /// Continuous zoom (the rocker): run the lens toward its range end at the
+  /// camera's own smooth ramp until [zoomStop]. No overlay - the state poll
+  /// walks the reported zoom progressively, which is what the UI tracks.
+  Future<void> zoomDrive({required String deviceId, required bool zoomIn}) =>
+      _command(<String, dynamic>{
+        'action': 'zoom.drive',
+        'device_id': deviceId,
+        'in': zoomIn,
+      });
+
+  Future<void> zoomStop({required String deviceId}) =>
+      _command(<String, dynamic>{'action': 'zoom.stop', 'device_id': deviceId});
+
   // ---- AI (overlay) ----
 
   Future<void> aiSetMode({
     required String deviceId,
     required String mode,
     String subMode = 'normal',
-  }) => _mutate(
-    deviceId: deviceId,
-    field: _Field.ai,
-    apply: (d) => d.copyWith(aiMode: mode, aiSubMode: subMode),
-    frame: <String, dynamic>{
-      'action': 'ai.set_mode',
-      'device_id': deviceId,
-      'mode': mode,
-      'sub_mode': subMode,
-    },
-  );
+  }) =>
+      _mutate(
+        deviceId: deviceId,
+        field: _Field.ai,
+        apply: (d) => d.copyWith(aiMode: mode, aiSubMode: subMode),
+        frame: <String, dynamic>{
+          'action': 'ai.set_mode',
+          'device_id': deviceId,
+          'mode': mode,
+          'sub_mode': subMode,
+        },
+      );
 
   // ---- Image (overlay) ----
 
@@ -327,15 +343,15 @@ class DeviceRepository {
       );
 
   Future<void> fov({required String deviceId, required int fov}) => _mutate(
-    deviceId: deviceId,
-    field: _Field.fov,
-    apply: (d) => d.copyWith(fov: fov),
-    frame: <String, dynamic>{
-      'action': 'image.set_fov',
-      'device_id': deviceId,
-      'fov': fov,
-    },
-  );
+        deviceId: deviceId,
+        field: _Field.fov,
+        apply: (d) => d.copyWith(fov: fov),
+        frame: <String, dynamic>{
+          'action': 'image.set_fov',
+          'device_id': deviceId,
+          'fov': fov,
+        },
+      );
 
   Future<void> faceAe({required String deviceId, required bool enabled}) =>
       _mutate(
@@ -407,16 +423,17 @@ class DeviceRepository {
   Future<void> setExposureMode({
     required String deviceId,
     required String mode,
-  }) => _mutate(
-    deviceId: deviceId,
-    field: _Field.exposureMode,
-    apply: (d) => d.copyWith(exposureMode: mode),
-    frame: <String, dynamic>{
-      'action': 'image.set_exposure_mode',
-      'device_id': deviceId,
-      'mode': mode,
-    },
-  );
+  }) =>
+      _mutate(
+        deviceId: deviceId,
+        field: _Field.exposureMode,
+        apply: (d) => d.copyWith(exposureMode: mode),
+        frame: <String, dynamic>{
+          'action': 'image.set_exposure_mode',
+          'device_id': deviceId,
+          'mode': mode,
+        },
+      );
 
   Future<void> setEvBias({required String deviceId, required double bias}) =>
       _mutate(
@@ -433,16 +450,17 @@ class DeviceRepository {
   Future<void> setAntiFlicker({
     required String deviceId,
     required String mode,
-  }) => _mutate(
-    deviceId: deviceId,
-    field: _Field.antiFlicker,
-    apply: (d) => d.copyWith(antiFlicker: mode),
-    frame: <String, dynamic>{
-      'action': 'image.set_anti_flicker',
-      'device_id': deviceId,
-      'mode': mode,
-    },
-  );
+  }) =>
+      _mutate(
+        deviceId: deviceId,
+        field: _Field.antiFlicker,
+        apply: (d) => d.copyWith(antiFlicker: mode),
+        frame: <String, dynamic>{
+          'action': 'image.set_anti_flicker',
+          'device_id': deviceId,
+          'mode': mode,
+        },
+      );
 
   Future<void> setWbAuto({required String deviceId, required bool enabled}) =>
       _mutate(
@@ -472,8 +490,8 @@ class DeviceRepository {
   /// camera and re-stamp its snapshot. No overlay: this is a read-back
   /// request, its whole point is to pull the camera's real values.
   Future<void> imageRefresh({required String deviceId}) => _command(
-    <String, dynamic>{'action': 'image.refresh', 'device_id': deviceId},
-  );
+        <String, dynamic>{'action': 'image.refresh', 'device_id': deviceId},
+      );
 
   // ---- Presets (no overlay: recalled/saved pose values not known locally) ----
 
@@ -481,12 +499,13 @@ class DeviceRepository {
     required String deviceId,
     required int presetId,
     required String name,
-  }) => _command(<String, dynamic>{
-    'action': 'preset.save',
-    'device_id': deviceId,
-    'preset_id': presetId,
-    'name': name,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'preset.save',
+        'device_id': deviceId,
+        'preset_id': presetId,
+        'name': name,
+      });
 
   /// Recall a saved preset. [duration] drives the motion planner's eased
   /// move; omit (or `Duration.zero`) for the camera's fastest hardware
@@ -497,21 +516,23 @@ class DeviceRepository {
     required String deviceId,
     required int presetId,
     Duration? duration,
-  }) => _command(<String, dynamic>{
-    'action': 'preset.recall',
-    'device_id': deviceId,
-    'preset_id': presetId,
-    'duration_ms': (duration ?? Duration.zero).inMilliseconds,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'preset.recall',
+        'device_id': deviceId,
+        'preset_id': presetId,
+        'duration_ms': (duration ?? Duration.zero).inMilliseconds,
+      });
 
   Future<void> presetDelete({
     required String deviceId,
     required int presetId,
-  }) => _command(<String, dynamic>{
-    'action': 'preset.delete',
-    'device_id': deviceId,
-    'preset_id': presetId,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'preset.delete',
+        'device_id': deviceId,
+        'preset_id': presetId,
+      });
 
   // ---- System ----
 
@@ -528,35 +549,37 @@ class DeviceRepository {
     required String deviceId,
     required List<SequenceStep> steps,
     LoopMode mode = LoopMode.forward,
-  }) => _command(<String, dynamic>{
-    'action': 'sequence.set',
-    'device_id': deviceId,
-    'steps': steps.map((s) => s.toJson()).toList(),
-    'mode': loopModeToWire(mode),
-    // Legacy boolean for pre-v1.2 bridges that predate `mode`.
-    'loop': mode != LoopMode.once,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'sequence.set',
+        'device_id': deviceId,
+        'steps': steps.map((s) => s.toJson()).toList(),
+        'mode': loopModeToWire(mode),
+        // Legacy boolean for pre-v1.2 bridges that predate `mode`.
+        'loop': mode != LoopMode.once,
+      });
 
   Future<void> sequenceStart({required String deviceId}) => _command(
-    <String, dynamic>{'action': 'sequence.start', 'device_id': deviceId},
-  );
+        <String, dynamic>{'action': 'sequence.start', 'device_id': deviceId},
+      );
 
   Future<void> sequenceStop({required String deviceId}) => _command(
-    <String, dynamic>{'action': 'sequence.stop', 'device_id': deviceId},
-  );
+        <String, dynamic>{'action': 'sequence.stop', 'device_id': deviceId},
+      );
 
   Future<void> sequenceSaveAs({
     required String deviceId,
     required String name,
     required List<SequenceStep> steps,
     LoopMode mode = LoopMode.forward,
-  }) => _command(<String, dynamic>{
-    'action': 'sequence.save_as',
-    'device_id': deviceId,
-    'name': name,
-    'mode': loopModeToWire(mode),
-    'steps': steps.map((s) => s.toJson()).toList(),
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'sequence.save_as',
+        'device_id': deviceId,
+        'name': name,
+        'mode': loopModeToWire(mode),
+        'steps': steps.map((s) => s.toJson()).toList(),
+      });
 
   Future<void> sequenceLoad({required String deviceId, required String name}) =>
       _command(<String, dynamic>{
@@ -568,11 +591,12 @@ class DeviceRepository {
   Future<void> sequenceDelete({
     required String deviceId,
     required String name,
-  }) => _command(<String, dynamic>{
-    'action': 'sequence.delete',
-    'device_id': deviceId,
-    'name': name,
-  });
+  }) =>
+      _command(<String, dynamic>{
+        'action': 'sequence.delete',
+        'device_id': deviceId,
+        'name': name,
+      });
 
   Future<void> dispose() async {
     for (final byField in _overlays.values) {

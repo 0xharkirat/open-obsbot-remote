@@ -328,11 +328,34 @@ class ZoomSlider extends StatefulWidget {
 class _ZoomSliderState extends State<ZoomSlider> {
   double? _dragValue;
   double? _target; // last value we told the lens to reach
+  bool _driving = false; // rocker held: track the live ramp, no overrides
   DateTime _lastSent = DateTime.fromMillisecondsSinceEpoch(0);
   // 100ms fired ~10 absolute-position commands/sec while dragging, and the lens
   // motor chased every one - the source of the stutter. 160ms is still smooth
   // to the finger but gives the lens room to move between commands.
   static const _minSendGap = Duration(milliseconds: 160);
+
+  // The lens lands on its own step grid, so a fine-grained command like 1.78x
+  // settles at 1.77x and the readout visibly "drifts" a hundredth. Command on
+  // a 0.05x grid instead: every stop is landable and the readout stays put.
+  double _quant(double v) => (v * 20).roundToDouble() / 20;
+
+  void _driveStart(bool zoomIn) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _driving = true;
+      _dragValue = null;
+      _target = null;
+    });
+    widget.client.zoomDrive(zoomIn: zoomIn);
+  }
+
+  void _driveEnd() {
+    if (!_driving) return;
+    setState(() => _driving = false);
+    widget.client.zoomStop();
+    HapticFeedback.lightImpact();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -345,33 +368,46 @@ class _ZoomSliderState extends State<ZoomSlider> {
         _target != null &&
         (s.zoom - _target!).abs() < 0.03) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _dragValue = null;
-            _target = null;
-          });
-        }
+        if (mounted) setState(() => _dragValue = null);
       });
     }
-    final v = _dragValue ?? s.zoom;
+    // Show the commanded stop while the lens sits within its own step of it
+    // (it quantises internally, e.g. lands at 1.77x for a 1.78x command);
+    // otherwise track the reported zoom - which is also what makes the thumb
+    // ride the ramp while the rocker drives.
+    final double v =
+        _dragValue ??
+        ((!_driving && _target != null && (s.zoom - _target!).abs() < 0.04)
+            ? _target!
+            : s.zoom);
+    final int stops = (((s.zoomMax - s.zoomMin) * 20).round()).clamp(1, 200);
     return Column(
       children: <Widget>[
         Text(
           '${v.toStringAsFixed(2)}×',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
+        _ZoomHoldBtn(
+          icon: Icons.add,
+          label: 'T',
+          onStart: () => _driveStart(true),
+          onEnd: _driveEnd,
+        ),
+        const SizedBox(height: 4),
         Expanded(
           child: RotatedBox(
             quarterTurns: 3,
             child: Slider(
               min: s.zoomMin,
               max: s.zoomMax,
+              divisions: stops,
               value: v.clamp(s.zoomMin, s.zoomMax),
               // Mid-drag updates: send throttled live so the lens follows
               // your finger smoothly. Bridge coalesces server-side too
               // (see cmd_zoom_set).
-              onChanged: (double nv) {
+              onChanged: (double raw) {
+                final double nv = _quant(raw);
                 setState(() => _dragValue = nv);
                 final now = DateTime.now();
                 if (now.difference(_lastSent) < _minSendGap) return;
@@ -384,7 +420,8 @@ class _ZoomSliderState extends State<ZoomSlider> {
                 // ten targets a second.
                 widget.client.zoomSet(nv, duration: Duration.zero);
               },
-              onChangeEnd: (double nv) {
+              onChangeEnd: (double raw) {
+                final double nv = _quant(raw);
                 // Land exactly on the released value. terminal:true bypasses the
                 // bridge's mid-drag coalesce; duration stays zero so the lens
                 // snaps to the final target instead of drifting there slowly.
@@ -400,11 +437,89 @@ class _ZoomSliderState extends State<ZoomSlider> {
           ),
         ),
         const SizedBox(height: 4),
+        _ZoomHoldBtn(
+          icon: Icons.remove,
+          label: 'W',
+          onStart: () => _driveStart(false),
+          onEnd: _driveEnd,
+        ),
+        const SizedBox(height: 4),
         Text(
           '${s.zoomMin.toInt()}×',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
+    );
+  }
+}
+
+/// Hold-to-zoom rocker key (T = tighter, W = wider). Press starts a continuous
+/// lens ramp toward the range end; release stops it where it is. Raw Listener
+/// on a Material surface, NOT a button - a button's TapGestureRecognizer wins
+/// the arena on quick taps and eats the pointer-up (gotcha #27), which here
+/// would leave the lens ramping with no finger down.
+class _ZoomHoldBtn extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
+  const _ZoomHoldBtn({
+    required this.icon,
+    required this.label,
+    required this.onStart,
+    required this.onEnd,
+  });
+
+  @override
+  State<_ZoomHoldBtn> createState() => _ZoomHoldBtnState();
+}
+
+class _ZoomHoldBtnState extends State<_ZoomHoldBtn> {
+  bool _down = false;
+
+  void _end() {
+    if (!_down) return;
+    setState(() => _down = false);
+    widget.onEnd();
+  }
+
+  @override
+  void dispose() {
+    // A teardown mid-press must never leave the lens driving.
+    if (_down) widget.onEnd();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      label: 'Zoom ${widget.label == 'T' ? 'in' : 'out'} (hold)',
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (_) {
+          setState(() => _down = true);
+          widget.onStart();
+        },
+        onPointerUp: (_) => _end(),
+        onPointerCancel: (_) => _end(),
+        child: Material(
+          color: _down ? cs.primary : cs.surfaceContainerHighest,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: SizedBox(
+            width: 40,
+            height: 34,
+            child: Center(
+              child: Icon(
+                widget.icon,
+                size: 18,
+                color: _down ? cs.onPrimary : cs.onSurface,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

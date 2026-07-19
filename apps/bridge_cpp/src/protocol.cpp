@@ -377,6 +377,12 @@ void dispatch_message(DeviceManager& mgr,
         session.cmd_zoom_set_smooth(v, s, reply_cb);
         return;
     }
+    if (action == "zoom.drive") {
+        bool zin = msg.value("in", true);
+        session.cmd_zoom_drive(zin, reply_cb);
+        return;
+    }
+    if (action == "zoom.stop") { session.cmd_zoom_stop(reply_cb); return; }
     if (action == "ai.set_mode") {
         string m = msg.value("mode", "none");
         string sub = msg.value("sub_mode", "normal");

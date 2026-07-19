@@ -829,6 +829,64 @@ void DeviceSession::cmd_zoom_set_smooth(float value, int speed, ReplyFn reply) {
     }, std::move(reply));
 }
 
+void DeviceSession::cmd_zoom_drive(bool zoom_in, ReplyFn reply) {
+    submit([this, zoom_in]() -> CmdResult {
+        REQUIRE_DEV();
+        float zmin = 1.0f, zmax = 4.0f, cur = 1.0f;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            zmin = snap_.zoom_min;
+            zmax = snap_.zoom_max;
+            cur  = snap_.zoom;
+        }
+        const float target = zoom_in ? zmax : zmin;
+        const float delta = std::abs(target - cur);
+        if (delta < 0.02f) return ok();   // already at that end of the range
+        // Continuous rocker zoom through the MOTION PLANNER - the one zoom
+        // machinery on this camera that is both smooth and stoppable. The
+        // direct SDK routes fail live (measured by inter-frame motion energy
+        // on the actual video): a one-shot to the range end LATCHES - the
+        // image does not move until seconds after the command - the zoom
+        // status echoes the commanded target immediately so there is no true
+        // position readback, and cameraSetZoomStopR ("tail air") plus a
+        // re-target then replays the full ramp instead of halting. The
+        // planner ticks landable waypoints at >=600ms cadence (gotcha #37)
+        // and stamps snap_.zoom per tick, so clients watch the real ramp and
+        // motion_cancel() can freeze it anywhere.
+        constexpr float kRockerXPerSec = 0.25f;   // full Tiny range in ~4s
+        motion_cancel();
+        MotionTarget t;
+        t.zoom_set = true;
+        t.zoom_ratio = target;
+        t.duration_ms = (int)(delta / kRockerXPerSec * 1000.0f);
+        t.tag = zoom_in ? "zoom.drive in" : "zoom.drive out";
+        motion_start(std::move(t));
+        return ok();
+    }, std::move(reply));
+}
+
+void DeviceSession::cmd_zoom_stop(ReplyFn reply) {
+    submit([this]() -> CmdResult {
+        REQUIRE_DEV();
+        // Freeze the planner, then pin the lens at the value the planner last
+        // commanded (snap_.zoom - stamped per tick). The hardware status is
+        // useless for this: it reports the TARGET the moment a command lands,
+        // so reading it back mid-move returns the far end of the ramp.
+        motion_cancel();
+        float cur = 1.0f;
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            cur = snap_.zoom;
+        }
+        dev_->cameraSetZoomAbsoluteR(cur, -1);
+        {
+            std::lock_guard<std::mutex> g(snap_mu_);
+            pending_zoom_ = cur;
+        }
+        return ok();
+    }, std::move(reply));
+}
+
 void DeviceSession::cmd_ai_set_mode(const std::string& mode, const std::string& sub, ReplyFn reply) {
     submit([this, mode, sub]() -> CmdResult {
         REQUIRE_DEV();

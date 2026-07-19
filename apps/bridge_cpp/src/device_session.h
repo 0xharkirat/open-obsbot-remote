@@ -170,6 +170,10 @@ public:
     void cmd_ptz_stop(ReplyFn reply);
     void cmd_ptz_recenter(ReplyFn reply);
     void cmd_zoom_set(float value, bool terminal, int duration_ms, ReplyFn reply);
+    // Continuous zoom: drive toward the range end until cmd_zoom_stop. The
+    // rocker's press/release pair.
+    void cmd_zoom_drive(bool zoom_in, ReplyFn reply);
+    void cmd_zoom_stop(ReplyFn reply);
     void cmd_zoom_set_smooth(float value, int speed, ReplyFn reply);
     void cmd_ai_set_mode(const std::string& mode, const std::string& sub, ReplyFn reply);
     void cmd_ai_set_enabled(bool enabled, ReplyFn reply);

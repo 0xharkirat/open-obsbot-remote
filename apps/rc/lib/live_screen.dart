@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'footer.dart';
 import 'preview_widget.dart';
@@ -33,6 +34,21 @@ class LiveScreen extends StatefulWidget {
 class _LiveScreenState extends State<LiveScreen> {
   WsClient get client => widget.client;
   bool _framing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // A controller in an operator's hand must not dim or lock mid-service.
+    // Best-effort: works natively on Android/iOS and via NoSleep on web.
+    WakelockPlus.enable();
+  }
+
+  @override
+  void dispose() {
+    WakelockPlus.disable();
+    super.dispose();
+  }
+
   // When on, a manual TAKE crossfades (dissolves) to the program instead of
   // cutting. _fadeMs is how long that dissolve takes (was hardcoded 500).
   bool _fadeTake = false;

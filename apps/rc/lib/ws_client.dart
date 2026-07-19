@@ -553,6 +553,10 @@ class WsClient extends ChangeNotifier {
         ),
       );
 
+  void zoomDrive({required bool zoomIn}) =>
+      _fire((r, id) => r.zoomDrive(deviceId: id, zoomIn: zoomIn));
+  void zoomStop() => _fire((r, id) => r.zoomStop(deviceId: id));
+
   void aiSetMode(String mode, [String sub = 'normal']) =>
       _fire((r, id) => r.aiSetMode(deviceId: id, mode: mode, subMode: sub));
 
