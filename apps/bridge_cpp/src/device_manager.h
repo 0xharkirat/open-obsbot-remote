@@ -13,31 +13,44 @@
 
 #include <json.hpp>
 
+#include "mix_solver.h"
+
 #include "device_session.h"   // LoopMode + CmdResult (reused by the mix engine)
 
 namespace obs {
 
 class VideoCapture;
 
-// One step of a cross-camera MIX sequence. Unlike a per-camera SequenceStep
-// (which only moves one gimbal), a cue also names which camera goes on air
-// (`camera_sn` -> program) and optionally pre-positions a second camera while
-// this cue holds (`meanwhile`). There is deliberately NO on-air movement lock:
-// when a cue recalls a preset on the program camera, that camera moves LIVE on
-// air - a real-cameraman push/pan is the whole point of a PTZ. `preset_id <= 0`
-// means "hold the current shot" (just cut to the camera without moving it).
+// One step of a cross-camera MIX sequence: a SHOT, and how long to hold it.
+//
+// As of 2.1 the camera is DERIVED, not authored. A crossfade dissolves between
+// two feeds, so every crossfade swaps which camera is live, so two consecutive
+// cues can never share a camera. That is proper graph 2-colouring and
+// mix_solver.h does it, along with the "meanwhile" - which was only ever "the
+// next cue that needs the other camera", a pointer the operator was retyping by
+// hand on every cue.
+//
+// `camera_sn` survives as an optional PIN. That is the escape hatch, and it is
+// also what keeps pre-2.1 saved sequences working verbatim: they named a camera
+// on every cue, so they simply arrive fully pinned and the solver honours them.
+// The mw_* and `transition` fields are still parsed so old files load, then
+// migrated (transition=="fade" -> fade_ms) or ignored (mw_*, now re-derived).
 struct MixCue {
-    std::string camera_sn;            // program camera for this cue
-    int preset_id = -1;               // <0 = hold current shot (no recall).
+    int preset_id = -1;               // the shot. <0 = hold whatever is framed.
                                       // 0..5 are real slots (P1..P6), so the
                                       // hold sentinel must be negative, not 0.
-    int move_ms = 0;                  // live move duration (0 = instant snap)
-    int hold_s = 10;                  // dwell after the move lands
-    std::string transition = "cut";   // "cut" now; "fade" arrives in P4
-    bool has_meanwhile = false;       // pre-position a second camera this cue
-    std::string mw_sn;                // meanwhile: which camera
-    int mw_preset_id = 0;             // meanwhile: preset to pre-position to
-    int mw_move_ms = 0;               // meanwhile: move duration
+    int hold_s = 10;                  // dwell on the shot
+    bool enabled = true;              // disabled = dropped from the plan entirely
+    int fade_ms = -1;                 // <0 = sequence default. 0 = hard cut.
+    int move_ms = 0;                  // pan duration, when a move lands on air
+    std::string camera_sn;            // optional PIN. empty = derive the camera.
+
+    // ---- legacy wire fields, parsed for back-compat then migrated/ignored ----
+    std::string transition = "cut";   // "fade" migrates into fade_ms
+    bool has_meanwhile = false;
+    std::string mw_sn;
+    int mw_preset_id = 0;
+    int mw_move_ms = 0;
 };
 
 // Parse the wire `cues` array / `mode` string into engine types (used by
@@ -200,10 +213,16 @@ private:
     // so two concurrent WS clients could otherwise race the std::thread object
     // (double-join, or move-assign onto a joinable thread -> std::terminate).
     // The mix loop NEVER takes this mutex, so holding it across join() is safe.
+    // Re-solve the camera assignment from the authored cues + the connected
+    // camera roster. Takes mu_ (to snapshot serials and preset poses) and THEN
+    // mix_mu_, in that order, never the reverse - the documented lock hierarchy.
+    void mix_replan();
+
     std::mutex mix_ctl_mu_;
     std::mutex mix_mu_;
     std::condition_variable mix_cv_;
-    std::vector<MixCue> mix_cues_;
+    std::vector<MixCue> mix_cues_;      // as authored: shots + holds
+    mix::Plan mix_plan_;                // as solved: the loop runs THIS
     LoopMode mix_mode_ = LoopMode::forward;
     std::string mix_loaded_;                // library name, "" = scratch
     std::vector<std::string> mix_available_; // saved-library names (cached)

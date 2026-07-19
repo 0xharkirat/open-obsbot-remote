@@ -30,53 +30,79 @@ class MixSequencerScreen extends StatelessWidget {
   }
 }
 
-/// Editable cue with a stable hold-seconds controller (recreating the
-/// controller each rebuild kills the cursor - the sequencer's trap #15).
+/// An editable cue: a SHOT and a HOLD. That is all you author.
+///
+/// The camera and the "meanwhile" are DERIVED by the bridge's solver and come
+/// back in `mix.plan`, so there is nothing here to type for either. The
+/// meanwhile was only ever "the next cue that needs the other camera", which is
+/// a pointer the engine already knows.
+///
+/// The hold-seconds controller is stable per cue: recreating it on every parent
+/// rebuild kills the cursor (the sequencer's trap #15).
 class _CueEdit {
   _CueEdit({
-    required this.cameraSn,
     this.presetId = -1,
-    this.moveMs = 800,
-    this.holdS = 10,
-    this.transition = 'cut',
-    this.mwSn,
-    this.mwPresetId = 0,
-    this.mwMoveMs = 800,
+    this.holdS = 15,
+    this.enabled = true,
+    this.fadeMs = 500,
+    this.moveMs = 0,
+    this.pinSn,
   }) : holdCtrl = TextEditingController(text: '$holdS'),
        cardKey = GlobalKey();
 
-  String cameraSn;
+  factory _CueEdit.from(MixCue c) => _CueEdit(
+    presetId: c.presetId,
+    holdS: c.holdS,
+    enabled: c.enabled,
+    fadeMs: c.fadeMs,
+    moveMs: c.moveMs,
+    pinSn: c.pinSn,
+  );
+
   int presetId; // < 0 = hold current shot
-  int moveMs;
   int holdS;
-  String transition;
-  String? mwSn; // null = no meanwhile pre-position
-  int mwPresetId;
-  int mwMoveMs;
+  bool enabled; // disabled = dropped from the plan; the colouring re-solves
+  int fadeMs; // crossfade on arrival. < 0 = default, 0 = hard cut.
+  int moveMs; // only reachable on a forced on-air pan
+  String? pinSn; // optional camera pin. null = derive.
   final TextEditingController holdCtrl;
   final GlobalKey cardKey;
 
-  bool get hasMeanwhile => mwSn != null && mwSn!.isNotEmpty;
-
   MixCue toCue() => MixCue(
-    cameraSn: cameraSn,
     presetId: presetId,
-    moveMs: moveMs,
     holdS: holdS,
-    transition: transition,
-    mwSn: hasMeanwhile ? mwSn : null,
-    mwPresetId: mwPresetId,
-    mwMoveMs: mwMoveMs,
+    enabled: enabled,
+    fadeMs: fadeMs,
+    moveMs: moveMs,
+    pinSn: pinSn,
   );
 
   void dispose() => holdCtrl.dispose();
 }
 
-const List<(String, int)> _moveChoices = <(String, int)>[
+/// Crossfade duration on ARRIVING at a cue. Per cue now: 500ms used to be the
+/// only option in the whole engine.
+const List<(String, int)> _fadeChoices = <(String, int)>[
   ('Cut', 0),
-  ('0.8s', 800),
+  ('0.3s', 300),
+  ('0.5s', 500),
+  ('1s', 1000),
+  ('2s', 2000),
+  ('3s', 3000),
+];
+
+/// On-air PAN duration. Only ever reachable on a cue the solver was forced to
+/// make an on-air move, because everywhere else the camera was already walked
+/// into place off air, so there is nothing to move.
+///
+/// Note this used to be labelled "Cut", which collided with the "In: Cut"
+/// transition on the very same card. Two different meanings of one word.
+const List<(String, int)> _moveChoices = <(String, int)>[
+  ('Instant', 0),
   ('2s', 2000),
   ('5s', 5000),
+  ('10s', 10000),
+  ('30s', 30000),
 ];
 
 class MixEditor extends StatefulWidget {
@@ -119,7 +145,7 @@ class _MixEditorState extends State<MixEditor> {
 
   String _sigOf(List<MixCue> cues, String mode, String loaded) =>
       '$loaded::$mode::${cues.length}::'
-      '${cues.map((c) => "${c.cameraSn}/${c.presetId}/${c.moveMs}/${c.holdS}/${c.mwSn ?? ''}${c.mwPresetId}").join(",")}';
+      '${cues.map((c) => "${c.presetId}/${c.holdS}/${c.enabled}/${c.fadeMs}/${c.moveMs}/${c.pinSn ?? ''}").join(",")}';
 
   void _onChange() {
     final m = widget.client.mix;
@@ -133,21 +159,8 @@ class _MixEditorState extends State<MixEditor> {
       c.dispose();
     }
     _cues.clear();
-    if (m.cues.isNotEmpty) {
-      for (final src in m.cues) {
-        _cues.add(
-          _CueEdit(
-            cameraSn: src.cameraSn,
-            presetId: src.presetId,
-            moveMs: src.moveMs,
-            holdS: src.holdS,
-            transition: src.transition,
-            mwSn: src.hasMeanwhile ? src.mwSn : null,
-            mwPresetId: src.mwPresetId,
-            mwMoveMs: src.mwMoveMs,
-          ),
-        );
-      }
+    for (final src in m.cues) {
+      _cues.add(_CueEdit.from(src));
     }
     // Sync mode unconditionally: with an empty cue list, leaving _mode stale
     // then adding the first cue would push the stale mode back over the bridge.
@@ -187,11 +200,9 @@ class _MixEditorState extends State<MixEditor> {
   }
 
   void _addCue() {
-    final devices = widget.client.bridge.devices;
-    final sn = _cues.isNotEmpty
-        ? _cues.last.cameraSn
-        : (devices.isNotEmpty ? devices.first.deviceId : '');
-    setState(() => _cues.add(_CueEdit(cameraSn: sn)));
+    // No camera to pick: it is derived. You author a shot, the solver assigns
+    // the camera so no two neighbours share one.
+    setState(() => _cues.add(_CueEdit()));
     _apply();
   }
 
@@ -278,208 +289,326 @@ class _MixEditorState extends State<MixEditor> {
   Widget _cueCard(BuildContext context, int i, List<DeviceState> devices) {
     final cue = _cues[i];
     final theme = Theme.of(context);
-    final onAir = widget.client.mix.running && widget.client.mix.cueIndex == i;
-    final cam = widget.client.bridge.deviceById(cue.cameraSn);
-    final presets = cam?.presets ?? const <PresetEntry>[];
-    // The live cue is signalled visually by the border; expose it to screen
-    // readers too (the border alone fails WCAG 1.4.1 use-of-color).
+    final mix = widget.client.mix;
+    final onAir = mix.running && mix.cueIndex == i;
+
+    // The solved view of this cue. null means it is disabled and therefore
+    // absent from the plan entirely - the sequence steps straight over it.
+    final PlannedCue? plan = mix.planFor(i);
+    final DeviceState? derivedCam = plan == null
+        ? null
+        : widget.client.bridge.deviceById(plan.cameraSn);
+    final bool forced = plan != null && plan.onAirMove;
+
+    // Preset labels for the Shot dropdown. Prefer the camera the solver picked
+    // (its names are the ones that will actually show), else any connected one:
+    // every camera can reach every shot, and the slots are named alike.
+    final presetSource =
+        derivedCam ?? (devices.isNotEmpty ? devices.first : null);
+    final presets = presetSource?.presets ?? const <PresetEntry>[];
+
+    final Color border = onAir
+        ? theme.colorScheme.primary
+        : forced
+        ? theme.colorScheme.tertiary
+        : theme.colorScheme.outlineVariant;
+
     return Semantics(
       container: true,
-      label: onAir ? 'On air' : null,
-      child: Card(
-        key: cue.cardKey,
-        margin: const EdgeInsets.only(bottom: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: onAir
-                ? theme.colorScheme.primary
-                : theme.colorScheme.outlineVariant,
-            width: onAir ? 2 : 0.5,
+      label: onAir
+          ? 'On air'
+          : cue.enabled
+          ? null
+          : 'Disabled, skipped',
+      child: Opacity(
+        opacity: cue.enabled ? 1 : 0.5,
+        child: Card(
+          key: cue.cardKey,
+          margin: const EdgeInsets.only(bottom: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: border, width: onAir ? 2 : 0.5),
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // Row 1: index + program camera + reorder + delete.
-              Row(
-                children: <Widget>[
-                  CircleAvatar(
-                    radius: 12,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    child: Text('${i + 1}', style: theme.textTheme.labelSmall),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.videocam,
-                    size: 16,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: devices.any((d) => d.deviceId == cue.cameraSn)
-                          ? cue.cameraSn
-                          : devices.first.deviceId,
-                      underline: const SizedBox.shrink(),
-                      items: <DropdownMenuItem<String>>[
-                        for (final d in devices)
-                          DropdownMenuItem<String>(
-                            value: d.deviceId,
-                            child: Text(
-                              d.displayName,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() => cue.cameraSn = v);
-                        _apply();
-                      },
-                    ),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed: i > 0 ? () => _move(i, -1) : null,
-                    icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-                    tooltip: 'Move up',
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed: i < _cues.length - 1 ? () => _move(i, 1) : null,
-                    icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-                    tooltip: 'Move down',
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _removeAt(i),
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: 'Remove cue',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // Row 2: shot (preset or hold).
-              Row(
-                children: <Widget>[
-                  _fieldLabel(context, 'Shot'),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: DropdownButton<int>(
-                      isExpanded: true,
-                      // Guard against value-not-in-items: if the camera detached
-                      // or the stored preset no longer exists, fall back to the
-                      // always-present "hold" item (-1) instead of asserting.
-                      value:
-                          (cue.presetId < 0 ||
-                              presets.any((p) => p.id == cue.presetId))
-                          ? cue.presetId
-                          : -1,
-                      underline: const SizedBox.shrink(),
-                      items: <DropdownMenuItem<int>>[
-                        const DropdownMenuItem<int>(
-                          value: -1,
-                          child: Text('Hold current shot'),
-                        ),
-                        for (final p in presets)
-                          DropdownMenuItem<int>(
-                            value: p.id,
-                            child: Text(
-                              'P${p.id + 1}${p.name.isEmpty ? '' : '  ${p.name}'}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() => cue.presetId = v);
-                        _apply();
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              // Row 3: move duration (only meaningful when moving to a preset).
-              if (cue.presetId >= 0) ...<Widget>[
-                const SizedBox(height: 6),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 8, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                // Row 1: index + enable + DERIVED camera + reorder + delete.
                 Row(
                   children: <Widget>[
-                    _fieldLabel(context, 'Move'),
+                    CircleAvatar(
+                      radius: 12,
+                      backgroundColor: onAir
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.surfaceContainerHighest,
+                      child: Text(
+                        '${i + 1}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: onAir ? theme.colorScheme.onPrimary : null,
+                        ),
+                      ),
+                    ),
+                    // The enable toggle. A disabled cue is dropped from the run;
+                    // the solver re-colours around the hole by itself.
+                    Checkbox(
+                      value: cue.enabled,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: (v) {
+                        setState(() => cue.enabled = v ?? true);
+                        _apply();
+                      },
+                    ),
+                    Expanded(
+                      child: _derivedCameraChip(context, cue, plan, forced),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: i > 0 ? () => _move(i, -1) : null,
+                      icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+                      tooltip: 'Move up',
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: i < _cues.length - 1
+                          ? () => _move(i, 1)
+                          : null,
+                      icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+                      tooltip: 'Move down',
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _removeAt(i),
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Remove cue',
+                    ),
+                  ],
+                ),
+                // Row 2: shot (preset or hold).
+                Row(
+                  children: <Widget>[
+                    _fieldLabel(context, 'Shot'),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Wrap(
-                        spacing: 6,
-                        children: <Widget>[
-                          for (final choice in _moveChoices)
-                            ChoiceChip(
-                              label: Text(choice.$1),
-                              visualDensity: VisualDensity.compact,
-                              selected: cue.moveMs == choice.$2,
-                              onSelected: (_) {
-                                setState(() => cue.moveMs = choice.$2);
-                                _apply();
-                              },
+                      child: DropdownButton<int>(
+                        isExpanded: true,
+                        value:
+                            (cue.presetId < 0 ||
+                                presets.any((p) => p.id == cue.presetId))
+                            ? cue.presetId
+                            : -1,
+                        underline: const SizedBox.shrink(),
+                        items: <DropdownMenuItem<int>>[
+                          const DropdownMenuItem<int>(
+                            value: -1,
+                            child: Text('Hold current shot'),
+                          ),
+                          for (final p in presets)
+                            DropdownMenuItem<int>(
+                              value: p.id,
+                              child: Text(
+                                'P${p.id + 1}${p.name.isEmpty ? '' : '  ${p.name}'}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                         ],
+                        onChanged: (v) {
+                          if (v == null) return;
+                          setState(() => cue.presetId = v);
+                          _apply();
+                        },
                       ),
                     ),
                   ],
                 ),
-              ],
-              const SizedBox(height: 6),
-              // Row 4: hold seconds + transition.
-              Row(
-                children: <Widget>[
-                  _fieldLabel(context, 'Hold'),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 64,
-                    child: TextField(
-                      controller: cue.holdCtrl,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: <TextInputFormatter>[
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        suffixText: 's',
+                const SizedBox(height: 6),
+                // Row 3: hold seconds, then EITHER the crossfade duration (the
+                // normal case) OR the on-air pan duration (only when the solver
+                // was forced to move this cue live - there is no crossfade then).
+                Row(
+                  children: <Widget>[
+                    _fieldLabel(context, 'Hold'),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 60,
+                      child: TextField(
+                        controller: cue.holdCtrl,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: <TextInputFormatter>[
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          suffixText: 's',
+                        ),
+                        onChanged: (t) {
+                          final v = int.tryParse(t) ?? cue.holdS;
+                          cue.holdS = v < 1 ? 1 : v;
+                          _applyDebounced();
+                        },
                       ),
-                      onChanged: (t) {
-                        final v = int.tryParse(t) ?? cue.holdS;
-                        cue.holdS = v < 1 ? 1 : v;
-                        _applyDebounced();
-                      },
                     ),
-                  ),
-                  const Spacer(),
-                  _fieldLabel(context, 'In'),
-                  const SizedBox(width: 8),
-                  _TransitionToggle(
-                    value: cue.transition,
-                    onChanged: (v) {
-                      setState(() => cue.transition = v);
-                      _apply();
-                    },
-                  ),
-                ],
+                    const SizedBox(width: 12),
+                    _fieldLabel(context, forced ? 'Pan' : 'Fade'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: forced
+                          ? _chips(_moveChoices, cue.moveMs, (v) {
+                              setState(() => cue.moveMs = v);
+                              _apply();
+                            })
+                          : _chips(
+                              _fadeChoices,
+                              cue.fadeMs < 0 ? 500 : cue.fadeMs,
+                              (v) {
+                                setState(() => cue.fadeMs = v);
+                                _apply();
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+                if (forced) _forcedNote(context, mix),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A read-only chip showing the camera the solver assigned, plus the derived
+  /// meanwhile ("while this holds, the other camera walks to X"). This is the
+  /// pointer the operator used to type by hand - now it is just reported.
+  Widget _derivedCameraChip(
+    BuildContext context,
+    _CueEdit cue,
+    PlannedCue? plan,
+    bool forced,
+  ) {
+    final theme = Theme.of(context);
+    if (!cue.enabled) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: Text(
+          'Skipped',
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      );
+    }
+    final camName = plan == null
+        ? 'camera pending'
+        : (widget.client.bridge.deviceById(plan.cameraSn)?.displayName ??
+              plan.cameraSn);
+    String sub = '';
+    if (plan != null && plan.meanwhile.isNotEmpty) {
+      final names = plan.meanwhile
+          .map((m) {
+            final d = widget.client.bridge.deviceById(m.cameraSn);
+            return d?.displayName ?? m.cameraSn;
+          })
+          .join(', ');
+      sub = 'meanwhile $names repositions';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                forced ? Icons.pan_tool_alt : Icons.videocam,
+                size: 15,
+                color: forced
+                    ? theme.colorScheme.tertiary
+                    : theme.colorScheme.primary,
               ),
-              // Meanwhile (optional pre-position).
-              _MeanwhileRow(
-                cue: cue,
-                devices: devices,
-                client: widget.client,
-                onChanged: () {
-                  setState(() {});
-                  _apply();
-                },
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  camName,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'auto',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
               ),
             ],
           ),
-        ),
+          if (sub.isNotEmpty)
+            Text(
+              sub,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// A small selectable-chip row. Shared by Fade and Pan duration.
+  Widget _chips(
+    List<(String, int)> choices,
+    int value,
+    ValueChanged<int> onPick,
+  ) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 2,
+      children: <Widget>[
+        for (final c in choices)
+          ChoiceChip(
+            label: Text(c.$1),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            selected: value == c.$2,
+            onSelected: (_) => onPick(c.$2),
+          ),
+      ],
+    );
+  }
+
+  /// The banner an odd loop earns: the solver had to make one transition an
+  /// on-air pan, and it says so instead of quietly showing a move.
+  Widget _forcedNote(BuildContext context, MixState mix) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.pan_tool_alt,
+            size: 16,
+            color: theme.colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This one pans on air. An odd number of steps cannot alternate '
+              'two cameras, so one move must show. Switch to ping-pong, or '
+              'add/disable a step, to hide it.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -611,32 +740,6 @@ class _MixEditorState extends State<MixEditor> {
   );
 }
 
-/// How this cue's shot comes in: a hard Cut, or a Fade (crossfade - the bridge
-/// dissolves the outgoing camera into this one over ~0.5s, baked into the
-/// active stream so OBS sees it too).
-class _TransitionToggle extends StatelessWidget {
-  const _TransitionToggle({required this.value, required this.onChanged});
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SegmentedButton<String>(
-      showSelectedIcon: false,
-      style: const ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'cut', label: Text('Cut')),
-        ButtonSegment<String>(value: 'fade', label: Text('Fade')),
-      ],
-      selected: <String>{value == 'fade' ? 'fade' : 'cut'},
-      onSelectionChanged: (s) => onChanged(s.first),
-    );
-  }
-}
-
 class _ModeButton extends StatelessWidget {
   const _ModeButton({required this.mode, required this.onChanged});
   final String mode;
@@ -660,129 +763,6 @@ class _ModeButton extends StatelessWidget {
       },
       icon: Icon(entry.$1, size: 18),
       label: Text(entry.$2),
-    );
-  }
-}
-
-class _MeanwhileRow extends StatelessWidget {
-  const _MeanwhileRow({
-    required this.cue,
-    required this.devices,
-    required this.client,
-    required this.onChanged,
-  });
-  final _CueEdit cue;
-  final List<DeviceState> devices;
-  final WsClient client;
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    if (!cue.hasMeanwhile) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: TextButton.icon(
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-          ),
-          onPressed: () {
-            final other = devices.firstWhere(
-              (d) => d.deviceId != cue.cameraSn,
-              orElse: () => devices.first,
-            );
-            cue.mwSn = other.deviceId;
-            cue.mwPresetId = 0;
-            onChanged();
-          },
-          icon: const Icon(Icons.add, size: 16),
-          label: const Text('Pre-position another camera'),
-        ),
-      );
-    }
-    final mwCam = client.bridge.deviceById(cue.mwSn ?? '');
-    final presets = mwCam?.presets ?? const <PresetEntry>[];
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: <Widget>[
-          Icon(
-            Icons.schedule,
-            size: 15,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 6),
-          Text('Meanwhile', style: theme.textTheme.labelMedium),
-          const SizedBox(width: 8),
-          Expanded(
-            child: DropdownButton<String>(
-              isExpanded: true,
-              isDense: true,
-              value: devices.any((d) => d.deviceId == cue.mwSn)
-                  ? cue.mwSn
-                  : devices.first.deviceId,
-              underline: const SizedBox.shrink(),
-              items: <DropdownMenuItem<String>>[
-                for (final d in devices)
-                  DropdownMenuItem<String>(
-                    value: d.deviceId,
-                    child: Text(d.displayName, overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                cue.mwSn = v;
-                onChanged();
-              },
-            ),
-          ),
-          const SizedBox(width: 6),
-          if (presets.isEmpty)
-            Text(
-              'no presets',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            )
-          else
-            DropdownButton<int>(
-              isDense: true,
-              // Guard value-not-in-items when the camera has fewer presets
-              // than the stored id (or a different camera was picked).
-              value: presets.any((p) => p.id == cue.mwPresetId)
-                  ? cue.mwPresetId
-                  : presets.first.id,
-              underline: const SizedBox.shrink(),
-              items: <DropdownMenuItem<int>>[
-                for (final p in presets)
-                  DropdownMenuItem<int>(
-                    value: p.id,
-                    child: Text('P${p.id + 1}'),
-                  ),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                cue.mwPresetId = v;
-                onChanged();
-              },
-            ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            onPressed: () {
-              cue.mwSn = null;
-              onChanged();
-            },
-            icon: const Icon(Icons.close, size: 16),
-            tooltip: 'Remove pre-position',
-          ),
-        ],
-      ),
     );
   }
 }
@@ -873,21 +853,28 @@ class MixRunBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final mix = client.mix;
-    final idx = mix.cueIndex;
-    final now = (idx >= 0 && idx < mix.cues.length) ? mix.cues[idx] : null;
-    final nextIdx = mix.cues.isEmpty ? -1 : (idx + 1) % mix.cues.length;
-    final next = (nextIdx >= 0 && nextIdx < mix.cues.length)
-        ? mix.cues[nextIdx]
-        : null;
+    // "Now" and "next" come from the SOLVED plan (which carries the derived
+    // camera), not the authored cues (which no longer name one). mix.cueIndex
+    // is the authored index of the live cue, so find its position in the plan.
+    final plan = mix.plan;
+    int pos = -1;
+    for (int k = 0; k < plan.length; k++) {
+      if (plan[k].cueIndex == mix.cueIndex) {
+        pos = k;
+        break;
+      }
+    }
+    final now = (pos >= 0) ? plan[pos] : null;
+    final next = plan.isEmpty ? null : plan[(pos + 1) % plan.length];
     final moving = mix.phase == 'moving';
     final progress = mix.totalS > 0
         ? (mix.elapsedS / mix.totalS).clamp(0.0, 1.0)
         : 0.0;
 
-    String label(MixCue? c) {
+    String label(PlannedCue? c) {
       if (c == null) return '-';
       final cam = client.bridge.deviceById(c.cameraSn)?.displayName ?? 'Camera';
-      if (!c.hasPreset) return '$cam - hold';
+      if (c.presetId < 0) return '$cam - hold';
       final p = client.bridge
           .deviceById(c.cameraSn)
           ?.presets
@@ -937,9 +924,9 @@ class MixRunBar extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    // Clamp the transient start window (idx == -1) so it never
-                    // shows "cue 0/0"; length is the reliable denominator.
-                    'cue ${idx < 0 ? 1 : idx + 1}/${mix.cues.length}',
+                    // Position within the PLAN (enabled cues), clamped so the
+                    // transient start window never shows "cue 0/0".
+                    'cue ${pos < 0 ? 1 : pos + 1}/${plan.length}',
                     style: theme.textTheme.labelSmall,
                   ),
                 ],

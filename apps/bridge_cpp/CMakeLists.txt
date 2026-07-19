@@ -41,6 +41,7 @@ add_executable(obsbot-bridge
     src/main.cpp
     src/device_manager.cpp
     src/device_session.cpp
+    src/mix_solver.cpp
     src/persist.cpp
     src/ws_server.cpp
     src/protocol.cpp
@@ -93,3 +94,12 @@ add_custom_command(TARGET obsbot-bridge POST_BUILD
         "${SDK_LIB_DIR}/libdev.dylib"
         "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.dylib"
 )
+
+# Pure-logic unit test for the mix camera-assignment solver. No SDK, no camera,
+# no bridge: it is just graph colouring, so it runs anywhere in under a second.
+#   cmake --build build --target mix_solver_test && ./build/mix_solver_test
+add_executable(mix_solver_test EXCLUDE_FROM_ALL
+    src/mix_solver.cpp
+    tests/mix_solver_test.cpp
+)
+target_include_directories(mix_solver_test PRIVATE src)

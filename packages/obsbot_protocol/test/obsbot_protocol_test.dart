@@ -351,63 +351,136 @@ void main() {
   });
 
   group('MixState / MixCue', () {
-    test('MixCue round-trips through JSON incl. meanwhile', () {
-      const cue = MixCue(
-        cameraSn: 'A',
-        presetId: 3,
-        moveMs: 800,
-        holdS: 20,
-        transition: 'cut',
-        mwSn: 'B',
-        mwPresetId: 1,
-        mwMoveMs: 500,
-      );
-      final back = MixCue.fromJson(cue.toJson());
-      expect(back.cameraSn, 'A');
+    test(
+        'a derived cue carries NO camera serial - that is what makes a saved '
+        'sequence portable to any rig', () {
+      const cue = MixCue(presetId: 3, holdS: 20, fadeMs: 1500);
+      final json = cue.toJson();
+      expect(json.containsKey('camera_sn'), isFalse);
+      final back = MixCue.fromJson(json);
       expect(back.presetId, 3);
       expect(back.holdS, 20);
-      expect(back.hasMeanwhile, isTrue);
-      expect(back.mwSn, 'B');
-      expect(back.mwPresetId, 1);
+      expect(back.fadeMs, 1500);
+      expect(back.enabled, isTrue);
+      expect(back.isPinned, isFalse);
+    });
+
+    test(
+        'a PINNED cue keeps its serial - this is how pre-2.1 sequences, which '
+        'named a camera on every cue, still run verbatim', () {
+      const cue = MixCue(presetId: 1, pinSn: 'RMOW_A');
+      expect(cue.isPinned, isTrue);
+      expect(cue.toJson()['camera_sn'], 'RMOW_A');
+      expect(MixCue.fromJson(cue.toJson()).pinSn, 'RMOW_A');
+      // An empty serial must read as "derive", not as a pin to nothing.
+      final derived = MixCue.fromJson(const <String, dynamic>{
+        'preset_id': 1,
+        'camera_sn': '',
+      });
+      expect(derived.isPinned, isFalse);
+      expect(derived.pinSn, isNull);
+    });
+
+    test('disabled cue round-trips; absent enabled defaults to true', () {
+      const off = MixCue(presetId: 2, enabled: false);
+      expect(MixCue.fromJson(off.toJson()).enabled, isFalse);
+      // A pre-2.1 file has no `enabled` key at all.
+      final legacy = MixCue.fromJson(const <String, dynamic>{'preset_id': 2});
+      expect(legacy.enabled, isTrue);
     });
 
     test('hold sentinel: absent preset_id parses to -1 (hold), not slot 0', () {
       // Slots 0..5 are real presets, so the "hold current shot" sentinel
       // must be negative - a cue with no preset must NOT recall P1.
-      final cue = MixCue.fromJson(const <String, dynamic>{'camera_sn': 'A'});
+      final cue = MixCue.fromJson(const <String, dynamic>{'hold_s': 5});
       expect(cue.presetId, -1);
       expect(cue.hasPreset, isFalse);
-      expect(const MixCue(cameraSn: 'A', presetId: 0).hasPreset, isTrue);
+      expect(const MixCue(presetId: 0).hasPreset, isTrue);
     });
 
-    test('cue without meanwhile omits the block in JSON', () {
-      const cue = MixCue(cameraSn: 'A', presetId: 0);
-      expect(cue.toJson().containsKey('meanwhile'), isFalse);
-    });
-
-    test('MixState.fromJson reads status + cues + library', () {
+    test(
+        'MixState reads the SOLVED plan: derived camera, derived meanwhile, '
+        'and the forced on-air pan an odd loop cannot avoid', () {
       final m = MixState.fromJson(const <String, dynamic>{
         'running': true,
-        'cue_index': 1,
-        'cue_count': 2,
+        'cue_index': 2,
+        'cue_count': 3,
         'phase': 'moving',
-        'elapsed_s': 3,
-        'total_s': 20,
-        'mode': 'ping_pong',
+        'mode': 'forward',
         'loaded': 'Sunday',
         'available': <String>['Sunday', 'Evening'],
         'cues': <Map<String, dynamic>>[
-          <String, dynamic>{'camera_sn': 'A', 'preset_id': 0, 'hold_s': 20},
-          <String, dynamic>{'camera_sn': 'B', 'preset_id': 2, 'hold_s': 15},
+          <String, dynamic>{'preset_id': 0, 'hold_s': 20},
+          <String, dynamic>{'preset_id': 1, 'hold_s': 15, 'enabled': false},
+          <String, dynamic>{'preset_id': 2, 'hold_s': 15},
         ],
+        'plan': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'cue_index': 0,
+            'camera_sn': 'A',
+            'preset_id': 0,
+            'fade_ms': 500,
+            'on_air_move': false,
+            'meanwhile': <Map<String, dynamic>>[
+              <String, dynamic>{'camera_sn': 'B', 'preset_id': 2},
+            ],
+          },
+          // cue 1 is disabled, so it is absent from the plan entirely.
+          <String, dynamic>{
+            'cue_index': 2,
+            'camera_sn': 'A',
+            'preset_id': 2,
+            'on_air_move': true,
+            'move_ms': 3000,
+          },
+        ],
+        'plan_index': 1,
+        'forced_move_at': 1,
+        'forced_reason': 'odd loop with 2 cameras',
+        'warnings': <String>['cue 3 arrives with an on-air pan'],
       });
-      expect(m.running, isTrue);
-      expect(m.cueIndex, 1);
-      expect(m.phase, 'moving');
-      expect(m.mode, 'ping_pong');
-      expect(m.cues, hasLength(2));
-      expect(m.cues[1].cameraSn, 'B');
-      expect(m.available, contains('Evening'));
+
+      expect(m.cues, hasLength(3));
+      expect(m.cues[1].enabled, isFalse);
+
+      // cue_index is the AUTHORED index of the live cue; plan_index is the raw
+      // run cursor into the (shorter) plan. With a disabled cue they differ.
+      expect(m.cueIndex, 2);
+      expect(m.planIndex, 1);
+
+      // The disabled cue is dropped from the plan, so plan index != cue index.
+      expect(m.plan, hasLength(2));
+      expect(m.plan[1].cueIndex, 2);
+
+      // The camera and the meanwhile are DERIVED, not authored.
+      expect(m.plan[0].cameraSn, 'A');
+      expect(m.plan[0].meanwhile.single.cameraSn, 'B');
+      expect(m.plan[0].meanwhile.single.presetId, 2);
+
+      // The forced pan: same camera either side, so no crossfade, real duration.
+      expect(m.plan[1].onAirMove, isTrue);
+      expect(m.plan[1].moveMs, 3000);
+
+      expect(m.isClean, isFalse);
+      expect(m.forcedMoveAt, 1);
+      expect(m.forcedReason, isNotEmpty);
+      expect(m.warnings, hasLength(1));
+
+      // planFor maps an authored card back to its plan entry, and returns null
+      // for a disabled cue (which has no plan entry at all).
+      expect(m.planFor(0)?.cameraSn, 'A');
+      expect(m.planFor(1), isNull);
+      expect(m.planFor(2)?.onAirMove, isTrue);
+    });
+
+    test('a clean sequence reports isClean and no forced move', () {
+      final m = MixState.fromJson(const <String, dynamic>{
+        'forced_move_at': -1,
+        'plan': <Map<String, dynamic>>[],
+      });
+      expect(m.isClean, isTrue);
+      expect(m.forcedReason, isEmpty);
+      expect(m.warnings, isEmpty);
     });
 
     test('MixState.empty is idle', () {
