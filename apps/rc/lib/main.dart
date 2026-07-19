@@ -115,6 +115,26 @@ class _ObsbotAppState extends State<ObsbotApp> {
           ),
         ),
       ),
+      // The app is a phone-shaped column. On a wide surface (desktop window,
+      // desktop browser) don't stretch it edge to edge - center it at phone
+      // width like a hardware controller panel. Constraints-driven, not
+      // platform-checked, so a narrow desktop window still fills naturally.
+      builder: (BuildContext context, Widget? child) {
+        return LayoutBuilder(
+          builder: (BuildContext ctx, BoxConstraints c) {
+            if (c.maxWidth <= 640) return child!;
+            return ColoredBox(
+              color: deepSurface,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: child,
+                ),
+              ),
+            );
+          },
+        );
+      },
       home: AnimatedBuilder(
         animation: client,
         builder: (BuildContext context, _) {

@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Open OBSBOT Remote connects to the Open OBSBOT Bridge on your local network to control cameras.</string>
 </dict>
 </plist>
