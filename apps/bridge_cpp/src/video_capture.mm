@@ -83,7 +83,7 @@ struct VideoCapture::Impl {
 
     // Downscale long-side to 1280px. Higher quality than the previous
     // 960px while still keeping JPEG payload reasonable on LAN.
-    const CGFloat kTargetMaxDim = 1280.0;
+    const CGFloat kTargetMaxDim = 1920.0;
     CGFloat w = ci.extent.size.width;
     CGFloat h = ci.extent.size.height;
     if (w > 0 && h > 0) {
@@ -117,7 +117,7 @@ struct VideoCapture::Impl {
 
     // q=0.80 → big quality jump from 0.55 with ~2x payload (still fine
     // on LAN). Below 0.70 chroma artefacts visible on faces.
-    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.80 };
+    NSDictionary* props = @{ (id)kCGImageDestinationLossyCompressionQuality: @0.85 };
     CGImageDestinationAddImage(dest, cgImage, (__bridge CFDictionaryRef)props);
     CGImageDestinationFinalize(dest);
     CFRelease(dest);
@@ -196,7 +196,7 @@ std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg_in,
             (__bridge CFMutableDataRef)outData, utType, 1, nullptr);
         if (!dest) { CGImageRelease(outCg); return jpeg_in; }
         NSDictionary* props =
-            @{ (id)kCGImageDestinationLossyCompressionQuality: @0.80 };
+            @{ (id)kCGImageDestinationLossyCompressionQuality: @0.85 };
         CGImageDestinationAddImage(dest, outCg, (__bridge CFDictionaryRef)props);
         bool ok = CGImageDestinationFinalize(dest);
         CFRelease(dest);
@@ -273,7 +273,7 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
             (__bridge CFMutableDataRef)outData, utType, 1, nullptr);
         if (!dest) { CGImageRelease(outCg); return incoming; }
         NSDictionary* props =
-            @{ (id)kCGImageDestinationLossyCompressionQuality: @0.80 };
+            @{ (id)kCGImageDestinationLossyCompressionQuality: @0.85 };
         CGImageDestinationAddImage(dest, outCg, (__bridge CFDictionaryRef)props);
         bool ok = CGImageDestinationFinalize(dest);
         CFRelease(dest);
