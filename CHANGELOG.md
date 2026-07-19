@@ -4,6 +4,22 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-18
+
+Patch release driven by the first real multi-camera live streams. Update the bridge on any machine running 2.0.0.
+
+### Added
+
+- Preset glide speed. A Glide selector (Instant / 1s / 2s / 5s) above the preset grid controls how long a tapped preset takes to move the camera; the v3 redesign had left recall stuck at a fixed 2 seconds.
+- Crossfade length. A picker (0.3s - 2s) next to the crossfade toggle controls how slow a manual TAKE dissolves; it was hardwired to 500 ms.
+
+### Fixed
+
+- Web assets are no longer served as `immutable`. Flutter tree-shakes the Material icon font to only the glyphs a given build uses, under a filename that never changes, so a phone holding a copy cached from an older build was missing the new codepoints and every icon rendered blank. Everything except `canvaskit/` (which changes only on a Flutter SDK bump) is now served `no-cache`. Note: a phone already showing blank icons cannot be fixed from the server, because `immutable` means the browser never revalidates - clear that site's data once.
+- The mix sequencer's Hold field no longer closes the on-screen keyboard on every keystroke. It pushed a `mix.set` per character, and the state-event echo of an earlier keystroke disposed the text field mid-typing. The push is now debounced.
+- The preview streams at capture resolution (1080p) instead of being downscaled to 720p, and JPEG quality went from 0.80 to 0.85, so the OBS feed no longer looks soft.
+- Dragging the zoom slider no longer stutters the lens (mid-drag commands are throttled to one per 160 ms) and the thumb no longer jumps back after release; the released value holds until the camera's reported zoom converges on it.
+
 ## [2.0.0] - 2026-07-12
 
 Multi-camera release.

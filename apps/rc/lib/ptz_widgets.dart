@@ -327,12 +327,32 @@ class ZoomSlider extends StatefulWidget {
 
 class _ZoomSliderState extends State<ZoomSlider> {
   double? _dragValue;
+  double? _target; // last value we told the lens to reach
   DateTime _lastSent = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _minSendGap = Duration(milliseconds: 100);
+  // 100ms fired ~10 absolute-position commands/sec while dragging, and the lens
+  // motor chased every one - the source of the stutter. 160ms is still smooth
+  // to the finger but gives the lens room to move between commands.
+  static const _minSendGap = Duration(milliseconds: 160);
 
   @override
   Widget build(BuildContext context) {
     final s = widget.state;
+    // Release-settle: keep showing the released value until the lens actually
+    // reaches it, THEN track the camera again. The old code cleared the drag
+    // override on a fixed 200ms timer, which snapped the thumb back to a
+    // mid-move s.zoom - the "jump" on release.
+    if (_dragValue != null &&
+        _target != null &&
+        (s.zoom - _target!).abs() < 0.03) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _dragValue = null;
+            _target = null;
+          });
+        }
+      });
+    }
     final v = _dragValue ?? s.zoom;
     return Column(
       children: <Widget>[
@@ -356,28 +376,24 @@ class _ZoomSliderState extends State<ZoomSlider> {
                 final now = DateTime.now();
                 if (now.difference(_lastSent) < _minSendGap) return;
                 _lastSent = now;
-                // When the user has picked a slow move-duration (e.g.
-                // 5 s, 30 s, 3 min) the bridge planner runs to that
-                // target. Sending a new value every 100 ms while
-                // dragging would cancel-and-restart the planner at
-                // each tick - lens motor stutters, never reaching
-                // the target. So: mid-drag is always *instant* so the
-                // lens follows your finger; the chosen move-duration
-                // is applied only on release (terminal=true below).
+                _target = nv;
+                // Mid-drag is always instant (duration zero) so the lens
+                // follows the finger; a chosen move-duration would make the
+                // bridge planner cancel-and-restart on each command and never
+                // settle. Throttled by _minSendGap so the lens is not chasing
+                // ten targets a second.
                 widget.client.zoomSet(nv, duration: Duration.zero);
               },
               onChangeEnd: (double nv) {
-                // Final value uses the user's chosen move-duration so
-                // a slow chip ("30 s") gives a smooth ease-in-out from
-                // the current lens position to nv over that window.
-                // `terminal:true` bypasses the bridge's mid-drag
-                // coalesce so the lens always lands exactly on nv.
+                // Land exactly on the released value. terminal:true bypasses the
+                // bridge's mid-drag coalesce; duration stays zero so the lens
+                // snaps to the final target instead of drifting there slowly.
+                _target = nv;
                 widget.client.zoomSet(nv, terminal: true);
                 _lastSent = DateTime.now();
-                Future<void>.delayed(
-                  const Duration(milliseconds: 200),
-                  () => mounted ? setState(() => _dragValue = null) : null,
-                );
+                // Do NOT clear _dragValue on a timer - that caused the thumb to
+                // jump to a mid-move s.zoom. build() drops it once the reported
+                // zoom converges on _target.
                 HapticFeedback.lightImpact();
               },
             ),

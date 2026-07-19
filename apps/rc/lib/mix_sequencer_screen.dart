@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -90,6 +92,14 @@ class _MixEditorState extends State<MixEditor> {
   String _mode = 'forward';
   String _hydratedSig = '__none__';
 
+  // Hold-seconds is debounced. Pushing a mix.set on every keystroke made the
+  // bridge echo one state event per keypress, and _hydratedSig only remembers
+  // the LATEST claim - so the echo for an earlier keystroke no longer matched,
+  // tripped _hydrate(), and disposed the TextEditingController mid-typing. The
+  // keyboard closed and reopened on every character (trap #15, second helping).
+  // It also rewrote mix.json to disk once per keypress.
+  Timer? _holdDebounce;
+
   @override
   void initState() {
     super.initState();
@@ -99,6 +109,7 @@ class _MixEditorState extends State<MixEditor> {
 
   @override
   void dispose() {
+    _holdDebounce?.cancel();
     widget.client.removeListener(_onChange);
     for (final c in _cues) {
       c.dispose();
@@ -154,6 +165,25 @@ class _MixEditorState extends State<MixEditor> {
     // (trap #15). mix.set clears `loaded` to scratch, so anticipate loaded=''.
     _hydratedSig = _sigOf(_asCues, _mode, '');
     widget.client.mixSet(_asCues, _mode);
+  }
+
+  /// Coalesce a burst of keystrokes into a single push. See [_holdDebounce].
+  void _applyDebounced() {
+    _holdDebounce?.cancel();
+    _holdDebounce = Timer(const Duration(milliseconds: 400), () {
+      _holdDebounce = null;
+      _apply();
+    });
+  }
+
+  /// Cancel any debounced keystroke push and apply right now. Must run before
+  /// anything that reads the cue list back from the BRIDGE (Run): the local
+  /// list is ahead of the server until the debounce fires, and a stale timer
+  /// left armed would otherwise push a mix.set into an already-running mix.
+  void _flushPending() {
+    _holdDebounce?.cancel();
+    _holdDebounce = null;
+    _apply();
   }
 
   void _addCue() {
@@ -421,7 +451,7 @@ class _MixEditorState extends State<MixEditor> {
                       onChanged: (t) {
                         final v = int.tryParse(t) ?? cue.holdS;
                         cue.holdS = v < 1 ? 1 : v;
-                        _apply();
+                        _applyDebounced();
                       },
                     ),
                   ),
@@ -503,7 +533,7 @@ class _MixEditorState extends State<MixEditor> {
                 onPressed: _cues.isEmpty
                     ? null
                     : () {
-                        _apply();
+                        _flushPending();
                         widget.client.mixStart();
                       },
                 icon: const Icon(Icons.play_arrow, size: 18),
