@@ -79,37 +79,55 @@ class _LiveScreenState extends State<LiveScreen> {
         // "+" chip is how a second (generic) camera gets added, so it
         // must exist even while there is only one - or zero - cameras.
         final showBus = bridge.devices.isNotEmpty || client.socketOpen;
-        return Scaffold(
-          body: SafeArea(
-            child: Column(
-              children: <Widget>[
-                _TopStrip(client: client),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                    child: Column(
-                      children: <Widget>[
-                        _stage(ctx, multi, onAirId, videoStaged),
-                        const SizedBox(height: 8),
-                        if (showBus) ...<Widget>[
-                          _CameraBus(client: client),
-                          const SizedBox(height: 8),
-                        ],
-                        if (videoStaged)
-                          const _VideoSourceNote()
-                        else
-                          _framing
-                              ? _FramingPanel(client: client)
-                              : _PresetGrid(client: client),
-                      ],
+        return LayoutBuilder(
+          builder: (BuildContext lctx, BoxConstraints box) {
+            // Desk layout on wide surfaces (Mac/desktop window, iPad
+            // landscape, desktop browser): preview + program side by side
+            // like a vision mixer, controls in a rail instead of behind the
+            // Frame toggle. Constraints-driven, not platform-checked.
+            if (box.maxWidth >= 900) {
+              return _deskBody(
+                lctx,
+                stagedIsLive: stagedIsLive,
+                multi: multi,
+                videoStaged: videoStaged,
+                onAirId: onAirId,
+                showBus: showBus,
+              );
+            }
+            return Scaffold(
+              body: SafeArea(
+                child: Column(
+                  children: <Widget>[
+                    _TopStrip(client: client),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                        child: Column(
+                          children: <Widget>[
+                            _stage(lctx, multi, onAirId, videoStaged),
+                            const SizedBox(height: 8),
+                            if (showBus) ...<Widget>[
+                              _CameraBus(client: client),
+                              const SizedBox(height: 8),
+                            ],
+                            if (videoStaged)
+                              const _VideoSourceNote()
+                            else
+                              _framing
+                                  ? _FramingPanel(client: client)
+                                  : _PresetGrid(client: client),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    _actionBar(lctx, stagedIsLive, multi, videoStaged),
+                    const AppFooter(),
+                  ],
                 ),
-                _actionBar(ctx, stagedIsLive, multi, videoStaged),
-                const AppFooter(),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -140,6 +158,205 @@ class _LiveScreenState extends State<LiveScreen> {
           child: _ProgramPip(client: client, onAirId: onAirId),
         ),
       ],
+    );
+  }
+
+  /// Wide-surface desk: preview + program panes over the bus on the left,
+  /// transition + controls in a right rail. Everything visible at once - the
+  /// Frame toggle only exists because a phone cannot fit both.
+  Widget _deskBody(
+    BuildContext ctx, {
+    required bool stagedIsLive,
+    required bool multi,
+    required bool videoStaged,
+    required String onAirId,
+    required bool showBus,
+  }) {
+    final theme = Theme.of(ctx);
+    final Widget stagedFeed = PreviewWidget(
+      client: client,
+      showCrosshair: client.gridCrosshair,
+      showCenterLines: client.gridCenterLines,
+      showThirds: client.gridThirds,
+      showReadout: client.gridReadout && !videoStaged,
+    );
+    final Widget programFeed = onAirId.isEmpty
+        ? Center(
+            child: Text(
+              'Nothing on air yet',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          )
+        : Center(
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: PreviewWidget(
+                  client: client,
+                  deviceId: onAirId,
+                  minimal: true,
+                ),
+              ),
+            ),
+          );
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            _TopStrip(client: client),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        children: <Widget>[
+                          Expanded(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                Expanded(
+                                  child: _DeskPane(
+                                    label: 'PREVIEW',
+                                    color: const Color(0xFF34C759),
+                                    child: Center(child: stagedFeed),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _DeskPane(
+                                    label: 'PROGRAM',
+                                    color: const Color(0xFFFF3B30),
+                                    child: programFeed,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (showBus) ...<Widget>[
+                            const SizedBox(height: 8),
+                            _CameraBus(client: client),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 340,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          if (multi) ...<Widget>[
+                            Row(
+                              children: <Widget>[
+                                Semantics(
+                                  toggled: _fadeTake,
+                                  child: IconButton(
+                                    tooltip: _fadeTake
+                                        ? 'TAKE crossfades'
+                                        : 'TAKE cuts hard',
+                                    isSelected: _fadeTake,
+                                    onPressed: () =>
+                                        setState(() => _fadeTake = !_fadeTake),
+                                    icon: Icon(
+                                      _fadeTake
+                                          ? Icons.gradient
+                                          : Icons.content_cut,
+                                      color: _fadeTake
+                                          ? theme.colorScheme.primary
+                                          : theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                                if (_fadeTake)
+                                  PopupMenuButton<int>(
+                                    tooltip: 'Crossfade length',
+                                    initialValue: _fadeMs,
+                                    onSelected: (v) =>
+                                        setState(() => _fadeMs = v),
+                                    itemBuilder: (_) => <PopupMenuEntry<int>>[
+                                      for (final c in _fadeChoices)
+                                        PopupMenuItem<int>(
+                                          value: c.$2,
+                                          child: Text(c.$1),
+                                        ),
+                                    ],
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                      ),
+                                      child: Text(
+                                        _fadeChoices
+                                            .firstWhere(
+                                              (c) => c.$2 == _fadeMs,
+                                              orElse: () =>
+                                                  ('${_fadeMs}ms', _fadeMs),
+                                            )
+                                            .$1,
+                                        style: TextStyle(
+                                          color: theme.colorScheme.primary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                const Spacer(),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            FilledButton(
+                              onPressed: stagedIsLive
+                                  ? null
+                                  : () {
+                                      HapticFeedback.mediumImpact();
+                                      client.makeLive(
+                                        client.selectedDeviceId,
+                                        fadeMs: _fadeTake ? _fadeMs : 0,
+                                      );
+                                    },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF3B30),
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                minimumSize: const Size.fromHeight(52),
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.6,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              child: Text(stagedIsLive ? 'ON AIR' : 'TAKE'),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          Expanded(
+                            child: SingleChildScrollView(
+                              child: videoStaged
+                                  ? const _VideoSourceNote()
+                                  : Column(
+                                      children: <Widget>[
+                                        _PresetGrid(client: client),
+                                        const SizedBox(height: 14),
+                                        _FramingPanel(client: client),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const AppFooter(),
+          ],
+        ),
+      ),
     );
   }
 
@@ -252,6 +469,55 @@ class _LiveScreenState extends State<LiveScreen> {
 
 /// Connection state + staged camera name + gear. The whole nav for the
 /// app is this one gear; everything rare lives behind it.
+/// One desk pane: a small colored label chip (PREVIEW green / PROGRAM red)
+/// over the feed, with a hairline border in the same color so the operator's
+/// eye can find program without reading.
+class _DeskPane extends StatelessWidget {
+  const _DeskPane({
+    required this.label,
+    required this.color,
+    required this.child,
+  });
+
+  final String label;
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: color.withValues(alpha: 0.55)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(child: child),
+        ],
+      ),
+    );
+  }
+}
+
 class _TopStrip extends StatelessWidget {
   const _TopStrip({required this.client});
   final WsClient client;

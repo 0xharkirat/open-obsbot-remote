@@ -36,6 +36,27 @@ class ObsbotApp extends StatefulWidget {
 }
 
 class _ObsbotAppState extends State<ObsbotApp> {
+  /// Connect and pair are simple forms: on a wide surface (desktop window,
+  /// desktop browser, iPad) center them at form width instead of stretching
+  /// edge to edge. The Live screen is NOT wrapped - it has a real wide
+  /// layout of its own.
+  Widget _formWidth(Widget child, Color background) {
+    return LayoutBuilder(
+      builder: (BuildContext ctx, BoxConstraints c) {
+        if (c.maxWidth <= 640) return child;
+        return ColoredBox(
+          color: background,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   final WsClient client = WsClient();
 
   @override
@@ -115,38 +136,19 @@ class _ObsbotAppState extends State<ObsbotApp> {
           ),
         ),
       ),
-      // The app is a phone-shaped column. On a wide surface (desktop window,
-      // desktop browser) don't stretch it edge to edge - center it at phone
-      // width like a hardware controller panel. Constraints-driven, not
-      // platform-checked, so a narrow desktop window still fills naturally.
-      builder: (BuildContext context, Widget? child) {
-        return LayoutBuilder(
-          builder: (BuildContext ctx, BoxConstraints c) {
-            if (c.maxWidth <= 640) return child!;
-            return ColoredBox(
-              color: deepSurface,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: child,
-                ),
-              ),
-            );
-          },
-        );
-      },
       home: AnimatedBuilder(
         animation: client,
         builder: (BuildContext context, _) {
           // 1) not connected at all → connect screen
           if (!client.socketOpen) {
-            return ConnectScreen(client: client);
+            return _formWidth(ConnectScreen(client: client), deepSurface);
           }
           // 2) socket open but server demands PIN → pair screen
           if (client.needsPairing || client.token == null) {
-            return PinEntryScreen(client: client);
+            return _formWidth(PinEntryScreen(client: client), deepSurface);
           }
-          // 3) authed → the v3 studio (one surface, no mode split).
+          // 3) authed → the v3 studio. LiveScreen owns its own responsive
+          // split: phone column under 900px, the desk layout above it.
           return LiveScreen(client: client);
         },
       ),

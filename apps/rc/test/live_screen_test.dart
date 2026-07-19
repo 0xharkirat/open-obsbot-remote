@@ -133,4 +133,54 @@ void main() {
     expect(find.text('Presets'), findsOneWidget); // toggle label flipped
     expect(find.text('Fine'), findsOneWidget); // speed segmented now shown
   });
+
+  group('desk layout (wide surface)', () {
+    Future<WsClient> pumpDesk(WidgetTester tester, BridgeState bridge) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final client = WsClient()..debugSetBridge(bridge);
+      await tester.pumpWidget(MaterialApp(home: LiveScreen(client: client)));
+      await tester.pump();
+      return client;
+    }
+
+    testWidgets('shows preview + program panes, no Frame toggle', (
+      tester,
+    ) async {
+      final client = await pumpDesk(
+        tester,
+        _bridge(<DeviceState>[
+          _device('A', name: 'Vocal'),
+          _device('B', name: 'Stage'),
+        ], 'B'),
+      );
+      expect(find.text('PREVIEW'), findsOneWidget);
+      expect(find.text('PROGRAM'), findsOneWidget);
+      // Presets and framing are both visible at once, so the phone-only
+      // Frame toggle must not render.
+      expect(find.text('Frame'), findsNothing);
+      expect(find.text('Glide'), findsOneWidget);
+      // With no explicit selection the staged camera follows the active one,
+      // so the big button reads ON AIR; staging the other camera arms TAKE.
+      expect(find.text('ON AIR'), findsWidgets);
+      client.selectDevice('A');
+      await tester.pump();
+      expect(find.text('TAKE'), findsOneWidget);
+    });
+
+    testWidgets('phone width keeps the single-column layout', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final client = WsClient()
+        ..debugSetBridge(
+          _bridge(<DeviceState>[_device('A', name: 'Vocal')], 'A'),
+        );
+      await tester.pumpWidget(MaterialApp(home: LiveScreen(client: client)));
+      await tester.pump();
+      expect(find.text('PREVIEW'), findsNothing);
+      expect(find.text('Frame'), findsOneWidget);
+    });
+  });
 }
