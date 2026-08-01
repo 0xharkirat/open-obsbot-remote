@@ -9,7 +9,8 @@ Open OBSBOT Remote has these runtime products:
 The bridge host stays connected to one or more OBSBOT cameras over USB.
 v2 runs N cameras on a single host at once.
 Controller devices connect over the local network.
-OBS consumes one Browser Source pointed at `/preview/active.mjpg`, so a camera switch happens inside the bridge rather than as an OBS scene change.
+OBS consumes one Media Source pointed at `/preview/active.mjpg`, so a camera switch happens inside the bridge rather than as an OBS scene change.
+A Media Source decodes the stream with ffmpeg and retries a dead source indefinitely; a Browser Source runs a whole Chromium instance for the same job, drops frames under load, and never reconnects when a stream ends.
 
 ## System Overview
 
@@ -24,7 +25,7 @@ Two things sit above the per-camera sessions, both on the `DeviceManager`:
 
 ```
 Controller device (phone)              OBS (on the bridge host or another machine)
-  - Flutter UI                           - Browser Source -> /preview/active.mjpg
+  - Flutter UI                           - Media Source -> /preview/active.mjpg
   - WebSocket JSON client                - one capture, follows the active camera
   - MJPEG preview viewer
         |                                      |
@@ -82,6 +83,13 @@ Responsibilities:
 - Kill stale listeners on ports `8765` and `8766` before spawning.
 - Enforce single-instance behavior.
 - Run a macOS menubar tray icon. The tray title carries a live status glyph. Closing the main window hides it instead of quitting; the tray keeps the subprocess alive so live streams are not interrupted.
+
+The subprocess dies with this app, deliberately.
+It blocks on `read(STDIN_FILENO)` and exits the moment that pipe closes, which the kernel does whenever the supervisor goes away - a clean quit, a crash, or a force quit alike.
+Parent-side cleanup cannot cover the last two, since a killed process runs no code, and macOS has no parent-death signal to fall back on.
+So **quitting the bridge app ends the stream**, where closing its window does not.
+An OBS Media Source reconnects on its own once the bridge is running again; this is one of the reasons to prefer it over a Browser Source, which does not.
+Without this the subprocess was orphaned to launchd and went on holding the camera and both ports, and `tests/lifecycle.mjs` now pins the behaviour in both directions.
 
 Important paths:
 
@@ -158,7 +166,7 @@ The controller is layered into packages; see [Client architecture](#client-archi
 
 ### Client shell (planned)
 
-A macOS app that republishes the live camera as one virtual webcam for tools that cannot point a Browser Source at an MJPEG URL.
+A macOS app that republishes the live camera as one virtual webcam, for tools that cannot consume an MJPEG URL at all: Zoom, Meet, and anything else that only accepts a system camera.
 It would be a WebSocket client of the bridge, the same as the phone, running on the same Mac.
 
 Responsibilities:
@@ -170,7 +178,7 @@ Responsibilities:
 - Show a small status UI with connection state, the live camera name, a start/stop toggle, and a link to the bridge window.
 
 The shell is not built yet.
-`CLIENT_SHELL_DESIGN.md` covers the two implementation paths (OBS Browser Source first, CoreMediaIO Camera Extension later) and the open questions around signing and notarization.
+`CLIENT_SHELL_DESIGN.md` covers the two implementation paths (an OBS source first, a CoreMediaIO Camera Extension later) and the open questions around signing and notarization.
 The control surface stays on the phone; the shell would add no camera controls of its own.
 
 ## Client architecture
@@ -240,7 +248,7 @@ AVFoundation capture session (one per camera)
   -> GET /preview/<sn>.mjpg?t=<token>      (one fixed camera)
      GET /preview/active.mjpg?t=<token>    (follows active_device_id)
   -> multipart/x-mixed-replace stream
-  -> phone preview widget, or the OBS Browser Source
+  -> phone preview widget, or the OBS Media Source
 ```
 
 The per-serial path streams one fixed camera and never switches; it is what the phone shows for the camera the operator has selected.
@@ -322,7 +330,7 @@ The script builds C++, the Flutter web remote, and the Flutter macOS shell, copi
 
 - Public internet access.
 - TLS termination inside the bridge.
-- A signed and notarized CoreMediaIO Camera Extension for the client shell. The OBS Browser Source path ships first; see `CLIENT_SHELL_DESIGN.md`.
+- A signed and notarized CoreMediaIO Camera Extension for the client shell, which needs a paid Apple Developer account. Consuming the MJPEG stream in OBS ships first; see `CLIENT_SHELL_DESIGN.md`.
 - Windows and Linux bridge packaging.
 - Firmware updates.
 - OBSBOT camera families that have not been validated on real hardware.
