@@ -23,7 +23,6 @@ The frontier is every open ticket with nothing blocking it. Blocked tickets wait
 | Ticket | Type | Status |
 | --- | --- | --- |
 | [Gather frame-drop evidence on the mini](tickets/01-mini-frame-drop-evidence.md) | task, HITL | frontier |
-| [Decide what a cue does when its preset is missing or moved](tickets/04-preset-binding-semantics.md) | grilling, HITL | frontier |
 | [Decide the mix sequence authoring and persistence model](tickets/05-sequence-authoring-model.md) | grilling, HITL | frontier |
 | [Decide the frame-drop mitigation](tickets/02-frame-drop-mitigation.md) | grilling, HITL | blocked by ticket 01 |
 
@@ -31,6 +30,7 @@ The frontier is every open ticket with nothing blocking it. Blocked tickets wait
 
 <!-- one line per closed ticket: enough to judge relevance, then open the ticket for detail -->
 
+- [Decide what a cue does when its preset is missing or moved](tickets/04-preset-binding-semantics.md) - **Be strict where it is free, permissive where it is expensive.** Mid-sequence a missing preset holds the current shot and carries on, loudly. At Run it warns clearly but never blocks, because a service starts at a fixed time. `preset.recall` on an empty slot now errors with `empty_preset`, and the solver validates every cue against the camera's real presets and publishes warnings. Slot-versus-pose binding is explicitly deferred: it fixes nothing now broken and costs portability.
 - [Trace what happens to a sequence when a preset moves](tickets/03-preset-reference-trace.md) - Nothing is stale: engine, saved library, and UI all follow the live slot, proven on hardware (a re-saved preset landed 0.2 deg from its new pose, 65 deg from the old). The operator's symptom is instead a **silent no-op**: recalling an empty slot returns `ok: true` and moves nothing, and all 4 of their saved sequences depend on a P2 that is empty on the main camera.
 
 ## Done outside the map

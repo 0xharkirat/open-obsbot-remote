@@ -1,6 +1,6 @@
 # Decide what a cue does when its preset is missing or moved
 
-`wayfinder:grilling` - HITL - status: **open, on the frontier**
+`wayfinder:grilling` - HITL - status: **CLOSED 2026-07-24**
 
 Unblocked by: [Trace what happens to a sequence when a preset moves](03-preset-reference-trace.md)
 
@@ -38,4 +38,42 @@ The live context argues against anything that stops a running show, and equally 
 
 ## Answer
 
-_Unresolved._
+**Resolved 2026-07-24. A missing preset never stops the show and never stays quiet. The system warns at every point where the operator could still act, and degrades predictably when they cannot.**
+
+The governing principle, which decided all five points: **be strict where it is free, permissive where it is expensive.** Before a sequence runs, warning costs nothing, so warn hard. Once it is running in front of a congregation, stopping costs everything, so hold and keep going.
+
+### 1. Runtime, mid-sequence: hold the current shot and carry on, loudly
+
+A cue whose slot is empty leaves the camera on its previous shot and the sequence continues to the next cue. This is what the code already does; what changes is that it stops being silent. The running cue is marked broken in the run bar, and the event is logged.
+
+Rejected: skipping the cue, because the solver's crossfade pairing assumed that cue existed and removing it can cascade into same-camera transitions that cannot dissolve. Rejected: halting the sequence, because losing automation mid-diwan with no override is a worse failure than one wrong shot.
+
+### 2. Pre-flight, at Run: warn clearly, never block
+
+`mix.start` succeeds and returns the warnings with it. The UI shows a pre-flight banner naming the broken cue and offering to fix it, and Run stays enabled.
+
+The reasoning is scheduling, not software: a service begins at a fixed moment and Rehras does not wait for a preset. A hard block would mean one empty slot leaves the operator with no automation at exactly the moment they have least time to fix it. They keep the choice, and the runtime behaviour above makes taking it safe.
+
+### 3. Protocol: `preset.recall` on an empty slot returns an error
+
+`{"ok": false, "err": "empty_preset"}` replaces today's `ok: true`. Separately, `mix_replan` checks every cue's slot against the camera's real preset list and publishes warnings into the mix state block.
+
+Both halves are needed and they do different jobs. The error makes a **direct** recall honest, so tapping an empty P2 on the preset grid says so. The solver warnings are what power the pre-flight banner, because they are computed without moving anything. Only our own clients consume this ack, and one that ignores `err` behaves exactly as today, so the compatibility cost is a `PROTOCOL.md` entry.
+
+### 4. The editor card must stop contradicting the engine
+
+`mix_sequencer_screen.dart:396-399` currently coerces a missing slot's *displayed* value to `-1`, so the card reads "Hold current shot" while `toCue()` still emits the original slot. That is fixed by the decisions above rather than decided separately: the card must show the cue's real slot, marked broken. Follow the treatment the per-camera sequencer already uses at `sequencer_screen.dart:864-869` (`P2 (empty)`), and put the fix action on the row itself.
+
+Never silently rewrite the operator's authored value to make a display consistent. Show what they wrote and say what is wrong with it.
+
+### 5. Slot versus pose binding: deliberately deferred, not decided
+
+With the reported symptom explained by the empty slot, freezing a cue to a pose fixes nothing that is currently broken, and it would cost the portability that slot binding buys (a sequence with no serials and no coordinates travels between rigs). It stays a live design question about whether a saved sequence is a record of shots or a set of live references, and it is explicitly parked rather than smuggled in as part of a bug fix.
+
+### What this leaves to build
+
+1. Bridge: `empty_preset` error on recall; solver validation of cue slots against the camera's preset list; warnings in mix state.
+2. Remote: pre-flight banner on Run; broken-cue marking in the editor and run bar; remove the display coercion.
+3. Docs: the new error and the warning semantics in `PROTOCOL.md`.
+
+The UI treatment for points 2 draws on the three-tier escalation pattern recorded in [the Mobbin research](../../ui-ux-research/mobbin-findings.md): count the problem in the header, border the offending card, name the exact missing preset in the detail, and never disable the primary action.
