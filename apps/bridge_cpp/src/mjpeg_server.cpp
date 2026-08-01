@@ -6,6 +6,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>   // TCP_NODELAY
 #include <sys/socket.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -109,6 +110,12 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
     struct timeval tv{5, 0};
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes2, sizeof(yes2));
+    // Disable Nagle. Each frame goes out as a boundary + header + JPEG in
+    // separate send_all calls, and Nagle holds the small writes back waiting
+    // to coalesce with the next one - it delays the frame the consumer is
+    // already waiting for. A live stream wants every byte on the wire now,
+    // which is the whole reason TCP_NODELAY exists.
+    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes2, sizeof(yes2));
 
     // CORS preflight.
     if (std::strstr(buf, "OPTIONS ") == buf) {
