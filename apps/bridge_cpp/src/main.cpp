@@ -6,9 +6,13 @@
 #include "log.h"
 
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <string>
+#include <thread>
+
+#include <unistd.h>   // getppid
 
 static std::atomic<bool> g_shutdown{false};
 
@@ -27,6 +31,28 @@ int main(int argc, char** argv) {
     // POSIX behaviour is to terminate the process. We want the bridge
     // to keep serving everyone else.
     std::signal(SIGPIPE, SIG_IGN);
+
+    // Die with the supervisor. Quitting the .app left this process orphaned to
+    // launchd, still holding the camera - so macOS kept showing the camera-in-
+    // use indicator, other apps could not open the camera, and ports 8765/8766
+    // stayed bound until the next launch cleaned them up.
+    //
+    // Watching from THIS side rather than killing from the parent is what makes
+    // it reliable: a crashed or force-quit supervisor runs no cleanup code at
+    // all, and there is no parent-death signal on macOS. Comparing against the
+    // ppid captured at startup avoids firing when the bridge is deliberately
+    // launched already-orphaned (nohup, a detached shell).
+    std::thread([initial_ppid = getppid()]() {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (getppid() != initial_ppid) {
+                LOGI("supervisor gone; exiting so the camera is released");
+                // _Exit for the same reason as the signal handler: libdev's
+                // global destructors crash on teardown.
+                std::_Exit(0);
+            }
+        }
+    }).detach();
 
     obs::install_sdk_log_handler();
 

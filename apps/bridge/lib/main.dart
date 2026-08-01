@@ -1095,97 +1095,106 @@ class _HomeScreenState extends State<HomeScreen> {
             return Center(
               child: Material(
                 type: MaterialType.transparency,
-                child: MacosSheet(
-                  insetPadding: const EdgeInsets.symmetric(
-                    horizontal: 60,
-                    vertical: 40,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 480),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text('Settings', style: type.title2),
-                          const SizedBox(height: 14),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                // showGeneralDialog builds its own route subtree, which does
+                // not carry the macos_ui text defaults the main window has.
+                // Without this, any bare TextStyle in here inherits a colour
+                // that is invisible against the sheet - which is exactly how
+                // the About values shipped unreadable in v2.5.1.
+                child: DefaultTextStyle(
+                  style: MacosTheme.of(c).typography.body,
+                  child: MacosSheet(
+                    insetPadding: const EdgeInsets.symmetric(
+                      horizontal: 60,
+                      vertical: 40,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text('Settings', style: type.title2),
+                            const SizedBox(height: 14),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        'Start hidden in menubar',
+                                        style: type.body,
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        'Launch directly into the menubar with no '
+                                        'window or dock icon. Show the window any '
+                                        'time from the tray. Until at least one '
+                                        'phone is paired, the window will still '
+                                        'appear on launch so you can see the PIN.',
+                                        style: type.caption1.copyWith(
+                                          color: MacosColors.systemGrayColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                MacosSwitch(
+                                  value: startHidden,
+                                  onChanged: (bool v) async {
+                                    setSt(() => startHidden = v);
+                                    await widget.prefs.setStartHidden(v);
+                                  },
+                                ),
+                              ],
+                            ),
+                            if (startHidden != initial)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Row(
                                   children: <Widget>[
-                                    Text(
-                                      'Start hidden in menubar',
-                                      style: type.body,
+                                    const MacosIcon(
+                                      CupertinoIcons.info_circle,
+                                      size: 14,
+                                      color: MacosColors.systemGrayColor,
                                     ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      'Launch directly into the menubar with no '
-                                      'window or dock icon. Show the window any '
-                                      'time from the tray. Until at least one '
-                                      'phone is paired, the window will still '
-                                      'appear on launch so you can see the PIN.',
-                                      style: type.caption1.copyWith(
-                                        color: MacosColors.systemGrayColor,
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Applies on next launch. The dock icon '
+                                        'already follows the window automatically.',
+                                        style: type.caption1.copyWith(
+                                          color: MacosColors.systemGrayColor,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              MacosSwitch(
-                                value: startHidden,
-                                onChanged: (bool v) async {
-                                  setSt(() => startHidden = v);
-                                  await widget.prefs.setStartHidden(v);
-                                },
-                              ),
-                            ],
-                          ),
-                          if (startHidden != initial)
                             Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Row(
-                                children: <Widget>[
-                                  const MacosIcon(
-                                    CupertinoIcons.info_circle,
-                                    size: 14,
-                                    color: MacosColors.systemGrayColor,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      'Applies on next launch. The dock icon '
-                                      'already follows the window automatically.',
-                                      style: type.caption1.copyWith(
-                                        color: MacosColors.systemGrayColor,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Container(
+                                height: 1,
+                                color: MacosTheme.of(c).dividerColor,
                               ),
                             ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Container(
-                              height: 1,
-                              color: MacosTheme.of(c).dividerColor,
+                            _aboutSection(c),
+                            const SizedBox(height: 16),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: PushButton(
+                                controlSize: ControlSize.regular,
+                                onPressed: () => Navigator.of(c).pop(),
+                                child: const Text('Close'),
+                              ),
                             ),
-                          ),
-                          _aboutSection(c),
-                          const SizedBox(height: 16),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: PushButton(
-                              controlSize: ControlSize.regular,
-                              onPressed: () => Navigator.of(c).pop(),
-                              child: const Text('Close'),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1226,7 +1235,11 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 8),
             SelectableText(
               'v$_kAppVersion',
-              style: const TextStyle(
+              // Colour must come from the theme's typography, never a bare
+              // TextStyle. A bare one inherits whatever the surrounding route
+              // provides, and inside this sheet that is a dark colour on a
+              // dark background: the text renders invisibly.
+              style: type.body.copyWith(
                 fontFamily: 'Menlo',
                 fontWeight: FontWeight.w600,
               ),
@@ -1299,7 +1312,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: SelectableText(
               value,
-              style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+              style: type.body.copyWith(fontFamily: 'Menlo', fontSize: 11),
             ),
           ),
           MacosTooltip(

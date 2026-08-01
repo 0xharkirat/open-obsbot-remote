@@ -4,6 +4,13 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-07-24
+
+### Fixed
+
+- Quitting the bridge now releases the camera. The helper process was left orphaned when the app quit, so macOS kept showing the camera-in-use indicator in the menu bar, other apps could not open the camera, and the network ports stayed bound until the next launch cleaned them up. The helper now notices its supervisor is gone and exits on its own, which also covers a crash or a force quit, where no cleanup code in the app could run.
+- The Settings sheet shows its log and app-data paths again. They were rendering in a colour inherited from the surrounding dialog rather than the theme, which left them invisible against the sheet background. Introduced in 2.5.1.
+
 ## [2.5.1] - 2026-07-24
 
 Update any machine running an earlier version. The remote could not load without an internet connection, which defeats the point of a bridge that runs entirely on your own network.
