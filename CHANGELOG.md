@@ -4,6 +4,22 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-07-24
+
+Update any machine running an earlier version. The remote could not load without an internet connection, which defeats the point of a bridge that runs entirely on your own network.
+
+### Fixed
+
+- The remote no longer needs the internet to start. Flutter's web build fetches its rendering engine from a Google CDN by default, so a venue with the internet down got a blank page even though the bridge, the cameras, and the browser were all on the same machine. The engine was already bundled in the app; it is now actually used. Reported after a service where the operator could not control the cameras from the bridge machine itself.
+
+### Added
+
+- Both apps show the version they are actually running: the bridge in Settings, and the remote in the footer. The number is read from the running build rather than typed into the source, so it cannot drift from what shipped. On a phone this is also the quickest way to catch a browser serving a stale cached remote - if its version does not match the bridge, clear that site's data.
+
+### Known limits
+
+- One online dependency remains. The rendering engine downloads fallback fonts on demand for characters outside the bundled font, so text in Gurmukhi or another non-Latin script would not render without the internet. Latin text is unaffected.
+
 ## [2.5.0] - 2026-07-19
 
 The live-stream hardening release, plus the mix rework and any-camera sources.

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Compact project footer with stack credits.
@@ -67,6 +68,23 @@ class AppFooter extends StatelessWidget {
               child: Text(
                 'Open OBSBOT Remote',
                 style: small.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            // Version of the REMOTE, read from the running bundle. On web this
+            // is the fastest way to catch a browser serving a stale cached
+            // build: if this does not match the bridge's version, the phone is
+            // running old code and needs its site data cleared.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: FutureBuilder<PackageInfo>(
+                future: PackageInfo.fromPlatform(),
+                builder: (BuildContext ctx, AsyncSnapshot<PackageInfo> snap) {
+                  final v = snap.data;
+                  return Text(
+                    v == null ? '' : 'v${v.version}',
+                    style: small.copyWith(fontFamily: 'Menlo'),
+                  );
+                },
               ),
             ),
             Padding(

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:marionette_flutter/marionette_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -53,6 +54,8 @@ Future<void> main() async {
     WidgetsFlutterBinding.ensureInitialized();
   }
   await windowManager.ensureInitialized();
+  final info = await PackageInfo.fromPlatform();
+  _kAppVersion = '${info.version} (${info.buildNumber})';
   final prefs = await BridgePrefs.load();
   final paired = await _hasPairedTokens();
   // Handy-style onboarding override: ignore start-hidden when no
@@ -95,10 +98,15 @@ Future<void> main() async {
   runApp(ObsbotBridgeApp(prefs: prefs));
 }
 
-/// Hardcoded for now; mirrors `version:` in `apps/bridge/pubspec.yaml`.
-/// `package_info_plus` would let us read it at runtime but it adds a
-/// dependency for a single string. Update both places at release time.
-const String _kAppVersion = '2.5.0';
+/// Read from the built bundle at startup, never hardcoded.
+///
+/// This used to be a `const` mirroring `version:` in `pubspec.yaml`, on the
+/// reasoning that a dependency was too much for one string. That trade was
+/// wrong: two sources of truth drift, and the number is the first thing anyone
+/// asks for when diagnosing a machine in the field. A version that can lie is
+/// worse than no version. Now it comes from the artifact itself, so it is
+/// always what is actually running.
+String _kAppVersion = '';
 
 class ObsbotBridgeApp extends StatefulWidget {
   final BridgePrefs prefs;
