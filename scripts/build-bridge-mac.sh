@@ -51,7 +51,12 @@ test -f "$BRIDGE_LIB" || { echo "libdev.dylib missing"; exit 1; }
 #     blank until the user clears site data. No SW = a normal reload
 #     always gets the fresh build.
 echo "==> Building Flutter web app..."
-(cd apps/rc && flutter build web --release --pwa-strategy=none)
+# --no-web-resources-cdn is not optional: without it Flutter fetches the
+# CanvasKit engine (~7MB of wasm) from gstatic.com on every cold load, so the
+# remote is dead whenever the venue's internet is, even though the bridge, the
+# cameras and the browser are all on the same machine. The engine is already
+# bundled at web/canvaskit/; this flag makes the app actually use it.
+(cd apps/rc && flutter build web --release --pwa-strategy=none --no-web-resources-cdn)
 WEB_DIR="$ROOT/apps/rc/build/web"
 test -d "$WEB_DIR" || { echo "web build missing at $WEB_DIR"; exit 1; }
 
