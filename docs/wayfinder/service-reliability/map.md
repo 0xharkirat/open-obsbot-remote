@@ -23,16 +23,15 @@ The frontier is every open ticket with nothing blocking it. Blocked tickets wait
 | Ticket | Type | Status |
 | --- | --- | --- |
 | [Gather frame-drop evidence on the mini](tickets/01-mini-frame-drop-evidence.md) | task, HITL | frontier |
-| [Trace what happens to a sequence when a preset moves](tickets/03-preset-reference-trace.md) | research, AFK | frontier |
+| [Decide what a cue does when its preset is missing or moved](tickets/04-preset-binding-semantics.md) | grilling, HITL | frontier |
 | [Decide the mix sequence authoring and persistence model](tickets/05-sequence-authoring-model.md) | grilling, HITL | frontier |
 | [Decide the frame-drop mitigation](tickets/02-frame-drop-mitigation.md) | grilling, HITL | blocked by ticket 01 |
-| [Decide preset binding semantics](tickets/04-preset-binding-semantics.md) | grilling, HITL | blocked by ticket 03 |
 
 ## Decisions so far
 
 <!-- one line per closed ticket: enough to judge relevance, then open the ticket for detail -->
 
-_None yet - charted 2026-07-24._
+- [Trace what happens to a sequence when a preset moves](tickets/03-preset-reference-trace.md) - Nothing is stale: engine, saved library, and UI all follow the live slot, proven on hardware (a re-saved preset landed 0.2 deg from its new pose, 65 deg from the old). The operator's symptom is instead a **silent no-op**: recalling an empty slot returns `ok: true` and moves nothing, and all 4 of their saved sequences depend on a P2 that is empty on the main camera.
 
 ## Done outside the map
 
@@ -48,7 +47,8 @@ The fog toward the destination. In scope, not yet sharp enough to ticket.
 - **On-air camera dies mid-service.** The operator's own pick for scariest failure. A camera glitches on USB, sleeps, or gets bumped while live: what does OBS show, does the bridge fail over to another camera, does the operator get told which one died, does a re-plug recover on its own? The shape of this depends on what the frame-drop evidence says about USB and host behaviour, so it graduates after [Gather frame-drop evidence on the mini](tickets/01-mini-frame-drop-evidence.md).
 - **Control plane dies silently.** The phone backgrounds, the screen locks, Wi-Fi roams, or the WebSocket drops, and the operator keeps tapping a surface that no longer drives anything. Auto-reconnect exists in places; whether it is trustworthy, and whether loss of control is visible, is undecided.
 - **Which deferred review findings actually matter for reliability.** GitHub issue #62 collects findings parked during the v2 release. Some are reliability-relevant (the device re-attach race), some are hygiene (value equality). Needs triage against this destination rather than wholesale adoption.
-- **What the two-camera solver verification must prove.** GitHub issue #57 is open as a checklist written before the solver shipped. Whether that checklist is the right one is itself undecided.
+- **What the two-camera solver verification must prove.** GitHub issue #57 is open as a checklist written before the solver shipped. Whether that checklist is the right one is itself undecided. The preset trace added a case it does not currently cover: a cue landing on a camera whose slot is empty while the other camera's is not, which only appears with 2 cameras attached.
+- **Whether the pre-2.1 saved sequences should be migrated.** All 4 of the operator's sequences are the old fully-pinned format, so they run verbatim and never re-derive cameras. They work, but they sit outside everything the 2.1 solver does, and they hard-code serials that will not survive a camera replacement. Migrating them is a decision about whether the old format stays supported indefinitely.
 
 ## Out of scope
 

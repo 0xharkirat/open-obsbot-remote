@@ -1,32 +1,40 @@
-# Decide preset binding semantics for cues
+# Decide what a cue does when its preset is missing or moved
 
-`wayfinder:grilling` - HITL - status: **open, blocked**
+`wayfinder:grilling` - HITL - status: **open, on the frontier**
 
-Blocked by: [Trace what happens to a sequence when a preset moves](03-preset-reference-trace.md)
+Unblocked by: [Trace what happens to a sequence when a preset moves](03-preset-reference-trace.md)
+
+_Rewritten 2026-07-24. The original framing assumed stale preset data caused the operator's report. The trace disproved that and uncovered a different defect, so the question has been re-pointed at what was actually found._
 
 ## Question
 
-Should a cue bind to a preset **slot**, so it follows the camera as the operator re-frames that preset, or to a **pose**, frozen at the moment the sequence was authored?
+A cue names a preset slot. What should happen when that slot is empty, and what should the operator see when a preset a sequence depends on has changed underneath it?
 
-## Why it is a real question
+## What the trace established
 
-Today a cue stores a slot number and nothing else, so it follows the camera. That is defensible: re-frame P1 for a differently arranged hall and every sequence that uses P1 quietly adapts.
+- Nothing goes stale. The engine, the saved library, and the Flutter UI all reference a slot and read it live. A re-saved preset is followed correctly.
+- Recalling an **empty** slot returns `ok: true` and moves nothing. The camera holds its previous shot while every layer reports success.
+- All 4 of the operator's saved sequences depend on P2 of the main camera, and P2 is empty there. That silent no-op is the most likely explanation for what they experienced as "still pointing at old presets".
 
-It is also the opposite of what the operator seems to expect. Their report reads as a saved sequence being a **record of shots**, where re-pointing P1 for some other purpose should not silently rewrite a sequence built weeks earlier for a service.
+So the real question is not how a cue stores its target, but what the system owes the operator when that target is not there.
 
-Both readings are coherent, they cannot both be the default, and the choice decides:
+## What has to be decided
 
-- Whether saved sequences stay portable between rigs. Slot binding is exactly what made them portable, since no serial numbers or coordinates travel with the file.
-- What the editor must show, and what it must warn about when a preset a cue depends on has moved.
-- Whether a pose-bound cue needs a way to re-capture from the current camera position.
+**1. Runtime behaviour on an empty slot.** Options, none obviously right:
 
-## Options to weigh
+- Hold the current shot and carry on, which is what happens today, only announced rather than silent.
+- Skip the cue entirely and move to the next.
+- Refuse to start the sequence at all, forcing the problem to be fixed before a service rather than during one.
 
-1. **Slot binding, made visible.** Keep today's behaviour, and make the editor honest about it: show that a cue follows the live preset, and surface when that preset has moved since authoring.
-2. **Pose binding.** Cues capture coordinates at authoring time, with an explicit re-capture action. Costs portability and adds a stale-pose problem of its own when a camera is physically moved.
-3. **Per-cue choice.** Both, selectable. Most capable, most machinery, and a new concept the operator has to hold in their head.
+The live context argues against anything that stops a running show, and equally against anything that stays quiet.
 
-The answer should also settle what the editor shows when the two diverge, since that is where the surprise actually happened.
+**2. Authoring-time visibility.** The editor should say a cue's slot is empty before the sequence ever runs. The per-camera sequencer already renders `P2 (empty)` at `sequencer_screen.dart:864-869`; the mix editor renders a bare `P2`. Adopting the existing treatment is the obvious move unless there is reason to do better.
+
+**3. The card that lies.** At `mix_sequencer_screen.dart:396-399` a cue whose slot is missing *displays* "Hold current shot" while still emitting the original slot to the bridge. The display contradicts the behaviour. This is wrong under any decision above; what replaces it depends on decision 1.
+
+**4. Whether the bridge should still ack success.** `preset.recall` on an empty slot returning `ok: true` is a lie at the protocol level, and every layer above inherits it. Changing it to an error is more honest but is a wire-contract change affecting existing clients.
+
+**5. Slot versus pose, now genuinely optional.** With the reported symptom explained, freezing a cue to a pose is no longer needed to fix anything. It remains a real design choice about whether a saved sequence is a record of shots or a set of live references, and it costs the portability that slot binding buys. Worth deciding deliberately, or explicitly deferring, rather than being smuggled in as a fix.
 
 ## Answer
 
