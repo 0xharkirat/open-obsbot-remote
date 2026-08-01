@@ -12,7 +12,8 @@
 #include <string>
 #include <thread>
 
-#include <unistd.h>   // getppid
+#include <cerrno>
+#include <unistd.h>   // read, STDIN_FILENO
 
 static std::atomic<bool> g_shutdown{false};
 
@@ -32,26 +33,49 @@ int main(int argc, char** argv) {
     // to keep serving everyone else.
     std::signal(SIGPIPE, SIG_IGN);
 
-    // Die with the supervisor. Quitting the .app left this process orphaned to
-    // launchd, still holding the camera - so macOS kept showing the camera-in-
-    // use indicator, other apps could not open the camera, and ports 8765/8766
-    // stayed bound until the next launch cleaned them up.
+    // Die with the supervisor, by watching stdin for EOF.
     //
-    // Watching from THIS side rather than killing from the parent is what makes
-    // it reliable: a crashed or force-quit supervisor runs no cleanup code at
-    // all, and there is no parent-death signal on macOS. Comparing against the
-    // ppid captured at startup avoids firing when the bridge is deliberately
-    // launched already-orphaned (nohup, a detached shell).
-    std::thread([initial_ppid = getppid()]() {
-        for (;;) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            if (getppid() != initial_ppid) {
-                LOGI("supervisor gone; exiting so the camera is released");
-                // _Exit for the same reason as the signal handler: libdev's
-                // global destructors crash on teardown.
-                std::_Exit(0);
-            }
+    // Quitting the .app left this process orphaned to launchd, still holding
+    // the camera and ports 8765/8766. Two separate symptoms came from that one
+    // orphan: the macOS camera indicator stayed lit (the AVCaptureSession is
+    // still open) and OBSBOT Center could not take the camera (libdev still
+    // holds the USB control endpoint - see gotcha #19).
+    //
+    // Watching from THIS side is what makes it reliable. macOS has no
+    // PR_SET_PDEATHSIG, and a crashed or force-quit supervisor runs no cleanup
+    // code at all, so anything parent-side covers only the polite case - which
+    // was never the broken one.
+    //
+    // stdin is the right fd for it and needs no plumbing: Dart's
+    // ProcessStartMode.normal connects the child's stdin to a real pipe whose
+    // WRITE end the supervisor holds, and the Dart VM marks both ends
+    // FD_CLOEXEC, so no grandchild can inherit the write end and silently
+    // disable this. Nothing else here reads stdin. When the supervisor dies by
+    // ANY means, including SIGKILL and a panic, the kernel closes its end and
+    // read() returns 0.
+    //
+    // Preferred over polling getppid(): instant rather than up to a second
+    // late, no pid to be recycled, and no false positive when a debugger
+    // attaches (PT_ATTACH reparents the traced process, which a getppid watch
+    // reads as the supervisor dying). It also closes the startup race for
+    // free - an already-dead supervisor gives EOF on the first read instead of
+    // arming a watch for a change that already happened.
+    //
+    // Under run-bridge.sh stdin is the terminal, which stays open, so the dev
+    // path is unaffected.
+    std::thread([]() {
+        char b;
+        ssize_t n;
+        while ((n = ::read(STDIN_FILENO, &b, 1)) > 0) {
+            // The supervisor never writes to us; drain anything anyway.
         }
+        if (n < 0 && errno == EINTR) return;   // not a death; leave it alone
+        obs::log_line_to_file("supervisor gone; exiting so the camera is released");
+        // _Exit for the same reason as the signal handler: libdev's global
+        // destructors crash on teardown (gotcha #14). Every OS resource we
+        // hold, the camera included, is reclaimed by the kernel regardless of
+        // how the process ends.
+        std::_Exit(0);
     }).detach();
 
     obs::install_sdk_log_handler();

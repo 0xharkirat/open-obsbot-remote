@@ -1101,7 +1101,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // that is invisible against the sheet - which is exactly how
                 // the About values shipped unreadable in v2.5.1.
                 child: DefaultTextStyle(
-                  style: MacosTheme.of(c).typography.body,
+                  style: type.body,
                   child: MacosSheet(
                     insetPadding: const EdgeInsets.symmetric(
                       horizontal: 60,

@@ -8,8 +8,8 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ### Fixed
 
-- Quitting the bridge now releases the camera. The helper process was left orphaned when the app quit, so macOS kept showing the camera-in-use indicator in the menu bar, other apps could not open the camera, and the network ports stayed bound until the next launch cleaned them up. The helper now notices its supervisor is gone and exits on its own, which also covers a crash or a force quit, where no cleanup code in the app could run.
-- The Settings sheet shows its log and app-data paths again. They were rendering in a colour inherited from the surrounding dialog rather than the theme, which left them invisible against the sheet background. Introduced in 2.5.1.
+- Quitting the bridge now releases the camera. The helper process was left orphaned when the app quit, so macOS kept the camera-in-use indicator lit in the menu bar and the network ports stayed bound until the next launch swept them up. Separately, OBSBOT Center could not take the camera either, because the orphan still held the USB control endpoint. The helper now watches the pipe it shares with the app and exits the moment that closes, which takes well under a second and covers a crash or a force quit as well, where no cleanup code inside the app can run at all.
+- The Settings sheet shows its log and app-data paths again. They were rendering in a colour inherited from the surrounding dialog rather than the theme, which left them invisible against the sheet background. Those two rows have been unreadable since 2.5.0; the version row above them since 2.5.1.
 
 ## [2.5.1] - 2026-07-24
 
