@@ -113,6 +113,16 @@ class _ObsbotAppState extends State<ObsbotApp> {
       title: 'Open OBSBOT Remote',
       theme: ThemeData(
         useMaterial3: true,
+        // Name the bundled font explicitly. Leaving this unset makes Flutter
+        // web ask CanvasKit for its built-in default, which it fetches from
+        // fonts.gstatic.com - so with no internet the whole UI renders without
+        // a single character of text. Pointing at the asset we ship keeps the
+        // remote fully local.
+        fontFamily: 'Roboto',
+        // Roboto carries no arrows and few symbols, and CanvasKit answers one
+        // missing glyph by downloading a face from fonts.gstatic.com. Naming a
+        // bundled fallback keeps even those characters local.
+        fontFamilyFallback: const <String>['NotoSansSymbols'],
         colorScheme: colorScheme,
         scaffoldBackgroundColor: deepSurface,
         // M3 default SegmentedButton selected fill is `secondaryContainer`,

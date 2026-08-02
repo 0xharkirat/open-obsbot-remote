@@ -4,6 +4,14 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-07-24
+
+### Fixed
+
+- Quitting the bridge now releases the camera. The helper process was left orphaned when the app quit, so macOS kept the camera-in-use indicator lit in the menu bar and the network ports stayed bound until the next launch swept them up. Separately, OBSBOT Center could not take the camera either, because the orphan still held the USB control endpoint. The helper now watches the pipe it shares with the app and exits the moment that closes, which takes well under a second and covers a crash or a force quit as well, where no cleanup code inside the app can run at all.
+- The remote renders text with no internet. Bundling CanvasKit in 2.5.1 fixed the engine but not the fonts: Flutter web's default text font is Roboto, which CanvasKit downloads from a Google font CDN at runtime, so an offline venue got a remote with working icons and not one character of text. Roboto now ships inside the app, along with a symbol font for the arrows Roboto lacks, because a single missing glyph is enough to trigger a download. Verified with a browser network trace: loading the remote now makes zero requests outside the bridge.
+- The Settings sheet shows its log and app-data paths again. They were rendering in a colour inherited from the surrounding dialog rather than the theme, which left them invisible against the sheet background. Those two rows have been unreadable since 2.5.0; the version row above them since 2.5.1.
+
 ## [2.5.1] - 2026-07-24
 
 Update any machine running an earlier version. The remote could not load without an internet connection, which defeats the point of a bridge that runs entirely on your own network.
@@ -18,7 +26,7 @@ Update any machine running an earlier version. The remote could not load without
 
 ### Known limits
 
-- One online dependency remains. The rendering engine downloads fallback fonts on demand for characters outside the bundled font, so text in Gurmukhi or another non-Latin script would not render without the internet. Latin text is unaffected.
+- One online dependency remains: the rendering engine downloads fallback fonts on demand for characters outside the bundled font. This was worse than described here at the time, and 2.5.2 fixes it - see that entry.
 
 ## [2.5.0] - 2026-07-19
 

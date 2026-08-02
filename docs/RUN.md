@@ -138,7 +138,9 @@ The camera should move for each command and `state` events should flow back.
 | Pairing fails | Click `Reveal` again and use the current PIN. If needed, reset pairing in the bridge UI. |
 | PTZ returns `device_busy` | Quit OBSBOT Center or any other camera-control app, then restart Open OBSBOT Bridge. |
 | Camera never appears | Replug the camera, try another USB cable/port, and wait for boot to finish. |
-| Web remote looks stale after a new build | Use the cache-clear menu in the remote, then reload. |
+| Web remote looks stale after a new build | Use the cache-clear menu in the remote, then reload. Compare the version in the remote's footer against the bridge's Settings: if they differ, that browser is serving a cached build. |
+| Camera indicator stays lit after quitting | Check for a surviving helper with `pgrep -x obsbot-bridge`. It should exit within a second of the app closing; if one is left, it predates v2.5.2 or was launched by hand. Run `pkill -9 -x obsbot-bridge`. |
+| Remote will not load with the internet down | Confirm the build serves CanvasKit locally: `curl -s http://localhost:8765/flutter_bootstrap.js \| grep useLocalCanvasKit` should print `true`. Builds before v2.5.1 fetch the engine from a CDN and cannot start offline. |
 
 ## Reset Local State
 
