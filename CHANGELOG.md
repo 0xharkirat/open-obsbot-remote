@@ -4,7 +4,7 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
-## [2.5.2] - 2026-07-24
+## [2.5.2] - 2026-08-02
 
 ### Fixed
 
