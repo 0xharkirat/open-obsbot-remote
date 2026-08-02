@@ -147,7 +147,7 @@ class PreviewWidget extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Open the OBSBOT Bridge app on your Mac and grant camera access when prompted (System Settings → Privacy & Security → Camera).',
+            'Open the OBSBOT Bridge app on your Mac and grant camera access when prompted (System Settings > Privacy & Security > Camera).',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white54, fontSize: 12),
           ),

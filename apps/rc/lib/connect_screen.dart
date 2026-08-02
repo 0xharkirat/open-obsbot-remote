@@ -96,7 +96,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Format: hostname-or-ip:port (default port 8765).\n'
-                  'Find your Mac\'s IP in System Settings → Network.',
+                  'Find your Mac\'s IP in System Settings > Network.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 16),

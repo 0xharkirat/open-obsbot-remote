@@ -95,6 +95,29 @@ flutter:
   assets:
     - assets/icon-1024.png
 
+  # Roboto is bundled deliberately. Flutter web's default text font is Roboto,
+  # and CanvasKit DOWNLOADS it from fonts.gstatic.com at runtime when it is not
+  # declared here. On a venue with no internet that means the remote renders no
+  # text at all - icons appear, every label is blank. A LAN-only product cannot
+  # depend on a font CDN. Copied from the Flutter SDK's material_fonts cache;
+  # Apache 2.0, license kept alongside.
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
+    # Roboto has no arrows or geometric symbols, and CanvasKit answers a single
+    # missing glyph by downloading a fallback face from fonts.gstatic.com. That
+    # one request is enough to break the "works with no internet" promise, so
+    # the fallback ships with us. SIL Open Font License.
+    - family: NotoSansSymbols
+      fonts:
+        - asset: assets/fonts/NotoSansSymbols-Regular.ttf
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

@@ -325,10 +325,12 @@ class _GridPainter extends CustomPainter {
 
   void _paintReadout(Canvas canvas, double w, double h) {
     // Top-left text. Two lines: Pan (left/right) + Tilt (up/down) in deg.
-    // We use ←→ and ↑↓ glyphs so non-technical operators don't have to
-    // remember which axis is "yaw" vs "pitch".
-    final yawText   = 'PAN   ←→ ${yaw.toStringAsFixed(1)}°';
-    final pitchText = 'TILT  ↑↓ ${pitch.toStringAsFixed(1)}°';
+    // The axis hint spells the direction out rather than drawing an arrow:
+    // arrow glyphs are absent from Roboto, and a single missing glyph makes
+    // CanvasKit fetch a fallback font from the internet, which a LAN-only
+    // remote must never depend on.
+    final yawText   = 'PAN  L/R  ${yaw.toStringAsFixed(1)}°';
+    final pitchText = 'TILT U/D  ${pitch.toStringAsFixed(1)}°';
 
     void draw(String s, double y) {
       // Drop-shadow for legibility against bright backgrounds.
