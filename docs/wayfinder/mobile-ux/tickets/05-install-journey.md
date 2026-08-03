@@ -1,8 +1,17 @@
 # Decide the install journey, per platform
 
-`wayfinder:grilling` - HITL - status: **open, on the frontier**
+`wayfinder:grilling` - HITL - status: **retired 2026-08-02, out of scope**
 
-Unblocked 2026-08-02 by [ticket 01](01-installable-without-cache-poisoning.md), which also rewrote the premise.
+Unblocked by [ticket 01](01-installable-without-cache-poisoning.md), which rewrote its premise, and then retired the same day by the operator's call: installability is not being pursued at all.
+**A browser tab is the target, not a fallback**, and the flow that replaces this ticket is [Chart the end-to-end mobile browser flow](06-mobile-browser-flow.md).
+
+Two things below survived the retirement and moved rather than died.
+The tab-hardening items (`overscroll-behavior`, safe areas) became browser-layer hazards B1 and B2 in ticket 06, where they belong, since they were never install work.
+The "how does an operator get back to the app next week" problem became **Stage 0** of ticket 06, and its answer is a stable mDNS name rather than an icon.
+
+The rest is kept unedited below as a record of what was being weighed, in case HTTPS ever becomes viable and this reopens.
+
+---
 
 ## Question
 
