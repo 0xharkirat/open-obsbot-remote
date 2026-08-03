@@ -51,3 +51,19 @@ Patterns common in these apps that would be **wrong** here, with the reason:
 ## Skeuomorphism, carefully
 
 [(Not Boring) Camera](https://mobbin.com/screens/57d1236e-1067-4cc8-9012-b8fee4594df5) is delightful and the wrong lesson to over-learn. Its dials need sustained rotational gestures with visual feedback. Steal the readout and the bind indicator; keep the existing hold-to-zoom rocker, because a rocker can be found by thumb position alone.
+
+## Addendum: the mobile web Live screen specifically
+
+Second Mobbin pass, aimed at the phone surface rather than the general problem. The question was how to stop hiding half the controls behind the Frame toggle.
+
+| Pattern | Source | Applies to |
+| --- | --- | --- |
+| Video shrinks but is never covered by its own controls; settings sit in a sheet below it | [Spotify](https://mobbin.com/screens/5b1c7694-f9e9-45f6-a81b-f1ce9d73cca7) | The operator watches the room through the preview while adjusting, so the preview must not be occluded by the thing being adjusted. |
+| Each setting is a row of segmented pills inside a compact sheet: `6s / 10s`, `480p / 720p` | [Grok](https://mobbin.com/screens/03fef137-b608-4848-9333-3276c8bddfc2) | Fade length, glide speed, and PTZ speed currently occupy 3 separate bands using 3 different control types. As pill rows they collapse into one sheet. |
+| Collapsed row shows its label with the current value as a subtitle (`Playback speed / 1x`) | [X](https://mobbin.com/screens/b0708ea6-407b-48f4-a5b7-5ee45ae63674) | State stays readable without opening anything. |
+| **Persistent segmented control pinned at the bottom** for source selection, feeds labelled above | [My BMW](https://mobbin.com/screens/977d778e-2a38-4425-baf9-6339b9abc590) | The venue has exactly 2 cameras. A permanent 2-way switch at thumb level is more findable by touch than a chip row whose width changes as cameras come and go. |
+| Main video with a second smaller video overlaid top-right, plus a source list where the live one carries an explicit badge | [Paramount+](https://mobbin.com/screens/91b5499a-47e9-4c3b-8e90-85ad4c59cd74) | The PiP already does the overlay half. The badge on the bus entry is missing. |
+
+Rejected from this pass: every phone-camera capture app (Instagram, ChatGPT, Otter, Apple Notes). They solve framing a shot you are holding, not directing a camera across a room, so their shutter-centric layouts do not transfer.
+
+Still the strongest single idea, unchanged from the first pass: the camera selector as a diagram of the hall rather than a row of labels, per [Tesla](https://mobbin.com/screens/7b38ed5b-d445-4346-86ff-11a41dc3a1c1) and [Rivian](https://mobbin.com/screens/328d00a7-8a1d-47e6-af86-2783a87a8c88). Tesla additionally greys the positions where no camera exists, which answers "what am I not covering" without a word of text.
