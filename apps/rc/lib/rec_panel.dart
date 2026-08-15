@@ -71,7 +71,12 @@ class _IdleCard extends StatelessWidget {
     final theme = Theme.of(context);
     final target = client.bridge.activeDevice ?? client.state;
     final hasTarget = target.deviceId.isNotEmpty;
-    final audio = target.audio;
+    // Audio lives on the bridge-global recording block, not per device. The
+    // recorder is bridge-global, so a per-camera flag would be reporting a
+    // setting that does not exist.
+    final micAvailable = rec.audioAvailable;
+    final wantAudio = rec.audioEnabled;
+    final willHaveSound = wantAudio && micAvailable;
     // The floor the bridge enforces. Showing a record button that is
     // guaranteed to be refused would be a worse experience than a
     // disabled one that says why.
@@ -98,7 +103,7 @@ class _IdleCard extends StatelessWidget {
                 HapticFeedback.mediumImpact();
                 client.startRecording(
                   deviceId: target.deviceId,
-                  audio: audio.capturing,
+                  audio: wantAudio,
                 );
               },
             ),
@@ -114,10 +119,10 @@ class _IdleCard extends StatelessWidget {
           Text(
             lowSpace
                 ? 'Not enough free space to start'
-                : audio.capturing
+                : willHaveSound
                 ? 'Will record with sound'
-                : audio.available
-                ? 'Will record silent - microphone is off'
+                : micAvailable
+                ? 'Will record silent - audio is off'
                 : 'Will record silent - no microphone',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(

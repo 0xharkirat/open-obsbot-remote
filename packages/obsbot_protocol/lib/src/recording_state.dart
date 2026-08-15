@@ -21,6 +21,8 @@ class RecordingState {
     this.bytes = 0,
     this.path = '',
     this.audio = false,
+    this.audioEnabled = false,
+    this.audioAvailable = false,
     this.diskFreeBytes = 0,
     this.error = '',
   });
@@ -34,6 +36,8 @@ class RecordingState {
       bytes: (j['bytes'] as num?)?.toInt() ?? 0,
       path: j['path'] as String? ?? '',
       audio: j['audio'] as bool? ?? false,
+      audioEnabled: j['audio_enabled'] as bool? ?? false,
+      audioAvailable: j['audio_available'] as bool? ?? false,
       diskFreeBytes: (j['disk_free_bytes'] as num?)?.toInt() ?? 0,
       error: j['error'] as String? ?? '',
     );
@@ -67,6 +71,23 @@ class RecordingState {
   /// starts a silent recording rather than refusing the take.
   final bool audio;
 
+  /// Whether the NEXT take will try to write audio. The operator's
+  /// preference, set by `record.set_audio`, distinct from [audio] which is
+  /// what the current take is actually doing.
+  ///
+  /// Deliberately not a camera setting and deliberately not per-device.
+  /// `cameraSetAudioCtrlStateU` looks like a microphone control and is not:
+  /// its enum is voice commands, so it configures what the camera does when
+  /// spoken to. There is no way to mute this microphone through the SDK, so
+  /// the only honest meaning is "does the recorder mux a track", and the
+  /// recorder is bridge-global.
+  final bool audioEnabled;
+
+  /// Whether a microphone exists at all. False makes the audio control
+  /// inert rather than absent: a control that vanishes leaves the operator
+  /// wondering whether they missed it.
+  final bool audioAvailable;
+
   /// Free space on the volume holding [path].
   final int diskFreeBytes;
 
@@ -98,6 +119,8 @@ class RecordingState {
     int? bytes,
     String? path,
     bool? audio,
+    bool? audioEnabled,
+    bool? audioAvailable,
     int? diskFreeBytes,
     String? error,
   }) {
@@ -109,6 +132,8 @@ class RecordingState {
       bytes: bytes ?? this.bytes,
       path: path ?? this.path,
       audio: audio ?? this.audio,
+      audioEnabled: audioEnabled ?? this.audioEnabled,
+      audioAvailable: audioAvailable ?? this.audioAvailable,
       diskFreeBytes: diskFreeBytes ?? this.diskFreeBytes,
       error: error ?? this.error,
     );
@@ -122,6 +147,8 @@ class RecordingState {
     'bytes': bytes,
     'path': path,
     'audio': audio,
+    'audio_enabled': audioEnabled,
+    'audio_available': audioAvailable,
     'disk_free_bytes': diskFreeBytes,
     'error': error,
   };
@@ -136,6 +163,8 @@ class RecordingState {
       other.bytes == bytes &&
       other.path == path &&
       other.audio == audio &&
+      other.audioEnabled == audioEnabled &&
+      other.audioAvailable == audioAvailable &&
       other.diskFreeBytes == diskFreeBytes &&
       other.error == error;
 
@@ -148,6 +177,8 @@ class RecordingState {
     bytes,
     path,
     audio,
+    audioEnabled,
+    audioAvailable,
     diskFreeBytes,
     error,
   );

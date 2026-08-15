@@ -222,9 +222,10 @@ class WsClient extends ChangeNotifier {
 
   Future<void> refreshRecording() => _record((r) => r.recordStatus());
 
-  /// Turns [deviceId]'s microphone on or off.
-  Future<void> setAudioEnabled(String deviceId, bool enabled) =>
-      _record((r) => r.setAudioEnabled(deviceId, enabled));
+  /// Whether the NEXT recording writes an audio track. Bridge-global, and
+  /// not a camera setting: this microphone cannot be muted through the SDK.
+  Future<void> setAudioEnabled(bool enabled) =>
+      _record((r) => r.setAudioEnabled(enabled));
 
   Future<void> _record(Future<void> Function(BridgeRepository) op) async {
     final repo = _bridgeRepo;

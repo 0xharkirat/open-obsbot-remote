@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _gb = 1024 * 1024 * 1024;
 
-DeviceState _device({AudioState audio = AudioState.empty}) {
+DeviceState _device() {
   return DeviceState.empty.copyWith(
     deviceId: 'A',
     sn: 'A',
@@ -21,19 +21,25 @@ DeviceState _device({AudioState audio = AudioState.empty}) {
     connected: true,
     runStatus: 'run',
     friendlyName: 'Stage',
-    audio: audio,
   );
 }
 
+// Audio lives on the bridge-global recording block, not per device: the
+// recorder is bridge-global and this microphone cannot be muted through the
+// SDK, so a per-camera flag would describe a setting that does not exist.
 BridgeState _bridge({
   RecordingState recording = RecordingState.empty,
-  AudioState audio = AudioState.empty,
+  bool micAvailable = false,
+  bool audioEnabled = false,
 }) {
   return BridgeState(
     protocolVersion: '2.0',
-    devices: <DeviceState>[_device(audio: audio)],
+    devices: <DeviceState>[_device()],
     activeDeviceId: 'A',
-    recording: recording,
+    recording: recording.copyWith(
+      audioAvailable: micAvailable,
+      audioEnabled: audioEnabled,
+    ),
   );
 }
 
@@ -75,7 +81,7 @@ void main() {
     testWidgets('says it will have sound when the mic is on', (tester) async {
       await _pump(
         tester,
-        _bridge(audio: const AudioState(available: true, enabled: true)),
+        _bridge(micAvailable: true, audioEnabled: true),
       );
       expect(find.text('Will record with sound'), findsOneWidget);
     });
@@ -85,9 +91,9 @@ void main() {
     testWidgets('distinguishes a muted mic from a missing one', (tester) async {
       await _pump(
         tester,
-        _bridge(audio: const AudioState(available: true)),
+        _bridge(micAvailable: true),
       );
-      expect(find.textContaining('microphone is off'), findsOneWidget);
+      expect(find.textContaining('audio is off'), findsOneWidget);
     });
 
     // Below the bridge's floor the start would be refused, so the button
@@ -191,7 +197,7 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final client = WsClient()
         ..debugSetBridge(
-          _bridge(audio: const AudioState(available: true, enabled: true)),
+          _bridge(micAvailable: true, audioEnabled: true),
         );
       await tester.pumpWidget(MaterialApp(home: LiveScreen(client: client)));
       await tester.pump();
@@ -241,10 +247,20 @@ void main() {
       expect(const RecordingState().failed, isFalse);
     });
 
-    test('audio only captures when the mic exists and is on', () {
-      expect(const AudioState(available: true, enabled: true).capturing, isTrue);
-      expect(const AudioState(available: true).capturing, isFalse);
-      expect(const AudioState(enabled: true).capturing, isFalse);
+    // audio is what THIS take is doing; audioEnabled is what the next one
+    // will try to do. They diverge after a downgrade: asking for sound with
+    // no microphone starts a silent recording rather than refusing the take,
+    // and an operator who thinks they are capturing sound must be able to
+    // see that they are not.
+    test('a downgraded take reports silent while the preference stays on', () {
+      const s = RecordingState(
+        active: true,
+        audio: false,
+        audioEnabled: true,
+        audioAvailable: false,
+      );
+      expect(s.audio, isFalse);
+      expect(s.audioEnabled, isTrue);
     });
 
     test('a bridge with no recording block parses as idle', () {

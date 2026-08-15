@@ -1253,23 +1253,32 @@ class _AudioToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final device = client.state;
-    final audio = device.audio;
-    final on = audio.capturing;
-    final String reason = !audio.available
-        ? 'This camera has no microphone'
+    // Bridge-global, not per camera. This microphone cannot be muted through
+    // the SDK, so the only thing this controls is whether the recorder writes
+    // a track, and the recorder is bridge-global.
+    final rec = client.recording;
+    final available = rec.audioAvailable;
+    // While a take is running, show what it is ACTUALLY doing. Those differ
+    // when audio was asked for and no microphone was found: the bridge starts
+    // a silent recording rather than refusing, and an operator who thinks
+    // they are capturing sound needs to see that they are not.
+    final on = rec.active ? rec.audio : rec.audioEnabled;
+    final String reason = !available
+        ? 'No microphone on this camera'
+        : rec.active && rec.audioEnabled && !rec.audio
+        ? 'Asked for sound, recording silent - no microphone was found'
         : on
-        ? 'Microphone on - recordings will have sound'
-        : 'Microphone off - recordings will be silent';
+        ? 'Recordings will have sound'
+        : 'Recordings will be silent';
     return Tooltip(
       message: reason,
       child: Semantics(
         toggled: on,
-        enabled: audio.available,
-        label: 'Camera microphone',
+        enabled: available,
+        label: 'Recording audio',
         child: OutlinedButton(
-          onPressed: audio.available
-              ? () => client.setAudioEnabled(device.deviceId, !audio.enabled)
+          onPressed: available
+              ? () => client.setAudioEnabled(!rec.audioEnabled)
               : null,
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 12),

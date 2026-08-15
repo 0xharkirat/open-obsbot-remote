@@ -17,7 +17,6 @@
 /// bridges get an error from the handshake (and vice-versa).
 library;
 
-export 'src/audio_state.dart';
 export 'src/available_source.dart';
 export 'src/bridge_state.dart';
 export 'src/device_state.dart';
