@@ -9,27 +9,9 @@
 #include <sstream>
 #include <sys/stat.h>
 
-namespace obs {
+#include "fs_util.h"
 
-// mkdir -p for one path, ignoring "already exists". Only used for the auth
-// store's parent, so it does not need to be general.
-static void make_dirs(const std::string& dir) {
-    std::string acc;
-    size_t i = 0;
-    if (!dir.empty() && dir[0] == '/') { acc = "/"; i = 1; }
-    while (i <= dir.size()) {
-        size_t slash = dir.find('/', i);
-        std::string part = dir.substr(i, slash == std::string::npos
-                                             ? std::string::npos : slash - i);
-        if (!part.empty()) {
-            if (acc.size() > 1 || (acc.size() == 1 && acc[0] != '/')) acc += "/";
-            acc += part;
-            ::mkdir(acc.c_str(), 0700);
-        }
-        if (slash == std::string::npos) break;
-        i = slash + 1;
-    }
-}
+namespace obs {
 
 std::string auth_store_path() {
     const char* home = std::getenv("HOME");
@@ -38,7 +20,7 @@ std::string auth_store_path() {
     if (home != nullptr) {
         std::string dir =
             std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
-        make_dirs(dir);
+        fsutil::make_dirs(dir, 0700);
         return dir + "/auth.json";
     }
 #else
@@ -53,7 +35,7 @@ std::string auth_store_path() {
     }
     if (!base.empty()) {
         std::string dir = base + "/open-obsbot-bridge";
-        make_dirs(dir);
+        fsutil::make_dirs(dir, 0700);
         return dir + "/auth.json";
     }
 #endif

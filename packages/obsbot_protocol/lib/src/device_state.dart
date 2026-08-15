@@ -1,5 +1,6 @@
 import 'package:meta/meta.dart';
 
+import 'audio_state.dart';
 import 'preset_entry.dart';
 import 'sequence_state.dart';
 
@@ -114,6 +115,11 @@ class DeviceState {
   /// [BridgeState] instead.
   final SequenceState sequence;
 
+  /// This camera's microphone. [AudioState.empty] on a bridge that
+  /// predates the audio block, which reads as "no microphone known" and
+  /// renders the control disabled rather than falsely on.
+  final AudioState audio;
+
   /// True for a generic session-less video source: the UI shows preview
   /// and TAKE only and must not render PTZ / preset / image / AI /
   /// sequencer affordances for it.
@@ -156,6 +162,7 @@ class DeviceState {
     required this.presets,
     required this.activePresetId,
     required this.sequence,
+    this.audio = AudioState.empty,
   });
 
   /// Placeholder for "no device yet" - used by [BridgeState.activeDevice]
@@ -279,6 +286,9 @@ class DeviceState {
       presets: presets,
       activePresetId: i(j['active_preset_id'], -1),
       sequence: SequenceState.fromJson(seq),
+      audio: aud is Map<String, dynamic>
+          ? AudioState.fromJson(aud)
+          : AudioState.empty,
     );
   }
 
@@ -335,6 +345,7 @@ class DeviceState {
     List<PresetEntry>? presets,
     int? activePresetId,
     SequenceState? sequence,
+    AudioState? audio,
   }) {
     return DeviceState(
       deviceId: deviceId ?? this.deviceId,
@@ -373,6 +384,7 @@ class DeviceState {
       presets: presets ?? this.presets,
       activePresetId: activePresetId ?? this.activePresetId,
       sequence: sequence ?? this.sequence,
+      audio: audio ?? this.audio,
     );
   }
 }

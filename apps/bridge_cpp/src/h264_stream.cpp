@@ -14,32 +14,12 @@
 #include <vector>
 
 #include "device_manager.h"
+#include "fs_util.h"
 #include "log.h"
 #include "video_capture.h"
 
 namespace obs {
 namespace {
-
-// mkdir -p, because the operator should not have to pre-create a cache dir.
-bool make_dirs(const std::string& path) {
-    if (path.empty()) return false;
-    std::string acc;
-    size_t i = 0;
-    if (path[0] == '/') { acc = "/"; i = 1; }
-    while (i <= path.size()) {
-        const size_t slash = path.find('/', i);
-        const std::string part =
-            path.substr(i, slash == std::string::npos ? std::string::npos : slash - i);
-        if (!part.empty()) {
-            if (!acc.empty() && acc.back() != '/') acc += '/';
-            acc += part;
-            if (::mkdir(acc.c_str(), 0755) != 0 && errno != EEXIST) return false;
-        }
-        if (slash == std::string::npos) break;
-        i = slash + 1;
-    }
-    return true;
-}
 
 bool have_ffmpeg() { return ::system("command -v ffmpeg >/dev/null 2>&1") == 0; }
 
@@ -57,7 +37,7 @@ bool H264Stream::start(DeviceManager* mgr, const H264Config& cfg) {
         LOGW("h264: ffmpeg not on PATH  -  remote H.264 stream disabled");
         return false;
     }
-    if (!make_dirs(cfg_.out_dir)) {
+    if (!fsutil::make_dirs(cfg_.out_dir)) {
         LOGW("h264: cannot create %s  -  remote H.264 stream disabled",
              cfg_.out_dir.c_str());
         return false;
