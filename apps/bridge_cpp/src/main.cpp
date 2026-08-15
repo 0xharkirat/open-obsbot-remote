@@ -82,10 +82,15 @@ int main(int argc, char** argv) {
 
     uint16_t port = 8765;
     std::string web_root;
+    // Every interface, which is what a remote on the same Wi-Fi needs. A
+    // headless deployment behind `tailscale serve` passes --bind 127.0.0.1 so
+    // the ports are not also raw on the LAN.
+    std::string bindaddr = "0.0.0.0";
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--web-root" && i + 1 < argc) { web_root = argv[++i]; }
         else if (a == "--port" && i + 1 < argc) { port = (uint16_t)std::atoi(argv[++i]); }
+        else if (a == "--bind" && i + 1 < argc) { bindaddr = argv[++i]; }
         else if (a.size() && a[0] != '-') { port = (uint16_t)std::atoi(a.c_str()); }
     }
     if (web_root.empty()) {
@@ -94,13 +99,12 @@ int main(int argc, char** argv) {
     }
 
     // Auth store path (persists PIN + tokens across launches).
-    std::string auth_path;
-    if (const char* home = std::getenv("HOME")) {
-        auth_path = std::string(home) +
-            "/Library/Application Support/Open OBSBOT Bridge/auth.json";
-    } else {
-        auth_path = "/tmp/obsbot-bridge-auth.json";
-    }
+    //
+    // The two platforms disagree about where per-user state belongs, and using
+    // the macOS path on Linux would drop a "Library/Application Support"
+    // directory into $HOME, which is both wrong and invisible to anything that
+    // manages config. Linux follows the XDG base directory spec instead.
+    std::string auth_path = obs::auth_store_path();
     obs::AuthStore auth(auth_path);
 
     // The DeviceManager owns every attached camera (control sessions) AND the
@@ -129,7 +133,7 @@ int main(int argc, char** argv) {
     // continue without preview rather than crash the whole bridge.
     obs::MjpegServer mjpeg;
     try {
-        if (!mjpeg.start((uint16_t)(port + 1), &mgr, &auth)) {
+        if (!mjpeg.start((uint16_t)(port + 1), &mgr, &auth, bindaddr)) {
             obs::log("warn ", "mjpeg server failed to start (port busy?)  -  preview disabled");
         }
     } catch (const std::exception& e) {
@@ -137,7 +141,7 @@ int main(int argc, char** argv) {
     }
 
     try {
-        obs::run_ws_server(port, mgr, web_root, auth);  // blocks; calls mgr.start()
+        obs::run_ws_server(port, mgr, web_root, auth, bindaddr);  // blocks; calls mgr.start()
     } catch (const std::exception& e) {
         obs::log("error", "ws server crashed: %s", e.what());
         return 1;

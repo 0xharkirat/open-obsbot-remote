@@ -61,7 +61,8 @@ static bool path_is_safe(const std::string& rel) {
 void run_ws_server(uint16_t port,
                    DeviceManager& mgr,
                    const std::string& web_root,
-                   AuthStore& auth) {
+                   AuthStore& auth,
+                   const std::string& bindaddr) {
     crow::SimpleApp app;
     app.loglevel(crow::LogLevel::Warning);
 
@@ -355,8 +356,9 @@ void run_ws_server(uint16_t port,
         });
     }
 
-    LOGI("ws server listening on 0.0.0.0:%u  path=/v1  health=/health", (unsigned)port);
-    app.bindaddr("0.0.0.0").port(port).multithreaded().run();
+    LOGI("ws server listening on %s:%u  path=/v1  health=/health",
+         bindaddr.c_str(), (unsigned)port);
+    app.bindaddr(bindaddr).port(port).multithreaded().run();
 }
 
 }  // namespace obs

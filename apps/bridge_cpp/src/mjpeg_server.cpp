@@ -33,9 +33,17 @@ MjpegServer::MjpegServer() : impl_(new Impl) {}
 MjpegServer::~MjpegServer() { stop(); delete impl_; }
 bool MjpegServer::running() const { return impl_->running; }
 
+// MSG_NOSIGNAL is the Linux way to keep a write to a closed socket from
+// raising SIGPIPE; macOS spells the same guarantee SO_NOSIGPIPE, set once per
+// socket in serve_client below. main.cpp also ignores SIGPIPE process-wide, so
+// this is belt and braces on both platforms.
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 static bool send_all(int fd, const char* data, size_t n) {
     while (n > 0) {
-        ssize_t w = ::send(fd, data, n, 0);
+        ssize_t w = ::send(fd, data, n, MSG_NOSIGNAL);
         if (w <= 0) return false;
         data += w; n -= (size_t)w;
     }
@@ -109,7 +117,12 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
     ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes2, sizeof(yes2));
     struct timeval tv{5, 0};
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#ifdef SO_NOSIGPIPE
+    // macOS and the BSDs only. Linux has no such socket option; send_all
+    // passes MSG_NOSIGNAL on every write instead, which is the same guarantee
+    // applied per call rather than per socket.
     ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes2, sizeof(yes2));
+#endif
     // Disable Nagle. Each frame goes out as a boundary + header + JPEG in
     // separate send_all calls, and Nagle holds the small writes back waiting
     // to coalesce with the next one - it delays the frame the consumer is
@@ -287,7 +300,8 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
     ::close(fd);
 }
 
-bool MjpegServer::start(uint16_t port, DeviceManager* mgr, AuthStore* auth) {
+bool MjpegServer::start(uint16_t port, DeviceManager* mgr, AuthStore* auth,
+                        const std::string& bindaddr) {
     if (impl_->running) return true;
     impl_->mgr = mgr;
     impl_->auth = auth;
@@ -300,8 +314,14 @@ bool MjpegServer::start(uint16_t port, DeviceManager* mgr, AuthStore* auth) {
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(port);
+    if (bindaddr.empty() || bindaddr == "0.0.0.0") {
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    } else if (::inet_pton(AF_INET, bindaddr.c_str(), &addr.sin_addr) != 1) {
+        LOGE("mjpeg: bad bind address '%s'", bindaddr.c_str());
+        ::close(fd);
+        return false;
+    }
 
     if (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
         LOGE("mjpeg: bind :%u failed: %s", (unsigned)port, strerror(errno));
@@ -337,8 +357,8 @@ bool MjpegServer::start(uint16_t port, DeviceManager* mgr, AuthStore* auth) {
         }
     });
 
-    LOGI("mjpeg server listening on 0.0.0.0:%u  /preview/<sn>.mjpg  /preview/active.mjpg",
-         (unsigned)port);
+    LOGI("mjpeg server listening on %s:%u  /preview/<sn>.mjpg  /preview/active.mjpg",
+         bindaddr.empty() ? "0.0.0.0" : bindaddr.c_str(), (unsigned)port);
     return true;
 }
 

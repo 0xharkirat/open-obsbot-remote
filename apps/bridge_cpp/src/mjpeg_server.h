@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 namespace obs {
 class DeviceManager;
@@ -20,7 +21,10 @@ public:
     MjpegServer();
     ~MjpegServer();
 
-    bool start(uint16_t port, DeviceManager* mgr, AuthStore* auth);
+    // `bindaddr` matches run_ws_server: every interface by default, 127.0.0.1
+    // when a Tailscale serve or reverse proxy is the thing publishing it.
+    bool start(uint16_t port, DeviceManager* mgr, AuthStore* auth,
+               const std::string& bindaddr = "0.0.0.0");
     void stop();
     bool running() const;
 
