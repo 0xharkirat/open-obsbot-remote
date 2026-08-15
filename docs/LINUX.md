@@ -48,6 +48,32 @@ cmake --build build -j
 `libdev.so` and its SONAME symlinks are copied next to the binary and found
 through an `$ORIGIN` runpath, so the build directory is self-contained.
 
+### The web remote
+
+The bridge serves the remote itself, so the built web app has to exist on the
+Linux box. Build it from this checkout:
+
+```bash
+./scripts/build-web-remote.sh            # build only
+./scripts/build-web-remote.sh nitro      # build, then deploy over ssh
+```
+
+Do **not** copy `Open OBSBOT Bridge.app/Contents/Resources/web` off a Mac
+instead. Those assets are already built and are platform-independent, so the
+shortcut looks safe, and it is the one that costs an afternoon.
+
+A remote built from a different revision than its bridge connects fine,
+authenticates fine, renders the entire control surface, and then sits on
+"Connecting..." for good, with nothing in the browser console. The only thing
+that fails is decoding the state event carrying the device list. An empty
+device list means no selected camera, which means `previewUri()` has nothing to
+build a URL from, which means the preview never even requests the stream. Every
+symptom points at video; the cause is the device list.
+
+The tell, if you hit it again: the bridge log shows `ws client connected` but
+never `mjpeg: client connected`. The browser is not failing to fetch the
+stream. It is not asking for it.
+
 ## Run
 
 ```bash
