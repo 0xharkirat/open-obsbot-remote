@@ -245,6 +245,22 @@ CmdResult Recorder::start(DeviceManager* mgr, const std::string& device_id, bool
         // close. A recording killed by a power cut stays playable up to the
         // last flushed fragment instead of being a total loss.
         "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
+        // Fragmenting alone leaves the fragments in ffmpeg's 8 MiB IO buffer.
+        // Without this the file stayed at 28 bytes and then jumped by exactly
+        // 8388608; with it the header reaches disk at once and a silent
+        // recording grows every couple of seconds, as the GOP implies.
+        //
+        // This is not only about the byte count the remote shows as a live
+        // readout. A fragment still sitting in memory is a fragment a power
+        // cut destroys, and this machine cannot boot unattended after one.
+        //
+        // KNOWN ISSUE: with audio muxed, nothing still reaches disk for about
+        // eleven seconds and then arrives in one lump, so the guarantee above
+        // does not yet hold for the audio path. Measured both ways on the same
+        // build. The ALSA input logs buffer xruns, which points at it, but
+        // -max_interleave_delta 0 did not change the behaviour, so the cause
+        // is not simply the muxer waiting to interleave.
+        "-flush_packets", "1",
         "-f", "mp4", path,
     });
 
