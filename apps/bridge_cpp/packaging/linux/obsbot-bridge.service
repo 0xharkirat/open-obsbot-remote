@@ -1,0 +1,54 @@
+# systemd user unit for the headless Linux bridge.
+#
+# Install (the operator's call, not the build's):
+#   mkdir -p ~/.config/systemd/user
+#   cp obsbot-bridge.service ~/.config/systemd/user/
+#   $EDITOR ~/.config/systemd/user/obsbot-bridge.service   # fix the paths
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now obsbot-bridge
+#
+# For it to start at boot rather than at first login, the account needs
+# lingering:  loginctl enable-linger $USER
+# Without that, systemd tears down the user manager when the last session ends
+# and the bridge stops with it, which on a headless server means it never runs.
+
+[Unit]
+Description=Open OBSBOT Bridge
+Documentation=https://github.com/0xharkirat/open-obsbot-remote
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Bind to loopback: the ports are published by `tailscale serve`, which
+# terminates TLS for the tailnet. Drop --bind to listen on the LAN instead,
+# which is the macOS app's behaviour and right for a studio on one network.
+ExecStart=%h/obsbot-build/build/obsbot-bridge --bind 127.0.0.1 --port 8765
+
+# The bridge exits when stdin reaches EOF, which is how it dies with the macOS
+# Flutter supervisor that owns the other end of the pipe. Under systemd there
+# is no supervisor, so give it a stdin that never closes; /dev/null would be an
+# immediate EOF and the service would exit on start.
+StandardInput=tty-force
+TTYPath=/dev/null
+StandardOutput=journal
+StandardError=journal
+
+Restart=on-failure
+RestartSec=5
+
+# Reaching the camera is a filesystem permission, not a capability: the user
+# must be in the `video` group. Nothing here needs privilege.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/open-obsbot-bridge
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=default.target

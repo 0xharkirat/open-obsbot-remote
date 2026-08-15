@@ -1,0 +1,142 @@
+# Running the bridge on Linux
+
+The bridge runs headless on Linux. There is no Flutter supervisor, no menubar
+and no GUI: `obsbot-bridge` is a plain binary that serves the same WebSocket
+control API and MJPEG preview as the macOS app, so the existing remote connects
+to it unchanged.
+
+Verified on Arch Linux, kernel 7.1.8, x86_64, against a Tiny 2 Lite.
+
+## Why this works at all
+
+The bridge was always two pieces. `Open OBSBOT Bridge.app` is a macOS Flutter
+supervisor that owns a tray icon and a permissions dialog; the bundled
+`obsbot-bridge` subprocess does everything else. A server needs the second half
+and none of the first.
+
+Of the eleven translation units in `bridge_cpp`, ten were already portable C++
+talking to libdev, Crow and Asio. Only the capture layer was Apple-specific.
+That file now has a Linux twin, `video_capture_v4l2.cpp`.
+
+The SDK ships a Linux build alongside the macOS and Windows ones. Discovery,
+gimbal control, zoom, presets and the rest go through the same `libdev` calls
+and behave identically, including the ~5s asynchronous discovery delay.
+
+## Prerequisites
+
+```bash
+sudo pacman -S --needed cmake asio base-devel v4l-utils   # Arch
+```
+
+Your user must be in the `video` group to open `/dev/video*`. Check with
+`id`; this is usually already true on a desktop install. Unlike macOS there is
+no permission prompt: the open either succeeds or fails with `EACCES`
+immediately.
+
+Place the SDK at `third_party/obsbot-sdk/` as
+[Getting the SDK](GETTING_THE_SDK.md) describes, and make sure you copy the
+whole archive. The `linux/` directory is the part this build needs, and it is
+easy to extract only `macos/` and wonder why CMake stops.
+
+## Build
+
+```bash
+cmake -S apps/bridge_cpp -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+`libdev.so` and its SONAME symlinks are copied next to the binary and found
+through an `$ORIGIN` runpath, so the build directory is self-contained.
+
+## Run
+
+```bash
+./build/obsbot-bridge --port 8765                      # LAN, like macOS
+./build/obsbot-bridge --port 8765 --bind 127.0.0.1     # loopback only
+```
+
+`--bind` is new. It defaults to `0.0.0.0`, which is what a remote on the same
+Wi-Fi needs and what the macOS app has always done. Pass `127.0.0.1` when
+something else publishes the ports, so the bridge is not also reachable raw
+from the local network. The MJPEG server on `port + 1` follows the same
+address.
+
+The pairing PIN is printed at startup and persisted, so it survives restarts:
+
+```
+[14:23:34.790 info ] auth: pairing PIN = 463093  (tokens: 0)
+```
+
+### Reaching it from anywhere
+
+`tailscale serve` puts both ports behind real HTTPS on your tailnet, which is
+why `--bind 127.0.0.1` exists:
+
+```bash
+sudo tailscale serve --bg --set-path=/ http://127.0.0.1:8765
+sudo tailscale serve --bg --set-path=/preview http://127.0.0.1:8766
+```
+
+One thing to size before relying on it: MJPEG is not cheap. A 1080p frame off
+this camera is around 340 KB, so 30fps is roughly 80 Mbps. That is nothing over
+USB and fine on a LAN, and hopeless over a domestic upload link. Remote viewing
+wants a lower resolution or frame rate, or an H.264 transcode.
+
+### Stdin is not decorative
+
+The process exits when stdin reaches EOF. That is how it dies with the macOS
+supervisor holding the other end of the pipe, and it applies here too: running
+it with `< /dev/null` gives an immediate EOF and the bridge exits at once. Run
+it from a terminal, or use the systemd unit below, which handles this.
+
+## As a service
+
+`apps/bridge_cpp/packaging/linux/obsbot-bridge.service` is a `systemctl --user`
+unit. It is not installed by the build; copy it, fix the paths, then:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now obsbot-bridge
+journalctl --user -u obsbot-bridge -f
+```
+
+For it to start at boot rather than at first login, the account needs
+lingering:
+
+```bash
+loginctl enable-linger $USER
+```
+
+Without that, systemd tears the user manager down when the last session ends,
+and on a headless server that means the bridge never runs at all.
+
+## What differs from macOS
+
+**Fades are hard cuts.** `jpeg_darken` and `jpeg_crossfade` return their input
+unchanged, which is the fallback the header already documents, so a TAKE with a
+fade still switches correctly. Implementing them needs a JPEG decode and
+re-encode; macOS gets that from Core Image and ImageIO, and the Linux version
+wants libjpeg-turbo. Cosmetic, and the only feature gap.
+
+**Multi-camera joins on USB port, not serial.** macOS matches a camera's SN to
+its capture device through `Device::videoDevPath()`. The SDK header declares
+that method only under `#ifdef _WIN32` and `#elif __APPLE__`, so on Linux
+`Device` has no such member; `device_video_path()` finds the node itself. With
+one camera that is exact. With several it is positional, because this camera
+reports no USB iSerial - every Tiny 2 Lite yields the identical
+`/dev/v4l/by-id/usb-Remo_Tech_Co.__Ltd._OBSBOT_Tiny_2_Lite-video-index0`. The
+by-path link distinguishes ports, so the join is stable until something is
+replugged. A wrong pairing shows up as the wrong preview under the right
+controls, and the bridge logs a warning whenever it has to guess.
+
+**Hotplug for generic sources polls.** `observe_av_devices` diffs the device
+list every 2s rather than watching udev. OBSBOT attach and detach still come
+from libdev's own hotplug thread, so this only affects non-OBSBOT webcams.
+
+**No encoder in the capture path.** This one is in Linux's favour. macOS
+captures native frames and runs VideoToolbox to produce JPEGs. The Tiny 2 Lite
+emits MJPEG natively over UVC, so V4L2 hands over JPEG bytes that go straight
+to the socket, and the capture path is a single memcpy.
+
+**Config lives in the XDG location**, `~/.config/open-obsbot-bridge/auth.json`,
+rather than `~/Library/Application Support`.
