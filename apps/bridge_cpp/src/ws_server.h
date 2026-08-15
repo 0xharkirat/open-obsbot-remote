@@ -18,5 +18,10 @@ void run_ws_server(uint16_t port,
                    DeviceManager& mgr,
                    const std::string& web_root,
                    AuthStore& auth,
-                   const std::string& bindaddr = "0.0.0.0");
+                   const std::string& bindaddr = "0.0.0.0",
+                   // Directory holding the HLS playlist and segments produced
+                   // by H264Stream, served under /h264/. Empty disables the
+                   // route entirely, which is the case on macOS and whenever
+                   // --h264 was not passed.
+                   const std::string& h264_dir = "");
 }

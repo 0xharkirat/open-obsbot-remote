@@ -136,6 +136,48 @@ loginctl enable-linger $USER
 Without that, systemd tears the user manager down when the last session ends,
 and on a headless server that means the bridge never runs at all.
 
+## Watching it from outside the house
+
+The MJPEG preview is the right stream on a LAN and the wrong one over the
+internet. Measured on a Tiny 2 Lite: a 1080p frame is about 343 KB, at roughly
+30 fps, so `/preview/active.mjpg` runs at about 80 Mbps. MJPEG sends a complete
+JPEG every frame with no compression between frames, which is why. The domestic
+link this was built against uploads 14.8 Mbps, so the preview is five times
+more than the house can send.
+
+`--h264` adds a second stream alongside it. Same picture, H.264, measured at
+**2.64 Mbps** at 1080p25 - about a thirtieth of the MJPEG, because H.264
+compresses between frames and a mostly-static room compresses very well. The
+GPU encodes it, so it costs no CPU worth counting.
+
+```bash
+./build/obsbot-bridge --port 8765 --h264
+./build/obsbot-bridge --port 8765 --h264 --h264-size 1280x720 --h264-bitrate 1200
+```
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--h264` | off | Nothing runs unless this is passed. |
+| `--h264-size` | `1920x1080` | |
+| `--h264-fps` | `25` | |
+| `--h264-bitrate` | `2500` | kbps. Ceiling is set 30% above. |
+| `--h264-encoder` | `h264_nvenc` | `libx264` works and costs real CPU. |
+| `--h264-dir` | `$XDG_CACHE_HOME/obsbot-bridge/h264` | Must be writable; see the unit's `ReadWritePaths`. |
+
+Play it at `http://<host>:8765/h264/live.m3u8?t=<token>`, with the same token
+the MJPEG endpoint takes. The playlist is rewritten on the way out so each
+segment line carries the token too, because a player will not invent one and
+ffmpeg cannot append a query to the filenames it writes.
+
+HLS costs 6 to 10 seconds of latency. That is fine for watching a room and
+wrong for driving a gimbal, which is why PTZ stays on the WebSocket where the
+round trip is milliseconds.
+
+Two deliberate limits. The transcoder follows the on-air camera, re-resolved
+every frame, so a TAKE swaps this stream too. And it is **not compiled into the
+macOS build at all**: that host runs live services with two cameras and OBS,
+and an extra encoder is the last thing it needs.
+
 ## What differs from macOS
 
 **Fades are hard cuts.** `jpeg_darken` and `jpeg_crossfade` return their input

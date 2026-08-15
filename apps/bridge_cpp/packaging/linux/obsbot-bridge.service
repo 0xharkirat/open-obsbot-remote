@@ -44,7 +44,11 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.config/open-obsbot-bridge
+# The auth store, plus the H.264 transcoder's segment cache when --h264 is
+# used. ProtectHome=read-only otherwise stops ffmpeg creating its output
+# directory, and the failure reads as "cannot create ..." rather than as a
+# sandbox rule, so it is worth naming here explicitly.
+ReadWritePaths=%h/.config/open-obsbot-bridge %h/.cache/obsbot-bridge
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

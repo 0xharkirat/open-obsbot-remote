@@ -70,6 +70,17 @@ else()
     set(CAPTURE_SRC src/video_capture_v4l2.cpp)
 endif()
 
+# The H.264 remote path is Linux-only, on purpose rather than by omission.
+# It exists because a domestic upload link cannot carry the ~80 Mbps the MJPEG
+# preview costs at 1080p30. The macOS build is what runs live services with two
+# cameras and OBS on the same machine, and an extra encoder is the last thing
+# that host needs, so the code is not compiled into it at all.
+if (APPLE)
+    set(H264_SRC "")
+else()
+    set(H264_SRC src/h264_stream.cpp)
+endif()
+
 add_executable(obsbot-bridge
     src/main.cpp
     src/device_manager.cpp
@@ -80,6 +91,7 @@ add_executable(obsbot-bridge
     src/protocol.cpp
     src/log.cpp
     ${CAPTURE_SRC}
+    ${H264_SRC}
     src/mjpeg_server.cpp
     src/auth.cpp
 )

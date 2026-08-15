@@ -2,6 +2,9 @@
 #include "ws_server.h"
 #include "video_capture.h"
 #include "mjpeg_server.h"
+#ifndef __APPLE__
+#include "h264_stream.h"
+#endif
 #include "auth.h"
 #include "log.h"
 
@@ -86,11 +89,27 @@ int main(int argc, char** argv) {
     // headless deployment behind `tailscale serve` passes --bind 127.0.0.1 so
     // the ports are not also raw on the LAN.
     std::string bindaddr = "0.0.0.0";
+
+#ifndef __APPLE__
+    // Off unless asked for. The MJPEG preview is the primary path and costs
+    // nothing extra; this one spawns an encoder, so it only runs on request.
+    bool h264_on = false;
+    obs::H264Config h264;
+#endif
+
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--web-root" && i + 1 < argc) { web_root = argv[++i]; }
         else if (a == "--port" && i + 1 < argc) { port = (uint16_t)std::atoi(argv[++i]); }
         else if (a == "--bind" && i + 1 < argc) { bindaddr = argv[++i]; }
+#ifndef __APPLE__
+        else if (a == "--h264") { h264_on = true; }
+        else if (a == "--h264-dir" && i + 1 < argc) { h264.out_dir = argv[++i]; }
+        else if (a == "--h264-size" && i + 1 < argc) { h264.size = argv[++i]; }
+        else if (a == "--h264-fps" && i + 1 < argc) { h264.fps = std::atoi(argv[++i]); }
+        else if (a == "--h264-bitrate" && i + 1 < argc) { h264.bitrate_kbps = std::atoi(argv[++i]); }
+        else if (a == "--h264-encoder" && i + 1 < argc) { h264.encoder = argv[++i]; }
+#endif
         else if (a.size() && a[0] != '-') { port = (uint16_t)std::atoi(a.c_str()); }
     }
     if (web_root.empty()) {
@@ -140,8 +159,34 @@ int main(int argc, char** argv) {
         obs::log("error", "mjpeg server crashed: %s", e.what());
     }
 
+#ifndef __APPLE__
+    // Start the remote H.264 path before the blocking server call. It pulls
+    // frames from the same captures the MJPEG server uses, so it needs nothing
+    // of its own and cannot contend for /dev/video*.
+    obs::H264Stream h264_stream;
+    std::string h264_dir;
+    if (h264_on) {
+        if (h264.out_dir.empty()) {
+            // Default under XDG cache: transient, regenerated on every start,
+            // and specifically NOT under the web root, which the shipped
+            // systemd unit mounts read-only.
+            const char* xdg = std::getenv("XDG_CACHE_HOME");
+            const char* home = std::getenv("HOME");
+            h264.out_dir = (xdg && *xdg) ? std::string(xdg) + "/obsbot-bridge/h264"
+                         : (home && *home) ? std::string(home) + "/.cache/obsbot-bridge/h264"
+                         : "/tmp/obsbot-bridge-h264";
+        }
+        if (h264_stream.start(&mgr, h264)) {
+            h264_dir = h264.out_dir;
+            obs::log("info ", "h264: playlist at /h264/live.m3u8?t=<token> on port %d", (int)port);
+        }
+    }
+#else
+    const std::string h264_dir;
+#endif
+
     try {
-        obs::run_ws_server(port, mgr, web_root, auth, bindaddr);  // blocks; calls mgr.start()
+        obs::run_ws_server(port, mgr, web_root, auth, bindaddr, h264_dir);  // blocks; calls mgr.start()
     } catch (const std::exception& e) {
         obs::log("error", "ws server crashed: %s", e.what());
         return 1;

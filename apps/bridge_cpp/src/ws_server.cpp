@@ -62,7 +62,8 @@ void run_ws_server(uint16_t port,
                    DeviceManager& mgr,
                    const std::string& web_root,
                    AuthStore& auth,
-                   const std::string& bindaddr) {
+                   const std::string& bindaddr,
+                   const std::string& h264_dir) {
     crow::SimpleApp app;
     app.loglevel(crow::LogLevel::Warning);
 
@@ -225,6 +226,65 @@ void run_ws_server(uint16_t port,
         res.write(body);
         res.end();
     };
+
+    // ---- H.264 remote stream -------------------------------------------
+    //
+    // The MJPEG preview costs ~80 Mbps at 1080p30, measured. A domestic upload
+    // link carries a fraction of that, so watching from outside the house
+    // needs a compressed stream: same picture, ~2.5 Mbps, produced by
+    // H264Stream. This route just serves what ffmpeg wrote.
+    //
+    // Auth matches the MJPEG server: a valid token on the query string. The
+    // playlist is rewritten on the way out so each segment line carries the
+    // same token, because a player will not invent one and ffmpeg cannot
+    // append a query to the names it writes.
+    if (!h264_dir.empty()) {
+        CROW_ROUTE(app, "/h264/<path>")
+        ([&auth, h264_dir](const crow::request& req, crow::response& res,
+                           std::string rel) {
+            const std::string tok = req.url_params.get("t")
+                                        ? req.url_params.get("t") : "";
+            if (!auth.is_valid_token(tok)) {
+                res.code = 401; res.write("unauthorized"); res.end(); return;
+            }
+            if (!path_is_safe(rel)) { res.code = 400; res.end(); return; }
+
+            std::string body;
+            if (!read_file(h264_dir + "/" + rel, body)) {
+                // 404 until ffmpeg has written the first segment. A player
+                // retrying into a stream that is still warming up is normal.
+                res.code = 404; res.end(); return;
+            }
+
+            const bool is_playlist = rel.size() > 5 &&
+                rel.compare(rel.size() - 5, 5, ".m3u8") == 0;
+            if (is_playlist) {
+                std::string out;
+                out.reserve(body.size() + 256);
+                size_t i = 0;
+                while (i < body.size()) {
+                    size_t nl = body.find('\n', i);
+                    if (nl == std::string::npos) nl = body.size();
+                    std::string line = body.substr(i, nl - i);
+                    // Segment lines are the only ones without a leading '#'.
+                    if (!line.empty() && line[0] != '#' && line.back() != '\r') {
+                        line += "?t=" + tok;
+                    }
+                    out += line;
+                    out += '\n';
+                    i = nl + 1;
+                }
+                body.swap(out);
+                res.set_header("Content-Type", "application/vnd.apple.mpegurl");
+            } else {
+                res.set_header("Content-Type", "video/mp2t");
+            }
+            // A live playlist that gets cached is a playlist stuck in the past.
+            res.set_header("Cache-Control", "no-store");
+            res.write(body);
+            res.end();
+        });
+    }
 
     if (serve_web) {
         CROW_ROUTE(app, "/")([web_root](const crow::request&,
