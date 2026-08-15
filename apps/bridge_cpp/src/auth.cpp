@@ -11,6 +11,56 @@
 
 namespace obs {
 
+// mkdir -p for one path, ignoring "already exists". Only used for the auth
+// store's parent, so it does not need to be general.
+static void make_dirs(const std::string& dir) {
+    std::string acc;
+    size_t i = 0;
+    if (!dir.empty() && dir[0] == '/') { acc = "/"; i = 1; }
+    while (i <= dir.size()) {
+        size_t slash = dir.find('/', i);
+        std::string part = dir.substr(i, slash == std::string::npos
+                                             ? std::string::npos : slash - i);
+        if (!part.empty()) {
+            if (acc.size() > 1 || (acc.size() == 1 && acc[0] != '/')) acc += "/";
+            acc += part;
+            ::mkdir(acc.c_str(), 0700);
+        }
+        if (slash == std::string::npos) break;
+        i = slash + 1;
+    }
+}
+
+std::string auth_store_path() {
+    const char* home = std::getenv("HOME");
+
+#ifdef __APPLE__
+    if (home != nullptr) {
+        std::string dir =
+            std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
+        make_dirs(dir);
+        return dir + "/auth.json";
+    }
+#else
+    // XDG_CONFIG_HOME is only honoured when absolute, per the spec; a relative
+    // value is to be ignored rather than resolved against the cwd.
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    std::string base;
+    if (xdg != nullptr && xdg[0] == '/') {
+        base = xdg;
+    } else if (home != nullptr) {
+        base = std::string(home) + "/.config";
+    }
+    if (!base.empty()) {
+        std::string dir = base + "/open-obsbot-bridge";
+        make_dirs(dir);
+        return dir + "/auth.json";
+    }
+#endif
+
+    return "/tmp/obsbot-bridge-auth.json";
+}
+
 static std::string random_pin_6() {
     std::random_device rd;
     std::mt19937 gen(rd());
