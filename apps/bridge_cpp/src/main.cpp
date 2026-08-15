@@ -200,7 +200,7 @@ int main(int argc, char** argv) {
             if (action == "record.start") {
                 auto r = recorder.start(&mgr,
                                         msg.value("device_id", std::string{}),
-                                        msg.value("audio", false));
+                                        msg.value("audio", recorder.audio_enabled()));
                 // Push state on both outcomes: a refused start still changes
                 // what the UI should show, and a failed take that looks like
                 // nothing happened is how an operator loses a service.
@@ -213,6 +213,11 @@ int main(int argc, char** argv) {
                 return r;
             }
             if (action == "record.status") return {true, "", ""};
+            if (action == "record.set_audio") {
+                recorder.set_audio_enabled(msg.value("enabled", true));
+                mgr.notify_state_changed();
+                return {true, "", ""};
+            }
             return {false, "unknown_action", action};
         });
     obs::log("info ", "record: writing to %s, refusing below %.0f GiB free",

@@ -37,19 +37,23 @@ uint64_t file_size(const std::string& path) {
     return static_cast<uint64_t>(st.st_size);
 }
 
-// "2026-08-15" and "1423", for <root>/<date>/<time>-<SN>.mp4.
+// "2026-08-15" and "142317", for <root>/<date>/<time>-<SN>.mp4.
 //
 // Date directories because a day's takes belong together, and the serial in
 // the filename because two cameras on two days is the case that makes a flat
 // undated directory useless. Local time, not UTC: someone looking for "the
 // recording from this morning" means their morning.
+//
+// Seconds, not just HHMM, because two takes inside one minute is completely
+// ordinary - stop, check the framing, start again - and at minute resolution
+// the second one silently overwrites the first. Found by doing exactly that.
 void stamp(std::string* date, std::string* time_of_day) {
     const std::time_t t = std::time(nullptr);
     std::tm tm{};
     ::localtime_r(&t, &tm);
-    char d[16], h[8];
+    char d[16], h[16];
     std::strftime(d, sizeof d, "%Y-%m-%d", &tm);
-    std::strftime(h, sizeof h, "%H%M", &tm);
+    std::strftime(h, sizeof h, "%H%M%S", &tm);
     *date = d;
     *time_of_day = h;
 }
@@ -88,7 +92,7 @@ uint64_t Recorder::free_bytes(const std::string& path) {
 
 // Card ordering is not stable across boots, so hw:2,0 is a bug waiting for a
 // reboot. /proc/asound/cards maps a stable ID string to the index; ALSA
-// accepts that ID directly, so hw:Lite,0 keeps working when the index moves.
+// accepts that ID directly, so plughw:Lite,0 keeps working when the index moves.
 //
 // Format of the file is two lines per card:
 //     2 [Lite           ]: USB-Audio - OBSBOT Tiny 2 Lite
@@ -113,7 +117,10 @@ std::string Recorder::alsa_device_for_camera() {
         for (char& c : haystack) c = static_cast<char>(::tolower(c));
 
         if (haystack.find("obsbot") != std::string::npos && !id.empty()) {
-            return "hw:" + id + ",0";
+            // plughw, not hw: the plug layer converts sample rate, format and
+            // channel count, so the recorder does not have to match whatever
+            // this particular microphone happens to offer natively.
+            return "plughw:" + id + ",0";
         }
     }
     return {};
@@ -194,7 +201,15 @@ CmdResult Recorder::start(DeviceManager* mgr, const std::string& device_id, bool
         for (const char* x : xs) args.emplace_back(x);
     };
     if (with_audio) {
-        add({"-f", "alsa", "-ac", "1", "-i"});
+        // No -ac or -ar here. Before -i those are INPUT constraints, and a raw
+        // hw: device must be opened at exactly what the hardware offers. This
+        // camera's mic is stereo-only at 32kHz (see /proc/asound/cardN/stream0),
+        // so "-ac 1" made ALSA refuse with "cannot set channel count to 1" and
+        // ffmpeg exited before writing a byte. alsa_device_for_camera() returns
+        // a plughw: device, whose plug layer converts rate, format and channel
+        // count on the way through, so the input needs no constraints at all
+        // and a different camera with different native parameters still works.
+        add({"-f", "alsa", "-i"});
         args.emplace_back(alsa);
     } else {
         add({"-an"});
@@ -214,7 +229,11 @@ CmdResult Recorder::start(DeviceManager* mgr, const std::string& device_id, bool
         "-g", gop, "-r", fps, "-s", cfg_.size,
     });
     if (with_audio) {
-        add({"-c:a", "aac", "-b:a"});
+        // Downmix here instead: after -i this is an OUTPUT option, done in
+        // software, so it works whatever the microphone offers. Mono because
+        // this is a speaker in a hall, not music, and a second identical
+        // channel is bytes for nothing.
+        add({"-c:a", "aac", "-ac", "1", "-b:a"});
         args.emplace_back(std::to_string(cfg_.audio_bitrate_kbps) + "k");
         // Stop when the video ends. Without this the ALSA input keeps the
         // process alive after stdin closes and stop() has to resort to a
@@ -389,11 +408,27 @@ nlohmann::json Recorder::status() const {
         {"elapsed_s", elapsed},
         {"bytes", file_size(path_)},
         {"path", path_},
+        // What this take is doing.
         {"audio", audio_},
+        // What the next one will try to do, and whether it can.
+        {"audio_enabled", audio_pref_},
+        {"audio_available", !alsa_device_for_camera().empty()},
         {"disk_free_bytes", fsutil::free_bytes(cfg_.root)},
         {"error", error_},
     };
 }
+
+void Recorder::set_audio_enabled(bool on) {
+    std::lock_guard<std::mutex> g(mu_);
+    audio_pref_ = on;
+}
+
+bool Recorder::audio_enabled() const {
+    std::lock_guard<std::mutex> g(mu_);
+    return audio_pref_;
+}
+
+bool Recorder::audio_available() { return !alsa_device_for_camera().empty(); }
 
 void Recorder::shutdown() {
     if (active_.load() || pump_.joinable()) {

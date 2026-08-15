@@ -119,6 +119,16 @@ public:
     // Stop without producing a CmdResult, for process shutdown.
     void shutdown();
 
+    // Whether the NEXT take muxes an audio track. Separate from status()'s
+    // `audio`, which reports what the CURRENT take is actually doing: asking
+    // for audio and getting it are different things when the microphone is
+    // missing, and a UI that conflates them cannot explain a silent recording.
+    void set_audio_enabled(bool on);
+    bool audio_enabled() const;
+
+    // Does any camera expose an ALSA capture device right now.
+    static bool audio_available();
+
 private:
     void pump(DeviceManager* mgr);
 
@@ -138,7 +148,8 @@ private:
     std::string device_id_;
     std::string path_;
     std::string error_;
-    bool audio_ = false;
+    bool audio_ = false;          // this take
+    bool audio_pref_ = true;      // next take
     std::chrono::steady_clock::time_point started_;
     int64_t started_at_ms_ = 0;
 
