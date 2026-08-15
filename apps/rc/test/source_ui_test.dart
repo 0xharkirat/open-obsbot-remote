@@ -211,7 +211,7 @@ void main() {
       await tester.pump();
 
       // Control affordances must not render at all.
-      expect(find.text('Frame'), findsNothing);
+      expect(find.byIcon(Icons.control_camera), findsNothing);
       expect(find.text('P1'), findsNothing);
       expect(find.text('hold to save here'), findsNothing);
       // The note explains why, and TAKE still arms (staged != on air).
@@ -230,7 +230,7 @@ void main() {
         ], 'A'),
       );
       // Default selection is the live OBSBOT camera.
-      expect(find.text('Frame'), findsOneWidget);
+      expect(find.byIcon(Icons.control_camera), findsOneWidget);
       expect(find.text('P1'), findsOneWidget);
       expect(find.textContaining('preview and TAKE only'), findsNothing);
     });

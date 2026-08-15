@@ -61,11 +61,23 @@ class PreviewWidget extends StatelessWidget {
       return _placeholder(context, 'Connecting...');
     }
     final url = uri.toString();
-    final stream = kIsWeb ? _webStream(url) : _mobileStream(url);
+    // Pausing drops the stream rather than freezing a rendered frame. A
+    // frozen frame would keep the socket open and the bytes flowing, which
+    // is the opposite of what pausing is for on a phone away from home.
+    // It is local only: the bridge keeps streaming and a take keeps
+    // recording, so pausing a phone can never stop a recording.
+    final Widget stream = client.previewPaused
+        ? const _PausedFrame()
+        : (kIsWeb ? _webStream(url) : _mobileStream(url));
 
     if (minimal) {
       return ColoredBox(color: Colors.black, child: stream);
     }
+    final Widget playPause = Positioned(
+      left: 8,
+      bottom: 8,
+      child: _PlayPauseButton(client: client),
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: AspectRatio(
@@ -83,6 +95,7 @@ class PreviewWidget extends StatelessWidget {
                 showThirds: showThirds,
                 showReadout: showReadout,
               ),
+              playPause,
             ],
           ),
         ),
@@ -159,6 +172,68 @@ class PreviewWidget extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// What a paused preview shows. Deliberately says the feed is still
+/// running, because an operator seeing a still image needs to know the
+/// camera did not stop and neither did any recording.
+class _PausedFrame extends StatelessWidget {
+  const _PausedFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.pause_circle_outline, color: Colors.white38, size: 40),
+          SizedBox(height: 8),
+          Text(
+            'Preview paused',
+            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+          ),
+          SizedBox(height: 2),
+          Text(
+            'The camera and any recording are still running',
+            style: TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayPauseButton extends StatelessWidget {
+  const _PlayPauseButton({required this.client});
+
+  final WsClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    final paused = client.previewPaused;
+    return Semantics(
+      button: true,
+      label: paused ? 'Resume preview' : 'Pause preview',
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.45),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: client.togglePreviewPaused,
+          child: Padding(
+            padding: const EdgeInsets.all(7),
+            child: Icon(
+              paused ? Icons.play_arrow : Icons.pause,
+              size: 20,
+              color: Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }

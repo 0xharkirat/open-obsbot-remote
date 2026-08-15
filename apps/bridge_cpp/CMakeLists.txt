@@ -77,8 +77,10 @@ endif()
 # that host needs, so the code is not compiled into it at all.
 if (APPLE)
     set(H264_SRC "")
+    set(RECORDER_SRC "")
 else()
     set(H264_SRC src/h264_stream.cpp)
+    set(RECORDER_SRC src/recorder.cpp)
 endif()
 
 add_executable(obsbot-bridge
@@ -92,6 +94,7 @@ add_executable(obsbot-bridge
     src/log.cpp
     ${CAPTURE_SRC}
     ${H264_SRC}
+    ${RECORDER_SRC}
     src/mjpeg_server.cpp
     src/auth.cpp
 )

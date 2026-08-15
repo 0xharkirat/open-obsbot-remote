@@ -6,6 +6,7 @@ import 'footer.dart';
 import 'preview_widget.dart';
 import 'ptz_tuning.dart';
 import 'ptz_widgets.dart';
+import 'rec_panel.dart';
 import 'sequences_hub.dart';
 import 'settings_screen.dart';
 import 'source_picker_sheet.dart';
@@ -31,9 +32,14 @@ class LiveScreen extends StatefulWidget {
   State<LiveScreen> createState() => _LiveScreenState();
 }
 
+/// Which panel occupies the area under the stage. Was a `_framing` bool
+/// until recording needed somewhere to live; three destinations is a tab
+/// bar in all but name.
+enum _Panel { presets, frame, rec }
+
 class _LiveScreenState extends State<LiveScreen> {
   WsClient get client => widget.client;
-  bool _framing = false;
+  _Panel _panel = _Panel.presets;
 
   @override
   void initState() {
@@ -111,12 +117,14 @@ class _LiveScreenState extends State<LiveScreen> {
                               _CameraBus(client: client),
                               const SizedBox(height: 8),
                             ],
-                            if (videoStaged)
+                            if (videoStaged && _panel != _Panel.rec)
                               const _VideoSourceNote()
                             else
-                              _framing
-                                  ? _FramingPanel(client: client)
-                                  : _PresetGrid(client: client),
+                              switch (_panel) {
+                                _Panel.rec => RecPanel(client: client),
+                                _Panel.frame => _FramingPanel(client: client),
+                                _Panel.presets => _PresetGrid(client: client),
+                              },
                           ],
                         ),
                       ),
@@ -335,15 +343,23 @@ class _LiveScreenState extends State<LiveScreen> {
                           ],
                           Expanded(
                             child: SingleChildScrollView(
-                              child: videoStaged
-                                  ? const _VideoSourceNote()
-                                  : Column(
-                                      children: <Widget>[
-                                        _PresetGrid(client: client),
-                                        const SizedBox(height: 14),
-                                        _FramingPanel(client: client),
-                                      ],
-                                    ),
+                              // The desk has room to show everything at
+                              // once, which is the whole reason the Frame
+                              // toggle exists only on phones. REC joins the
+                              // stack rather than hiding behind a selector.
+                              child: Column(
+                                children: <Widget>[
+                                  if (videoStaged)
+                                    const _VideoSourceNote()
+                                  else ...<Widget>[
+                                    _PresetGrid(client: client),
+                                    const SizedBox(height: 14),
+                                    _FramingPanel(client: client),
+                                  ],
+                                  const SizedBox(height: 14),
+                                  RecPanel(client: client),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -371,19 +387,15 @@ class _LiveScreenState extends State<LiveScreen> {
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
       child: Row(
         children: <Widget>[
-          // Frame toggle: swaps the preset area for manual controls.
-          // A video source has neither, so the toggle disappears.
-          if (!videoStaged) ...<Widget>[
-            OutlinedButton.icon(
-              onPressed: () => setState(() => _framing = !_framing),
-              icon: Icon(
-                _framing ? Icons.grid_view : Icons.control_camera,
-                size: 18,
-              ),
-              label: Text(_framing ? 'Presets' : 'Frame'),
-            ),
-            const SizedBox(width: 8),
-          ],
+          // Panel selector. A generic video source has no presets and no
+          // gimbal, but it can still be recorded, so REC stays.
+          _PanelSelector(
+            panel: _panel,
+            videoStaged: videoStaged,
+            recording: client.recording.active,
+            onChanged: (p) => setState(() => _panel = p),
+          ),
+          const SizedBox(width: 8),
           if (multi) ...<Widget>[
             // Cut vs crossfade for the manual TAKE. Semantics.toggled carries
             // the on/off state to screen readers (isSelected alone doesn't
@@ -467,6 +479,74 @@ class _LiveScreenState extends State<LiveScreen> {
   }
 }
 
+/// Presets / Frame / REC. Icon-only because the action bar also carries
+/// TAKE on a 360px phone, and a three-label segmented control plus TAKE
+/// overflows there.
+///
+/// REC carries a live red dot while a take is running, so an operator who
+/// has navigated away to drive the camera can still see that it is
+/// recording without going back.
+class _PanelSelector extends StatelessWidget {
+  const _PanelSelector({
+    required this.panel,
+    required this.videoStaged,
+    required this.recording,
+    required this.onChanged,
+  });
+
+  final _Panel panel;
+  final bool videoStaged;
+  final bool recording;
+  final ValueChanged<_Panel> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SegmentedButton<_Panel>(
+      showSelectedIcon: false,
+      segments: <ButtonSegment<_Panel>>[
+        // A session-less video source has no presets and no gimbal, so
+        // those two destinations would only lead to errors on the bridge.
+        if (!videoStaged) ...<ButtonSegment<_Panel>>[
+          const ButtonSegment<_Panel>(
+            value: _Panel.presets,
+            icon: Icon(Icons.grid_view, size: 18),
+            tooltip: 'Presets',
+          ),
+          const ButtonSegment<_Panel>(
+            value: _Panel.frame,
+            icon: Icon(Icons.control_camera, size: 18),
+            tooltip: 'Frame',
+          ),
+        ],
+        ButtonSegment<_Panel>(
+          value: _Panel.rec,
+          tooltip: 'Record',
+          icon: Icon(
+            Icons.fiber_manual_record,
+            size: 18,
+            color: recording && panel != _Panel.rec
+                ? const Color(0xFFFF3B30)
+                : null,
+          ),
+        ),
+      ],
+      selected: <_Panel>{
+        // A video source cannot show presets or framing, so a stale
+        // selection has to fall through to the one panel that works.
+        if (videoStaged && panel != _Panel.rec) _Panel.rec else panel,
+      },
+      onSelectionChanged: (Set<_Panel> v) => onChanged(v.first),
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        side: WidgetStatePropertyAll<BorderSide>(
+          BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+    );
+  }
+}
+
 /// Connection state + staged camera name + gear. The whole nav for the
 /// app is this one gear; everything rare lives behind it.
 /// One desk pane: a small colored label chip (PREVIEW green / PROGRAM red)
@@ -543,6 +623,13 @@ class _TopStrip extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // Recording is bridge-global and survives navigating away, so it
+          // gets a spot that is on screen no matter which panel is open.
+          // A take running unnoticed is the failure this guards against.
+          if (client.recording.active) ...<Widget>[
+            const _RecPill(),
+            const SizedBox(width: 4),
+          ],
           IconButton(
             tooltip: 'Sequences',
             icon: Icon(
@@ -566,6 +653,44 @@ class _TopStrip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A small red REC badge for the top strip. Deliberately not the primary
+/// indicator - that is the REC panel, which turns entirely red. This is the
+/// reminder for an operator who has navigated away to drive the camera.
+class _RecPill extends StatelessWidget {
+  const _RecPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      label: 'Recording',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF3B30),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.fiber_manual_record, size: 11, color: Colors.white),
+            SizedBox(width: 4),
+            Text(
+              'REC',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1090,6 +1215,8 @@ class _FramingPanel extends StatelessWidget {
           children: <Widget>[
             Expanded(child: _SpeedSegmented(client: client)),
             const SizedBox(width: 8),
+            _AudioToggle(client: client),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: client.ptzRecenter,
               icon: const Icon(Icons.filter_center_focus, size: 18),
@@ -1108,6 +1235,49 @@ class _FramingPanel extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The camera microphone, in its three real states.
+///
+/// On, off, and no microphone at all are genuinely different, and a
+/// two-state switch has to either lie about the third or hide the control.
+/// A control that disappears leaves an operator wondering whether they
+/// missed it, so this one stays put and explains itself instead.
+class _AudioToggle extends StatelessWidget {
+  const _AudioToggle({required this.client});
+
+  final WsClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final device = client.state;
+    final audio = device.audio;
+    final on = audio.capturing;
+    final String reason = !audio.available
+        ? 'This camera has no microphone'
+        : on
+        ? 'Microphone on - recordings will have sound'
+        : 'Microphone off - recordings will be silent';
+    return Tooltip(
+      message: reason,
+      child: Semantics(
+        toggled: on,
+        enabled: audio.available,
+        label: 'Camera microphone',
+        child: OutlinedButton(
+          onPressed: audio.available
+              ? () => client.setAudioEnabled(device.deviceId, !audio.enabled)
+              : null,
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            foregroundColor: on ? theme.colorScheme.primary : null,
+          ),
+          child: Icon(on ? Icons.mic : Icons.mic_off, size: 18),
+        ),
+      ),
     );
   }
 }

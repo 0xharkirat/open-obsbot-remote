@@ -4,6 +4,7 @@
 #include "mjpeg_server.h"
 #ifndef __APPLE__
 #include "h264_stream.h"
+#include "recorder.h"
 #endif
 #include "auth.h"
 #include "log.h"
@@ -95,6 +96,7 @@ int main(int argc, char** argv) {
     // nothing extra; this one spawns an encoder, so it only runs on request.
     bool h264_on = false;
     obs::H264Config h264;
+    obs::RecordConfig record;
 #endif
 
     for (int i = 1; i < argc; ++i) {
@@ -109,6 +111,11 @@ int main(int argc, char** argv) {
         else if (a == "--h264-fps" && i + 1 < argc) { h264.fps = std::atoi(argv[++i]); }
         else if (a == "--h264-bitrate" && i + 1 < argc) { h264.bitrate_kbps = std::atoi(argv[++i]); }
         else if (a == "--h264-encoder" && i + 1 < argc) { h264.encoder = argv[++i]; }
+        else if (a == "--record-dir" && i + 1 < argc) { record.root = argv[++i]; }
+        else if (a == "--record-bitrate" && i + 1 < argc) { record.bitrate_kbps = std::atoi(argv[++i]); }
+        else if (a == "--record-min-free-gb" && i + 1 < argc) {
+            record.min_free_bytes = (uint64_t)std::atoll(argv[++i]) << 30;
+        }
 #endif
         else if (a.size() && a[0] != '-') { port = (uint16_t)std::atoi(a.c_str()); }
     }
@@ -181,6 +188,35 @@ int main(int argc, char** argv) {
             obs::log("info ", "h264: playlist at /h264/live.m3u8?t=<token> on port %d", (int)port);
         }
     }
+
+    // The recorder is always available on Linux, unlike the H.264 stream: it
+    // costs nothing until a take is started, so there is no flag to forget.
+    obs::Recorder recorder;
+    recorder.configure(record);
+    mgr.set_recording_status_fn([&recorder] { return recorder.status(); });
+    mgr.set_record_action_fn(
+        [&recorder, &mgr](const std::string& action,
+                          const nlohmann::json& msg) -> obs::CmdResult {
+            if (action == "record.start") {
+                auto r = recorder.start(&mgr,
+                                        msg.value("device_id", std::string{}),
+                                        msg.value("audio", false));
+                // Push state on both outcomes: a refused start still changes
+                // what the UI should show, and a failed take that looks like
+                // nothing happened is how an operator loses a service.
+                mgr.notify_state_changed();
+                return r;
+            }
+            if (action == "record.stop") {
+                auto r = recorder.stop();
+                mgr.notify_state_changed();
+                return r;
+            }
+            if (action == "record.status") return {true, "", ""};
+            return {false, "unknown_action", action};
+        });
+    obs::log("info ", "record: writing to %s, refusing below %.0f GiB free",
+             record.root.c_str(), record.min_free_bytes / 1073741824.0);
 #else
     const std::string h264_dir;
 #endif

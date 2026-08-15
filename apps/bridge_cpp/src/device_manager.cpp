@@ -376,7 +376,7 @@ nlohmann::json DeviceManager::build_state_event() {
             devs.push_back(source_state_entry(sit->second, conn));
         }
     }
-    return nlohmann::json{
+    nlohmann::json ev{
         {"event", "state"},
         {"version", "2.0"},
         {"ts", now_ms()},
@@ -384,7 +384,53 @@ nlohmann::json DeviceManager::build_state_event() {
         {"devices", std::move(devs)},
         {"mix", mix_state()},
     };
+    // Omitted entirely rather than sent as a disabled stub when there is no
+    // recorder, so a client can tell "this build cannot record" from "this
+    // build is not recording right now".
+    if (recording_status_fn_) {
+        try {
+            ev["recording"] = recording_status_fn_();
+        } catch (...) {}
+    }
+    return ev;
 }
+
+void DeviceManager::set_recording_status_fn(StatusFn fn) {
+    std::lock_guard<std::mutex> g(mu_);
+    recording_status_fn_ = std::move(fn);
+}
+
+void DeviceManager::set_record_action_fn(ActionFn fn) {
+    std::lock_guard<std::mutex> g(mu_);
+    record_action_fn_ = std::move(fn);
+}
+
+CmdResult DeviceManager::dispatch_record(const std::string& action,
+                                         const nlohmann::json& msg) {
+    ActionFn fn;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        fn = record_action_fn_;
+    }
+    if (!fn) {
+        return {false, "not_supported", "this build has no recorder"};
+    }
+    // Called with the lock released: start() reaches back into capture_for()
+    // and active_sn(), both of which take mu_.
+    return fn(action, msg);
+}
+
+nlohmann::json DeviceManager::recording_status() {
+    StatusFn fn;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        fn = recording_status_fn_;
+    }
+    if (!fn) return nlohmann::json();
+    try { return fn(); } catch (...) { return nlohmann::json(); }
+}
+
+void DeviceManager::notify_state_changed() { broadcast(); }
 
 nlohmann::json DeviceManager::available_sources() {
     // Snapshot which uniqueIDs are already bound (OBSBOT sessions store their

@@ -46,7 +46,9 @@ void main() {
     // The bus still shows (its "+" chip is how a second camera gets
     // added), but with nothing to cut to there is no TAKE.
     expect(find.text('Add'), findsOneWidget);
-    expect(find.text('Frame'), findsOneWidget); // controls still present
+    // Controls still present. The panel selector is icon-only: a
+    // three-label segmented control plus TAKE overflows a 360px phone.
+    expect(find.byIcon(Icons.control_camera), findsOneWidget);
   });
 
   testWidgets('two cameras: bus lists both, ON AIR marks the live one', (
@@ -123,15 +125,25 @@ void main() {
     expect(find.text('hold to save here'), findsWidgets);
   });
 
-  testWidgets('Frame toggle swaps presets for the manual controls', (
+  testWidgets('panel selector swaps presets for the manual controls', (
     tester,
   ) async {
     await _pump(tester, _bridge(<DeviceState>[_device('A')], 'A'));
     expect(find.text('P1'), findsOneWidget);
-    await tester.tap(find.text('Frame'));
+    await tester.tap(find.byIcon(Icons.control_camera));
     await tester.pump();
-    expect(find.text('Presets'), findsOneWidget); // toggle label flipped
+    expect(find.text('P1'), findsNothing); // presets gave up the space
     expect(find.text('Fine'), findsOneWidget); // speed segmented now shown
+  });
+
+  testWidgets('panel selector reaches REC, and back', (tester) async {
+    await _pump(tester, _bridge(<DeviceState>[_device('A')], 'A'));
+    await tester.tap(find.byIcon(Icons.fiber_manual_record).first);
+    await tester.pump();
+    expect(find.text('Recorded on the bridge, not the camera.'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.grid_view));
+    await tester.pump();
+    expect(find.text('P1'), findsOneWidget);
   });
 
   group('desk layout (wide surface)', () {
@@ -158,8 +170,8 @@ void main() {
       expect(find.text('PREVIEW'), findsOneWidget);
       expect(find.text('PROGRAM'), findsOneWidget);
       // Presets and framing are both visible at once, so the phone-only
-      // Frame toggle must not render.
-      expect(find.text('Frame'), findsNothing);
+      // panel selector must not render.
+      expect(find.byIcon(Icons.control_camera), findsNothing);
       expect(find.text('Glide'), findsOneWidget);
       // With no explicit selection the staged camera follows the active one,
       // so the big button reads ON AIR; staging the other camera arms TAKE.
@@ -180,7 +192,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: LiveScreen(client: client)));
       await tester.pump();
       expect(find.text('PREVIEW'), findsNothing);
-      expect(find.text('Frame'), findsOneWidget);
+      expect(find.byIcon(Icons.control_camera), findsOneWidget);
     });
   });
 }

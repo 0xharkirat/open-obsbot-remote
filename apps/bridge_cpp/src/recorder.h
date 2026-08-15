@@ -30,6 +30,20 @@
 // the last flushed fragment. A lost take is the failure that actually costs
 // something here.
 //
+// WHY SHUTDOWN NEEDS NO CODE HERE
+//
+// The bridge exits via _Exit(0) from its signal handler and its supervisor
+// watchdog, because libdev's global destructors crash on teardown (CLAUDE.md
+// gotcha #14). So ~Recorder() does NOT run on a normal quit, and stop() is
+// never called.
+//
+// That is fine, and it is fine for a reason worth stating rather than
+// discovering. The write end of ffmpeg's stdin pipe dies with the process, so
+// the kernel closes it, ffmpeg reads EOF, finishes its final fragment and
+// exits of its own accord. The clean path is the automatic one. And if the
+// machine loses power instead, the fragmented MP4 above is still playable.
+// Both shutdown routes end with a usable file without this class being asked.
+//
 // WHAT THIS DOES NOT TOUCH
 //
 // /preview/<sn>.mjpg and /preview/active.mjpg are unchanged. They are what OBS
@@ -107,7 +121,6 @@ public:
 
 private:
     void pump(DeviceManager* mgr);
-    void reap_child();
 
     // Resolve the camera's ALSA capture device by card name rather than a
     // fixed index: card ordering is not stable across boots, so hw:2,0 is a

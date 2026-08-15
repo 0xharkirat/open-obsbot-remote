@@ -205,6 +205,52 @@ class WsClient extends ChangeNotifier {
   Future<void> mixLoad(String name) => _mix((r) => r.loadMix(name));
   Future<void> mixDelete(String name) => _mix((r) => r.deleteMix(name));
 
+  // ---- record.* + audio.* : host-side recording ----
+
+  /// Recording status. Bridge-global, one take at a time.
+  RecordingState get recording => _bridge.recording;
+
+  /// Starts a take on [deviceId], or on the on-air camera when omitted.
+  ///
+  /// [audio] asks for sound. A camera with no microphone downgrades to a
+  /// silent recording rather than refusing, so the UI must read
+  /// `recording.audio` back rather than assume it got what it asked for.
+  Future<void> startRecording({String deviceId = '', bool audio = true}) =>
+      _record((r) => r.startRecording(deviceId: deviceId, audio: audio));
+
+  Future<void> stopRecording() => _record((r) => r.stopRecording());
+
+  Future<void> refreshRecording() => _record((r) => r.recordStatus());
+
+  /// Turns [deviceId]'s microphone on or off.
+  Future<void> setAudioEnabled(String deviceId, bool enabled) =>
+      _record((r) => r.setAudioEnabled(deviceId, enabled));
+
+  Future<void> _record(Future<void> Function(BridgeRepository) op) async {
+    final repo = _bridgeRepo;
+    if (repo == null) return;
+    try {
+      await op(repo);
+    } on ApiException catch (e) {
+      _fail(e);
+    }
+  }
+
+  // ---- preview transport (presentation state, not bridge state) ----
+
+  bool _previewPaused = false;
+
+  /// True while the operator has frozen the preview. Purely local: the
+  /// bridge keeps streaming and any recording keeps running, so pausing
+  /// costs nothing except this phone's bandwidth and battery. Never let
+  /// this reach the bridge - a paused phone must not stop a take.
+  bool get previewPaused => _previewPaused;
+
+  void togglePreviewPaused() {
+    _previewPaused = !_previewPaused;
+    notifyListeners();
+  }
+
   // ---- source.* : generic (non-OBSBOT) video sources ----
 
   /// Cameras this Mac can see, for the add-camera picker. Null when not

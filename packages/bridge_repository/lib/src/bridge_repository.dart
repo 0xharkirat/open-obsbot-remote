@@ -162,6 +162,42 @@ class BridgeRepository {
   Future<void> deleteMix(String name) =>
       _api.send(<String, dynamic>{'action': 'mix.delete', 'name': name});
 
+  // ---- record.* + audio.* : host-side recording (see docs/RECORDING_PROTOCOL.md) ----
+
+  /// Starts recording [deviceId], or the on-air camera when it is empty.
+  ///
+  /// Recording is host-side because the Tiny 2 Lite has no storage: every
+  /// record method in the SDK is annotated for the Tail Air.
+  ///
+  /// [audio] asks for a muxed audio track. Asking for one the camera cannot
+  /// provide is a downgrade rather than a refusal - the take starts silent
+  /// and the state event comes back with `recording.audio == false`. Losing
+  /// the take because a microphone was missing would be the wrong trade.
+  Future<void> startRecording({String deviceId = '', bool audio = true}) =>
+      _api.send(<String, dynamic>{
+        'action': 'record.start',
+        if (deviceId.isNotEmpty) 'device_id': deviceId,
+        'audio': audio,
+      });
+
+  /// Stops the current recording and closes the file.
+  Future<void> stopRecording() =>
+      _api.send(<String, dynamic>{'action': 'record.stop'});
+
+  /// Asks for a fresh `recording` block. Only needed by a client that just
+  /// connected: the bridge pushes the block on every change otherwise.
+  Future<void> recordStatus() =>
+      _api.send(<String, dynamic>{'action': 'record.status'});
+
+  /// Turns [deviceId]'s microphone on or off. Applies the SDK setting and
+  /// decides whether future recordings mux a track.
+  Future<void> setAudioEnabled(String deviceId, bool enabled) =>
+      _api.send(<String, dynamic>{
+        'action': 'audio.set',
+        'device_id': deviceId,
+        'enabled': enabled,
+      });
+
   // ---- library.* : export/import the authored library (for Mac migration) ----
 
   /// Returns the whole authored library (sequences + mix + names) as a JSON

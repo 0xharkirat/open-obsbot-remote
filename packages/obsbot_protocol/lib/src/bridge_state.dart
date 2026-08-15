@@ -2,6 +2,7 @@ import 'package:meta/meta.dart';
 
 import 'device_state.dart';
 import 'mix_state.dart';
+import 'recording_state.dart';
 
 /// Top-level state pushed by the bridge in every v2 `state` event.
 ///
@@ -41,11 +42,17 @@ class BridgeState {
   /// [MixState.empty] on v1/v2.0 bridges that don't emit a `mix` block.
   final MixState mix;
 
+  /// Recording status. Bridge-global for the same reason [activeDeviceId]
+  /// is: one at a time. [RecordingState.empty] on a bridge that predates
+  /// the block, which reads as "not recording" and renders an idle panel.
+  final RecordingState recording;
+
   const BridgeState({
     required this.protocolVersion,
     required this.devices,
     required this.activeDeviceId,
     this.mix = MixState.empty,
+    this.recording = RecordingState.empty,
   });
 
   static const empty = BridgeState(
@@ -92,6 +99,7 @@ class BridgeState {
         .map(DeviceState.fromEvent)
         .toList(growable: false);
     final mixRaw = j['mix'];
+    final recRaw = j['recording'];
     return BridgeState(
       protocolVersion: version,
       devices: devices,
@@ -99,6 +107,9 @@ class BridgeState {
       mix: mixRaw is Map<String, dynamic>
           ? MixState.fromJson(mixRaw)
           : MixState.empty,
+      recording: recRaw is Map<String, dynamic>
+          ? RecordingState.fromJson(recRaw)
+          : RecordingState.empty,
     );
   }
 
@@ -107,12 +118,14 @@ class BridgeState {
     List<DeviceState>? devices,
     String? activeDeviceId,
     MixState? mix,
+    RecordingState? recording,
   }) {
     return BridgeState(
       protocolVersion: protocolVersion ?? this.protocolVersion,
       devices: devices ?? this.devices,
       activeDeviceId: activeDeviceId ?? this.activeDeviceId,
       mix: mix ?? this.mix,
+      recording: recording ?? this.recording,
     );
   }
 

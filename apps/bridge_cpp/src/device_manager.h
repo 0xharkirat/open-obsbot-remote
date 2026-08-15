@@ -115,6 +115,34 @@ public:
     // Assemble the v2 state envelope:
     //   {"event":"state","version":"2.0","ts":..,"active_device_id":..,"devices":[..]}
     nlohmann::json build_state_event();
+
+    // ---- recorder join ----
+    // The recorder lives outside this class and only on Linux, so it is
+    // attached as callbacks rather than as a member. That keeps DeviceManager
+    // and protocol.cpp free of #ifdef __APPLE__ and free of any dependency on
+    // the recorder's type, which is what lets the macOS build simply not
+    // compile it.
+    using StatusFn = std::function<nlohmann::json()>;
+    using ActionFn = std::function<CmdResult(const std::string& action,
+                                             const nlohmann::json& msg)>;
+
+    // Supplies the state event's `recording` block. Unset means the block is
+    // omitted entirely, which is how a macOS client tells the feature is absent.
+    void set_recording_status_fn(StatusFn fn);
+
+    // Handles record.* actions. Unset means they answer `not_supported`.
+    void set_record_action_fn(ActionFn fn);
+
+    CmdResult dispatch_record(const std::string& action, const nlohmann::json& msg);
+
+    // The `recording` block on its own, for the record.* acks. Null when this
+    // build has no recorder.
+    nlohmann::json recording_status();
+
+    // Push a state event now. The recorder calls this when a take starts,
+    // stops, or dies, since none of those originate from a camera event and
+    // the UI would otherwise not hear about them until something else changed.
+    void notify_state_changed();
     // Compact per-device identity array for `hello` / `device.list` acks.
     nlohmann::json device_summaries();
 
@@ -230,6 +258,8 @@ private:
     std::string active_sn_;
     std::string desired_active_;       // persisted preference, loaded at start()
     Broadcaster broadcaster_;
+    StatusFn recording_status_fn_;
+    ActionFn record_action_fn_;
     // Read on the WS worker thread (mix_start's teardown guard) and written on
     // the WS/main thread in start()/stop(); atomic so the guard is race-free.
     std::atomic<bool> started_{false};

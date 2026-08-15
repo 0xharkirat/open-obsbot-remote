@@ -233,6 +233,7 @@ class DeviceState {
         (j['image'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
     final seq =
         (j['sequence'] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+    final aud = j['audio'];
 
     double d(Object? v, [double def = 0]) => v is num ? v.toDouble() : def;
     int i(Object? v, [int def = 0]) => v is num ? v.toInt() : def;

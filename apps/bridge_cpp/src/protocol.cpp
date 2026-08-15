@@ -263,6 +263,22 @@ void dispatch_message(DeviceManager& mgr,
         return;
     }
 
+    // Recording is bridge-global, like `active`, so it sits with the other
+    // bridge-scoped actions rather than being routed to a session. The manager
+    // answers `not_supported` when no recorder is attached, which is how a
+    // macOS build reports that the feature is simply not in it.
+    if (action.rfind("record.", 0) == 0) {
+        CmdResult r = mgr.dispatch_record(action, msg);
+        json resp = r.ok ? ack_ok(id) : ack_err(id, r.err, r.msg);
+        // Attach the recording block. ack_ok deliberately carries no `msg`,
+        // and every other action is happy with that, but "which file did I
+        // just write" is the one answer a caller cannot reconstruct.
+        json st = mgr.recording_status();
+        if (!st.is_null()) resp["recording"] = st;
+        reply_send(resp.dump());
+        return;
+    }
+
     if (action == "device.set_active") {
         string sn = msg.value("device_id", string{});
         // Optional fade-from-black on the cut: explicit fade_ms, or
