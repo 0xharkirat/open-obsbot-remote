@@ -30,16 +30,13 @@ DeviceState _device() {
 BridgeState _bridge({
   RecordingState recording = RecordingState.empty,
   bool micAvailable = false,
-  bool audioEnabled = false,
+  RecordMode mode = RecordMode.both,
 }) {
   return BridgeState(
     protocolVersion: '2.0',
     devices: <DeviceState>[_device()],
     activeDeviceId: 'A',
-    recording: recording.copyWith(
-      audioAvailable: micAvailable,
-      audioEnabled: audioEnabled,
-    ),
+    recording: recording.copyWith(audioAvailable: micAvailable, mode: mode),
   );
 }
 
@@ -81,19 +78,19 @@ void main() {
     testWidgets('says it will have sound when the mic is on', (tester) async {
       await _pump(
         tester,
-        _bridge(micAvailable: true, audioEnabled: true),
+        _bridge(micAvailable: true),
       );
       expect(find.text('Will record with sound'), findsOneWidget);
     });
 
     // A microphone that exists but is switched off is its own state: the
     // operator can fix it, unlike a camera that has none.
-    testWidgets('distinguishes a muted mic from a missing one', (tester) async {
+    testWidgets('distinguishes video-only from a missing microphone', (tester) async {
       await _pump(
         tester,
-        _bridge(micAvailable: true),
+        _bridge(micAvailable: true, mode: RecordMode.video),
       );
-      expect(find.textContaining('audio is off'), findsOneWidget);
+      expect(find.text('Will record picture only'), findsOneWidget);
     });
 
     // Below the bridge's floor the start would be refused, so the button
@@ -188,44 +185,62 @@ void main() {
     });
   });
 
-  // The framing row gained a third control, and the repo's own notes record
-  // this row overflowing at narrow widths before. Pin the narrowest phone.
-  group('audio toggle', () {
-    testWidgets('framing row survives a 320px phone', (tester) async {
+  // The repo's own notes record the drive row overflowing at narrow widths
+  // before, so pin the narrowest phone even though the audio control moved
+  // off it and into the REC panel.
+  group('mode selector', () {
+    testWidgets('drive row survives a 320px phone', (tester) async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       await tester.binding.setSurfaceSize(const Size(320, 720));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      final client = WsClient()
-        ..debugSetBridge(
-          _bridge(micAvailable: true, audioEnabled: true),
-        );
+      final client = WsClient()..debugSetBridge(_bridge(micAvailable: true));
       await tester.pumpWidget(MaterialApp(home: LiveScreen(client: client)));
       await tester.pump();
       await tester.tap(find.byIcon(Icons.control_camera));
       await tester.pump();
-      expect(find.byIcon(Icons.mic), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a camera with no mic disables the control', (tester) async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      await tester.binding.setSurfaceSize(const Size(390, 844));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final client = WsClient()..debugSetBridge(_bridge());
-      await tester.pumpWidget(MaterialApp(home: LiveScreen(client: client)));
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.control_camera));
-      await tester.pump();
-      // Present but inert, rather than hidden: a control that vanishes
-      // leaves the operator wondering whether they missed it.
-      expect(find.byIcon(Icons.mic_off), findsOneWidget);
-      final button = tester.widget<OutlinedButton>(
-        find.ancestor(
-          of: find.byIcon(Icons.mic_off),
-          matching: find.byType(OutlinedButton),
+    testWidgets('offers all three modes and marks the current one', (
+      tester,
+    ) async {
+      await _pump(tester, _bridge(micAvailable: true, mode: RecordMode.audio));
+      // Icons rather than words because three worded labels cannot fit a
+      // 320px phone; the sentence beneath carries the plain wording.
+      expect(find.byIcon(Icons.perm_camera_mic), findsOneWidget);
+      expect(find.byIcon(Icons.videocam), findsOneWidget);
+      expect(find.byIcon(Icons.mic), findsOneWidget);
+      final seg = tester.widget<SegmentedButton<RecordMode>>(
+        find.byType(SegmentedButton<RecordMode>),
+      );
+      expect(seg.selected, <RecordMode>{RecordMode.audio});
+    });
+
+    testWidgets('is inert while a take is running', (tester) async {
+      await _pump(
+        tester,
+        _bridge(
+          micAvailable: true,
+          recording: const RecordingState(active: true, video: true),
         ),
       );
-      expect(button.onPressed, isNull);
+      // The idle card is replaced while recording, so the selector is gone
+      // rather than merely disabled. Changing what a take captures halfway
+      // through has no coherent meaning either way.
+      expect(find.byType(SegmentedButton<RecordMode>), findsNothing);
+    });
+
+    // Audio-only with no microphone has nothing to capture, so the bridge
+    // refuses it. Refusing here too beats letting the operator tap and wait
+    // for a failure.
+    testWidgets('audio-only with no mic cannot be armed', (tester) async {
+      await _pump(tester, _bridge(mode: RecordMode.audio));
+      expect(find.textContaining('nothing to record'), findsOneWidget);
+    });
+
+    testWidgets('video-only says it records picture only', (tester) async {
+      await _pump(tester, _bridge(micAvailable: true, mode: RecordMode.video));
+      expect(find.text('Will record picture only'), findsOneWidget);
     });
   });
 
@@ -247,20 +262,30 @@ void main() {
       expect(const RecordingState().failed, isFalse);
     });
 
-    // audio is what THIS take is doing; audioEnabled is what the next one
-    // will try to do. They diverge after a downgrade: asking for sound with
-    // no microphone starts a silent recording rather than refusing the take,
-    // and an operator who thinks they are capturing sound must be able to
-    // see that they are not.
-    test('a downgraded take reports silent while the preference stays on', () {
+    // video and audio are what THIS take is doing; mode is what the next one
+    // will capture. They diverge after a downgrade: asking for sound with no
+    // microphone starts a silent recording rather than refusing the take, and
+    // an operator who thinks they are capturing sound must be able to see
+    // that they are not.
+    test('a downgraded take reports silent while the mode stays on both', () {
       const s = RecordingState(
         active: true,
+        video: true,
         audio: false,
-        audioEnabled: true,
+        mode: RecordMode.both,
         audioAvailable: false,
       );
       expect(s.audio, isFalse);
-      expect(s.audioEnabled, isTrue);
+      expect(s.video, isTrue);
+      expect(s.mode, RecordMode.both);
+    });
+
+    test('modes round-trip through the wire, unknown falls back to both', () {
+      for (final m in RecordMode.values) {
+        expect(RecordMode.fromWire(m.wire), m);
+      }
+      expect(RecordMode.fromWire('quadrophonic'), RecordMode.both);
+      expect(RecordMode.fromWire(null), RecordMode.both);
     });
 
     test('a bridge with no recording block parses as idle', () {

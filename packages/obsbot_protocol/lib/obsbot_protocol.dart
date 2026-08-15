@@ -24,6 +24,7 @@ export 'src/loop_mode.dart';
 export 'src/mix_state.dart';
 export 'src/move_duration_preset.dart';
 export 'src/preset_entry.dart';
+export 'src/record_mode.dart';
 export 'src/recording_state.dart';
 export 'src/sequence_state.dart';
 export 'src/sequence_step.dart';

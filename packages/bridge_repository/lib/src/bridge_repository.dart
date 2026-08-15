@@ -169,15 +169,21 @@ class BridgeRepository {
   /// Recording is host-side because the Tiny 2 Lite has no storage: every
   /// record method in the SDK is annotated for the Tail Air.
   ///
-  /// [audio] asks for a muxed audio track. Asking for one the camera cannot
-  /// provide is a downgrade rather than a refusal - the take starts silent
-  /// and the state event comes back with `recording.audio == false`. Losing
-  /// the take because a microphone was missing would be the wrong trade.
-  Future<void> startRecording({String deviceId = '', bool audio = true}) =>
+  /// Omitting [mode] records in whatever mode was last set, which is what the
+  /// record button does: the mode selector already chose, and the button
+  /// should not have to restate it.
+  ///
+  /// A missing microphone means different things per mode. In
+  /// [RecordMode.both] it is a downgrade rather than a refusal: the take
+  /// starts silent and the state event comes back with `recording.audio ==
+  /// false`, because losing the take is worse than losing the sound. In
+  /// [RecordMode.audio] it is a hard `audio_unavailable` failure, because
+  /// nothing is left to capture.
+  Future<void> startRecording({String deviceId = '', RecordMode? mode}) =>
       _api.send(<String, dynamic>{
         'action': 'record.start',
         if (deviceId.isNotEmpty) 'device_id': deviceId,
-        'audio': audio,
+        if (mode != null) 'mode': mode.wire,
       });
 
   /// Stops the current recording and closes the file.
@@ -189,18 +195,18 @@ class BridgeRepository {
   Future<void> recordStatus() =>
       _api.send(<String, dynamic>{'action': 'record.status'});
 
-  /// Whether future recordings mux an audio track.
+  /// What future recordings capture.
   ///
   /// Deliberately NOT a camera setting. `cameraSetAudioCtrlStateU` looks like
   /// a microphone control and is not: its enum is voice commands
   /// (`AudioCtrlHiTiny`, `AudioCtrlTrack`, `AudioCtrlZoomIn`), so it configures
   /// what the camera does when spoken to. There is no way to mute this
-  /// microphone through the SDK. The only thing actually achievable is whether
-  /// the recorder writes a track, which is bridge-global because the recorder
-  /// is, hence no device_id.
-  Future<void> setAudioEnabled(bool enabled) => _api.send(<String, dynamic>{
-        'action': 'record.set_audio',
-        'enabled': enabled,
+  /// microphone through the SDK. The only thing actually achievable is what
+  /// the recorder writes, which is bridge-global because the recorder is,
+  /// hence no device_id.
+  Future<void> setRecordMode(RecordMode mode) => _api.send(<String, dynamic>{
+        'action': 'record.set_mode',
+        'mode': mode.wire,
       });
 
   // ---- library.* : export/import the authored library (for Mac migration) ----

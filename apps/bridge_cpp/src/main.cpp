@@ -198,9 +198,14 @@ int main(int argc, char** argv) {
         [&recorder, &mgr](const std::string& action,
                           const nlohmann::json& msg) -> obs::CmdResult {
             if (action == "record.start") {
+                // No `mode` in the request means "use the preference", which
+                // is what the UI's record button sends: the mode selector set
+                // it earlier and the button should not have to restate it.
+                const std::string m = msg.value("mode", std::string{});
                 auto r = recorder.start(&mgr,
                                         msg.value("device_id", std::string{}),
-                                        msg.value("audio", recorder.audio_enabled()));
+                                        m.empty() ? recorder.mode()
+                                                  : obs::mode_from_string(m));
                 // Push state on both outcomes: a refused start still changes
                 // what the UI should show, and a failed take that looks like
                 // nothing happened is how an operator loses a service.
@@ -213,8 +218,9 @@ int main(int argc, char** argv) {
                 return r;
             }
             if (action == "record.status") return {true, "", ""};
-            if (action == "record.set_audio") {
-                recorder.set_audio_enabled(msg.value("enabled", true));
+            if (action == "record.set_mode") {
+                recorder.set_mode(
+                    obs::mode_from_string(msg.value("mode", std::string("both"))));
                 mgr.notify_state_changed();
                 return {true, "", ""};
             }

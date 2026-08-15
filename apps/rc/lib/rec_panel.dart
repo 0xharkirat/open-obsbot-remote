@@ -71,18 +71,21 @@ class _IdleCard extends StatelessWidget {
     final theme = Theme.of(context);
     final target = client.bridge.activeDevice ?? client.state;
     final hasTarget = target.deviceId.isNotEmpty;
-    // Audio lives on the bridge-global recording block, not per device. The
+    // Mode lives on the bridge-global recording block, not per device. The
     // recorder is bridge-global, so a per-camera flag would be reporting a
     // setting that does not exist.
     final micAvailable = rec.audioAvailable;
-    final wantAudio = rec.audioEnabled;
-    final willHaveSound = wantAudio && micAvailable;
+    final mode = rec.mode;
+    final willHaveSound = mode.wantsAudio && micAvailable;
     // The floor the bridge enforces. Showing a record button that is
     // guaranteed to be refused would be a worse experience than a
     // disabled one that says why.
     const floorBytes = 5 * 1024 * 1024 * 1024;
     final lowSpace = rec.diskFreeBytes > 0 && rec.diskFreeBytes < floorBytes;
-    final canStart = hasTarget && !lowSpace;
+    // Audio-only with no microphone is a hard refusal at the bridge, so refuse
+    // it here too rather than letting the operator tap and be told no.
+    final noSourceForMode = mode == RecordMode.audio && !micAvailable;
+    final canStart = hasTarget && !lowSpace && !noSourceForMode;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
@@ -101,10 +104,9 @@ class _IdleCard extends StatelessWidget {
               enabled: canStart,
               onPressed: () {
                 HapticFeedback.mediumImpact();
-                client.startRecording(
-                  deviceId: target.deviceId,
-                  audio: wantAudio,
-                );
+                // No mode argument: the selector above already set the
+                // preference, and restating it here would let the two drift.
+                client.startRecording(deviceId: target.deviceId);
               },
             ),
           ),
@@ -115,18 +117,24 @@ class _IdleCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 12),
+          _ModeSelector(client: client, mode: mode, enabled: !rec.active),
+          const SizedBox(height: 8),
           Text(
             lowSpace
                 ? 'Not enough free space to start'
+                : noSourceForMode
+                ? 'No microphone, so there is nothing to record'
+                : mode == RecordMode.video
+                ? 'Will record picture only'
                 : willHaveSound
-                ? 'Will record with sound'
-                : micAvailable
-                ? 'Will record silent - audio is off'
+                ? mode == RecordMode.audio
+                      ? 'Will record sound only'
+                      : 'Will record with sound'
                 : 'Will record silent - no microphone',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: lowSpace
+              color: lowSpace || noSourceForMode
                   ? theme.colorScheme.error
                   : theme.colorScheme.onSurfaceVariant,
             ),
@@ -548,4 +556,63 @@ String _approxHours(double h) {
   if (h >= 2) return '(about ${h.round()} hours)';
   if (h >= 1) return '(about an hour)';
   return '(under an hour)';
+}
+
+/// Picks what the next take captures.
+///
+/// Icon segments rather than worded ones because three labels reading
+/// "Video + Audio", "Video only" and "Audio only" cannot fit a 320px phone
+/// without ellipsis, and a truncated label is worse than a clear icon. The
+/// plain words are still on screen: the line directly beneath this states the
+/// current mode as a sentence ("Will record sound only"), which is the thing
+/// an operator actually reads under pressure. Tooltips and semantic labels
+/// carry the full wording for pointer and screen-reader users.
+///
+/// Disabled while a take is running: changing what a recording captures
+/// halfway through has no coherent meaning, and the bridge would ignore it.
+class _ModeSelector extends StatelessWidget {
+  const _ModeSelector({
+    required this.client,
+    required this.mode,
+    required this.enabled,
+  });
+
+  final WsClient client;
+  final RecordMode mode;
+  final bool enabled;
+
+  static const _icons = <RecordMode, IconData>{
+    RecordMode.both: Icons.perm_camera_mic,
+    RecordMode.video: Icons.videocam,
+    RecordMode.audio: Icons.mic,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'What to record',
+      value: mode.label,
+      enabled: enabled,
+      child: SegmentedButton<RecordMode>(
+        showSelectedIcon: false,
+        selected: <RecordMode>{mode},
+        segments: <ButtonSegment<RecordMode>>[
+          for (final m in RecordMode.values)
+            ButtonSegment<RecordMode>(
+              value: m,
+              tooltip: m.label,
+              icon: Icon(_icons[m], size: 18),
+              enabled: enabled,
+            ),
+        ],
+        onSelectionChanged: enabled
+            ? (Set<RecordMode> s) {
+                if (s.isEmpty) return;
+                HapticFeedback.selectionClick();
+                client.setRecordMode(s.first);
+              }
+            : null,
+      ),
+    );
+  }
 }

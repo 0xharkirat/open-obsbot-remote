@@ -1215,8 +1215,6 @@ class _FramingPanel extends StatelessWidget {
           children: <Widget>[
             Expanded(child: _SpeedSegmented(client: client)),
             const SizedBox(width: 8),
-            _AudioToggle(client: client),
-            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: client.ptzRecenter,
               icon: const Icon(Icons.filter_center_focus, size: 18),
@@ -1235,58 +1233,6 @@ class _FramingPanel extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// The camera microphone, in its three real states.
-///
-/// On, off, and no microphone at all are genuinely different, and a
-/// two-state switch has to either lie about the third or hide the control.
-/// A control that disappears leaves an operator wondering whether they
-/// missed it, so this one stays put and explains itself instead.
-class _AudioToggle extends StatelessWidget {
-  const _AudioToggle({required this.client});
-
-  final WsClient client;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // Bridge-global, not per camera. This microphone cannot be muted through
-    // the SDK, so the only thing this controls is whether the recorder writes
-    // a track, and the recorder is bridge-global.
-    final rec = client.recording;
-    final available = rec.audioAvailable;
-    // While a take is running, show what it is ACTUALLY doing. Those differ
-    // when audio was asked for and no microphone was found: the bridge starts
-    // a silent recording rather than refusing, and an operator who thinks
-    // they are capturing sound needs to see that they are not.
-    final on = rec.active ? rec.audio : rec.audioEnabled;
-    final String reason = !available
-        ? 'No microphone on this camera'
-        : rec.active && rec.audioEnabled && !rec.audio
-        ? 'Asked for sound, recording silent - no microphone was found'
-        : on
-        ? 'Recordings will have sound'
-        : 'Recordings will be silent';
-    return Tooltip(
-      message: reason,
-      child: Semantics(
-        toggled: on,
-        enabled: available,
-        label: 'Recording audio',
-        child: OutlinedButton(
-          onPressed: available
-              ? () => client.setAudioEnabled(!rec.audioEnabled)
-              : null,
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            foregroundColor: on ? theme.colorScheme.primary : null,
-          ),
-          child: Icon(on ? Icons.mic : Icons.mic_off, size: 18),
-        ),
-      ),
     );
   }
 }

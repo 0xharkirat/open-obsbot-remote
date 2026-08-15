@@ -212,20 +212,21 @@ class WsClient extends ChangeNotifier {
 
   /// Starts a take on [deviceId], or on the on-air camera when omitted.
   ///
-  /// [audio] asks for sound. A camera with no microphone downgrades to a
-  /// silent recording rather than refusing, so the UI must read
+  /// Omitting [mode] uses whatever the mode selector last set. A camera
+  /// with no microphone downgrades to a silent recording in
+  /// [RecordMode.both] rather than refusing, so the UI must read
   /// `recording.audio` back rather than assume it got what it asked for.
-  Future<void> startRecording({String deviceId = '', bool audio = true}) =>
-      _record((r) => r.startRecording(deviceId: deviceId, audio: audio));
+  Future<void> startRecording({String deviceId = '', RecordMode? mode}) =>
+      _record((r) => r.startRecording(deviceId: deviceId, mode: mode));
 
   Future<void> stopRecording() => _record((r) => r.stopRecording());
 
   Future<void> refreshRecording() => _record((r) => r.recordStatus());
 
-  /// Whether the NEXT recording writes an audio track. Bridge-global, and
-  /// not a camera setting: this microphone cannot be muted through the SDK.
-  Future<void> setAudioEnabled(bool enabled) =>
-      _record((r) => r.setAudioEnabled(enabled));
+  /// What the NEXT recording captures. Bridge-global, and not a camera
+  /// setting: this microphone cannot be muted through the SDK.
+  Future<void> setRecordMode(RecordMode mode) =>
+      _record((r) => r.setRecordMode(mode));
 
   Future<void> _record(Future<void> Function(BridgeRepository) op) async {
     final repo = _bridgeRepo;

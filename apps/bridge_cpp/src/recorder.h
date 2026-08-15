@@ -89,6 +89,17 @@ struct RecordConfig {
     int audio_bitrate_kbps = 128;
 };
 
+// What a take captures. A boolean "with audio or not" could not express
+// audio-only, and audio-only is the mode with the most different cost: about
+// 57 MB an hour at 128 kbps AAC against 3.7 GB an hour for video, which is
+// the whole reason to offer it.
+enum class RecordMode { Both, Video, Audio };
+
+// Unknown strings fall back to Both rather than failing the request. A typo
+// in a client should not cost the operator a take.
+RecordMode mode_from_string(const std::string& s);
+const char* mode_to_string(RecordMode m);
+
 // One recording at a time, bridge-global, mirroring how `active` works.
 // Two concurrent recordings would double both the encode load and the disk
 // write rate for no clear gain while there is one camera.
@@ -102,11 +113,14 @@ public:
 
     void configure(const RecordConfig& cfg);
 
-    // `device_id` empty means the on-air camera. `want_audio` is a request,
-    // not a requirement: if the camera exposes no capture device the recording
-    // starts silent and status().audio comes back false. Losing the take
-    // because the microphone was missing would be the wrong trade.
-    CmdResult start(DeviceManager* mgr, const std::string& device_id, bool want_audio);
+    // `device_id` empty means the on-air camera.
+    //
+    // A missing microphone means different things in different modes, and the
+    // difference is deliberate. In Both it downgrades to a silent recording,
+    // because losing the take is worse than losing the sound. In Audio it is
+    // a hard audio_unavailable failure, because there is nothing left to
+    // record and starting would write an empty file that looks like success.
+    CmdResult start(DeviceManager* mgr, const std::string& device_id, RecordMode mode);
 
     CmdResult stop();
 
@@ -119,12 +133,12 @@ public:
     // Stop without producing a CmdResult, for process shutdown.
     void shutdown();
 
-    // Whether the NEXT take muxes an audio track. Separate from status()'s
-    // `audio`, which reports what the CURRENT take is actually doing: asking
+    // What the NEXT take will capture. Separate from status()'s `video` and
+    // `audio`, which report what the CURRENT take is actually doing: asking
     // for audio and getting it are different things when the microphone is
     // missing, and a UI that conflates them cannot explain a silent recording.
-    void set_audio_enabled(bool on);
-    bool audio_enabled() const;
+    void set_mode(RecordMode m);
+    RecordMode mode() const;
 
     // Does any camera expose an ALSA capture device right now.
     static bool audio_available();
@@ -148,8 +162,9 @@ private:
     std::string device_id_;
     std::string path_;
     std::string error_;
-    bool audio_ = false;          // this take
-    bool audio_pref_ = true;      // next take
+    bool audio_ = false;                       // this take
+    bool video_ = false;                       // this take
+    RecordMode mode_pref_ = RecordMode::Both;  // next take
     std::chrono::steady_clock::time_point started_;
     int64_t started_at_ms_ = 0;
 
