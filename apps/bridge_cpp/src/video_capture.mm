@@ -9,6 +9,8 @@
 #include "video_capture.h"
 #include "log.h"
 
+#include "dev/dev.hpp"   // Device, for device_video_path()
+
 #include <atomic>
 
 @class ObsCaptureDelegate;
@@ -483,6 +485,14 @@ void observe_av_devices(std::function<void(std::string, bool)> cb) {
         if (d && [d hasMediaType:AVMediaTypeVideo])
             fn(std::string(d.uniqueID.UTF8String), false);
     }];
+}
+
+// Trivial here: libdev hands us the AVFoundation uniqueID directly. The Linux
+// build has to go and find the node, because the SDK compiles videoDevPath()
+// only under _WIN32 and __APPLE__. See video_capture.h.
+std::string device_video_path(Device* dev) {
+    if (dev == nullptr) return {};
+    return dev->videoDevPath();
 }
 
 std::vector<AvVideoDevice> list_av_devices() {

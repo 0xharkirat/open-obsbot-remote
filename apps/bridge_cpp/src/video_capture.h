@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+// libdev's Device, forward-declared so this header stays free of dev.hpp.
+class Device;
+
 namespace obs {
 
 // Multiply a JPEG's RGB by `factor` (0 = black, 1 = unchanged) and re-encode.
@@ -28,6 +31,20 @@ std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg, float factor)
 std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
                                     const std::vector<uint8_t>& incoming,
                                     float factor);
+
+// The SN -> capture-device join, per platform.
+//
+// On macOS this is just Device::videoDevPath(), which returns the AVFoundation
+// uniqueID byte-for-byte. On Linux that method does not exist: the SDK header
+// declares it inside `#ifdef _WIN32 / #elif __APPLE__ / #endif`, so neither
+// branch compiles and Device has no such member at all. libdev clearly knows
+// the path - it logs "device_path: /dev/video3" during discovery - but does
+// not expose it.
+//
+// The Linux implementation therefore resolves the node itself by scanning V4L2
+// capture devices. See video_capture_v4l2.cpp for why that is exact for one
+// camera and positional for several.
+std::string device_video_path(Device* dev);
 
 // A capturable camera as AVFoundation sees it. The any-cam path offers these
 // (built-in FaceTime cam, USB webcams, iPhone Continuity) as generic video

@@ -222,10 +222,12 @@ void DeviceManager::attach(const std::string& sn) {
         LOGW("attach: device %s not yet in libdev list; ignoring", sn.c_str());
         return;
     }
-    // videoDevPath() (macOS) is the AVFoundation uniqueID byte-for-byte - the
-    // SN -> capture-device join. Captured here synchronously; the session's own
-    // copy is hydrated asynchronously by attach() below.
-    std::string uid = dev->videoDevPath();
+    // The SN -> capture-device join. On macOS this is videoDevPath(), the
+    // AVFoundation uniqueID byte-for-byte; on Linux the SDK has no such method
+    // and device_video_path() resolves a /dev/video* node instead. Captured
+    // here synchronously; the session's own copy is hydrated asynchronously by
+    // attach() below.
+    std::string uid = device_video_path(dev.get());
 
     VideoCapture* cap = nullptr;
     {

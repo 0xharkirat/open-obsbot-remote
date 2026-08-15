@@ -1,6 +1,7 @@
 #include "device_session.h"
 #include "log.h"
 #include "persist.h"
+#include "video_capture.h"   // device_video_path()
 
 #include <dev/devs.hpp>
 #include <json.hpp>
@@ -72,7 +73,7 @@ void DeviceSession::attach(std::shared_ptr<Device> dev) {
             }
             LOGI("attached device: %s (%s) fw=%s vdev=%s",
                  snap_.sn.c_str(), snap_.model.c_str(), snap_.firmware.c_str(),
-                 dev->videoDevPath().c_str());
+                 device_video_path(dev.get()).c_str());
 
             // Set zoom_max per product. Tiny 2 Lite digital zoom = 2.0×;
             // larger models reach 4.0×. Tail2 family goes higher.

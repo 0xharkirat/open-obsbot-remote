@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
-project(obsbot_bridge LANGUAGES CXX OBJCXX)
+
+# OBJCXX is enabled after project() rather than in its LANGUAGES list, because
+# APPLE is not defined until project() has run. Asking for Objective-C++ up
+# front makes the whole configure fail on Linux, where no such compiler is
+# expected to exist.
+project(obsbot_bridge LANGUAGES CXX)
+if (APPLE)
+    enable_language(OBJCXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,12 +38,37 @@ if (APPLE)
     else()
         set(SDK_LIB_DIR "${SDK_ROOT}/macos/arm64-release")
     endif()
+elseif (UNIX)
+    # The SDK ships a Linux build alongside the macOS one. Verified on an
+    # x86_64 Arch host against a Tiny 2 Lite: libdev discovers the camera,
+    # reads its SN and firmware, and drives the gimbal and zoom, all returning
+    # rc=0. Discovery takes ~5s, same asynchronous behaviour as macOS.
+    if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+        set(SDK_LIB_DIR "${SDK_ROOT}/linux/arm64-release")
+    else()
+        set(SDK_LIB_DIR "${SDK_ROOT}/linux/x86_64-release")
+    endif()
+    if (NOT EXISTS "${SDK_LIB_DIR}/libdev.so")
+        message(FATAL_ERROR
+            "No Linux libdev.so at ${SDK_LIB_DIR}.\n"
+            "The SDK archive contains linux/, macos/ and windows/ - copy all "
+            "of it, not just the macOS slice. See docs/GETTING_THE_SDK.md.")
+    endif()
 else()
-    message(FATAL_ERROR "MVP supports macOS only")
+    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
 endif()
 
 # crow / asio
 find_path(ASIO_INCLUDE_DIR asio.hpp HINTS /opt/homebrew/include /usr/local/include REQUIRED)
+
+# The only platform-specific translation unit. Everything else in this target
+# is portable C++ that talks to libdev, Crow and Asio. The capture layer is
+# AVFoundation on macOS and V4L2 on Linux; both implement video_capture.h.
+if (APPLE)
+    set(CAPTURE_SRC src/video_capture.mm)
+else()
+    set(CAPTURE_SRC src/video_capture_v4l2.cpp)
+endif()
 
 add_executable(obsbot-bridge
     src/main.cpp
@@ -46,14 +79,16 @@ add_executable(obsbot-bridge
     src/ws_server.cpp
     src/protocol.cpp
     src/log.cpp
-    src/video_capture.mm
+    ${CAPTURE_SRC}
     src/mjpeg_server.cpp
     src/auth.cpp
 )
 
-set_source_files_properties(src/video_capture.mm PROPERTIES
-    COMPILE_FLAGS "-fobjc-arc"
-)
+if (APPLE)
+    set_source_files_properties(src/video_capture.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
+endif()
 
 target_compile_definitions(obsbot-bridge PRIVATE
     ASIO_STANDALONE
@@ -68,33 +103,59 @@ target_include_directories(obsbot-bridge PRIVATE
 )
 
 target_link_directories(obsbot-bridge PRIVATE ${SDK_LIB_DIR})
-target_link_libraries(obsbot-bridge PRIVATE dev
-    "-framework AVFoundation"
-    "-framework VideoToolbox"
-    "-framework CoreMedia"
-    "-framework CoreVideo"
-    "-framework CoreImage"
-    "-framework ImageIO"
-    "-framework CoreGraphics"
-    "-framework Foundation"
-    "-framework UniformTypeIdentifiers"
-)
+if (APPLE)
+    target_link_libraries(obsbot-bridge PRIVATE dev
+        "-framework AVFoundation"
+        "-framework VideoToolbox"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+        "-framework CoreImage"
+        "-framework ImageIO"
+        "-framework CoreGraphics"
+        "-framework Foundation"
+        "-framework UniformTypeIdentifiers"
+    )
+else()
+    # V4L2 needs no library beyond libc: it is ioctls on a device node. The
+    # nine Apple frameworks above are all capture and JPEG work that the
+    # kernel and the camera do for us here, since MJPEG arrives ready-encoded.
+    find_package(Threads REQUIRED)
+    target_link_libraries(obsbot-bridge PRIVATE dev Threads::Threads)
+endif()
 
 target_compile_options(obsbot-bridge PRIVATE
     -Wall -Wno-deprecated-declarations -Wno-switch -Wno-unused-parameter
 )
 
-set_target_properties(obsbot-bridge PROPERTIES
-    INSTALL_RPATH "@executable_path"
-    BUILD_WITH_INSTALL_RPATH TRUE
-)
-
-# copy libdev.dylib next to binary so it loads
-add_custom_command(TARGET obsbot-bridge POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${SDK_LIB_DIR}/libdev.dylib"
-        "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.dylib"
-)
+if (APPLE)
+    set_target_properties(obsbot-bridge PROPERTIES
+        INSTALL_RPATH "@executable_path"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+    # copy libdev.dylib next to binary so it loads
+    add_custom_command(TARGET obsbot-bridge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SDK_LIB_DIR}/libdev.dylib"
+            "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.dylib"
+    )
+else()
+    set_target_properties(obsbot-bridge PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+    # Same idea as the macOS copy, but ELF needs the SONAME too: the linker
+    # records libdev.so.1, so shipping only the libdev.so symlink target would
+    # leave the binary unable to resolve it at run time.
+    add_custom_command(TARGET obsbot-bridge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SDK_LIB_DIR}/libdev.so.1.0.3"
+            "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.so.1.0.3"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "libdev.so.1.0.3" "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.so.1"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "libdev.so.1.0.3" "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.so"
+    )
+endif()
 
 # Pure-logic unit test for the mix camera-assignment solver. No SDK, no camera,
 # no bridge: it is just graph colouring, so it runs anywhere in under a second.
