@@ -189,12 +189,17 @@ class BridgeRepository {
   Future<void> recordStatus() =>
       _api.send(<String, dynamic>{'action': 'record.status'});
 
-  /// Turns [deviceId]'s microphone on or off. Applies the SDK setting and
-  /// decides whether future recordings mux a track.
-  Future<void> setAudioEnabled(String deviceId, bool enabled) =>
-      _api.send(<String, dynamic>{
-        'action': 'audio.set',
-        'device_id': deviceId,
+  /// Whether future recordings mux an audio track.
+  ///
+  /// Deliberately NOT a camera setting. `cameraSetAudioCtrlStateU` looks like
+  /// a microphone control and is not: its enum is voice commands
+  /// (`AudioCtrlHiTiny`, `AudioCtrlTrack`, `AudioCtrlZoomIn`), so it configures
+  /// what the camera does when spoken to. There is no way to mute this
+  /// microphone through the SDK. The only thing actually achievable is whether
+  /// the recorder writes a track, which is bridge-global because the recorder
+  /// is, hence no device_id.
+  Future<void> setAudioEnabled(bool enabled) => _api.send(<String, dynamic>{
+        'action': 'record.set_audio',
         'enabled': enabled,
       });
 
