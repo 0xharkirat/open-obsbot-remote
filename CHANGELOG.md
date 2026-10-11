@@ -6,14 +6,17 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ### Added
 
-- Windows. The bridge app now runs on 64-bit Windows 10 and 11, with the same window, tray icon, pairing, preview and OBS output as on macOS. It ships as an installer, which also adds the Windows Firewall rule so phones can connect, and as a portable zip. Capture uses Media Foundation and passes the camera's own JPEG frames straight through, so a Tiny 2 Lite costs one copy per frame rather than an encode. Crossfades work, and each camera's preview is matched to the right camera even with several identical ones attached. See [Windows notes](docs/WINDOWS.md).
-- An OBS end-to-end test, `tests/obs_e2e.mjs`, that checks OBS's own rendered output: that it shows the camera, that it moves when the remote pans and zooms, and that it follows TAKE as a cut and as a crossfade. It only runs against a scene collection named "OBSBOT E2E", never a real OBS setup.
+- Windows. The bridge app runs on 64-bit Windows 10 and 11. It has the same window, tray icon, pairing, preview and OBS output as on macOS. Download the installer or the portable zip. The installer adds the Windows Firewall rule, so phones can connect. See [Install the bridge](docs/INSTALL.md#install-on-windows).
+  - Capture uses Media Foundation. The camera's own JPEG frames go through without change, so each frame costs one copy and no encode.
+  - Crossfades work.
+  - Each preview shows the correct camera, also with 2 identical cameras.
+- An OBS test, `tests/obs_e2e.mjs`. It reads the picture that OBS shows. It checks that the picture moves with pan and zoom, and that OBS follows TAKE as a cut and as a crossfade. It runs only on an OBS scene collection named "OBSBOT E2E".
 
 ### Fixed
 
-- The OBS feed keeps one picture format through every TAKE. OBS's Media Source crashes when the size or colour format of an MJPEG stream changes partway through, and on Windows a cut between two different cameras, or a fade, did exactly that. The bridge now holds each OBS connection to the format it started with and converts any frame that would change it, letterboxing a camera with a different shape. macOS was never affected; its capture pipeline already produced one format.
-- The bridge window lists the computer's Wi-Fi or Ethernet address first. It used to show whichever address the system listed first, which on a PC running Tailscale was a `100.x` address phones on the local Wi-Fi cannot reach.
-- A camera taken by another app comes back on its own. On Windows only one program can hold a camera; when OBS's own Video Capture Device, OBSBOT Center or a video call took it first, the preview stayed black until the bridge was restarted. The bridge now retries every 2 seconds, logs which situation it is in, and resumes as soon as the camera is free.
+- The OBS feed keeps one picture format through each TAKE. OBS's Media Source stops with an error if the size or the color format of an MJPEG stream changes. On Windows, a cut between 2 different cameras, or a fade, caused this. Now the bridge keeps each OBS connection at its first format, and converts the other frames. A camera with a different shape gets black bars. macOS did not have this problem.
+- The bridge window shows the Wi-Fi or Ethernet address first. Before, it showed the first address from the system. On a PC with Tailscale, that was a `100.x` address. Phones on the local Wi-Fi cannot use that address.
+- The preview starts again when a different app releases the camera. On Windows, only one app can use a camera at a time. Before, if OBS, OBSBOT Center or a video call took the camera first, the preview stayed black until a restart. Now the bridge tries again every 2 seconds.
 
 ## [2.5.2] - 2026-08-02
 

@@ -84,20 +84,20 @@ These 3 dialogs appear only on the first launch.
 - You have a 64-bit PC running Windows 10 or 11.
 - You have at least 1 OBSBOT camera connected over USB.
 - You have quit OBSBOT Center, for the same reason as on macOS.
-- In OBS, no **Video Capture Device** source is reading the OBSBOT directly. On Windows only one app can hold a camera at a time, so a Video Capture Device that opens it first leaves the bridge with no picture. OBS reads the camera through the bridge instead; see [Point OBS at the bridge](#point-obs-at-the-bridge).
+- In OBS, no **Video Capture Device** reads the OBSBOT. On Windows, only one app can use a camera at a time. If OBS opens the camera first, the bridge gets no picture. OBS must read the camera through the bridge. See [Point OBS at the bridge](#point-obs-at-the-bridge).
 
 ### Run the installer
 
 1. Download `Open-OBSBOT-Bridge-Setup-<version>-x64.exe` from the [latest release](https://github.com/0xharkirat/open-obsbot-remote/releases/latest).
-2. Run it. The installer is not code-signed, so Windows SmartScreen may show **Windows protected your PC**. Click **More info**, then **Run anyway**.
-3. Click **Yes** at the administrator prompt. The installer needs it to add the firewall rule.
-4. Optionally tick **Start the bridge when I sign in to Windows**, for a PC that should be ready whenever it is switched on.
-5. Finish, and leave **Launch Open OBSBOT Bridge** ticked.
+2. Run the file. The installer is not code-signed. Thus Windows SmartScreen can show **Windows protected your PC**. Click **More info**, then click **Run anyway**.
+3. At the administrator prompt, click **Yes**. The installer must have this permission to add the firewall rule.
+4. Optional: tick **Start the bridge when I sign in to Windows**. Use this on a PC that must be ready when it starts.
+5. Click **Finish**. Keep **Launch Open OBSBOT Bridge** ticked.
 
-The installer adds a Windows Firewall rule for `obsbot-bridge.exe` on private and public networks, so phones can connect without a firewall prompt.
-It covers public networks on purpose: Windows usually classes venue Wi-Fi as public, and a rule for private networks alone would block every phone there.
+The installer adds a Windows Firewall rule for `obsbot-bridge.exe`. Thus phones can connect, and Windows does not ask about the firewall.
+The rule is for private and public networks. Windows usually classes venue Wi-Fi as public. A rule for private networks only blocks all phones there.
 
-To check the download, compare its SHA256 against `SHA256SUMS-<version>.txt` on the release page:
+To check the download, compare its SHA256 with `SHA256SUMS-<version>.txt` on the release page:
 
 ```powershell
 Get-FileHash .\Open-OBSBOT-Bridge-Setup-*-x64.exe
@@ -105,20 +105,20 @@ Get-FileHash .\Open-OBSBOT-Bridge-Setup-*-x64.exe
 
 ### Portable zip
 
-`Open-OBSBOT-Bridge-<version>-windows-x64.zip` holds the same files without an installer.
-Extract it anywhere and run `open_obsbot_bridge.exe`.
-Windows Firewall then asks once whether `obsbot-bridge.exe` may accept connections. Tick both **Private** and **Public** networks and click **Allow**.
+`Open-OBSBOT-Bridge-<version>-windows-x64.zip` has the same files, with no installer.
+Extract it to a folder, and run `open_obsbot_bridge.exe`.
+Windows Firewall then asks about `obsbot-bridge.exe` one time. Tick **Private** and **Public**, then click **Allow**.
 
 ### Camera access
 
-Windows has no per-app camera prompt for desktop programs.
-If the preview stays blank, open **Settings** > **Privacy & security** > **Camera** and turn on **Let desktop apps access your camera**.
+Windows does not ask for camera permission for each desktop app.
+If the preview stays blank, open **Settings** > **Privacy & security** > **Camera**. Turn on **Let desktop apps access your camera**.
 
 ### Uninstall
 
-Use **Settings** > **Apps** > **Installed apps** > **Open OBSBOT Bridge** > **Uninstall**.
+Click **Settings** > **Apps** > **Installed apps** > **Open OBSBOT Bridge** > **Uninstall**.
 The uninstaller removes the firewall rule.
-Your pairing PIN, paired phones and saved sequences stay in `%APPDATA%\Open OBSBOT Bridge`, so a reinstall keeps them. Delete that folder to start fresh.
+It keeps your pairing PIN, paired phones and saved sequences in `%APPDATA%\Open OBSBOT Bridge`. Thus a new install keeps them. To start again with no data, delete that folder.
 
 ## Pair a controller
 
@@ -167,9 +167,9 @@ A Media Source decodes the stream with ffmpeg. A Browser Source runs a full Chro
 | Symptom | What to check |
 | --- | --- |
 | Preview is blank (macOS) | Confirm camera permission for Open OBSBOT Bridge in System Settings > Privacy & Security > Camera. If you left the first prompt unanswered, grant it and restart the bridge. |
-| Preview is blank (Windows) | Another app holds the camera: an OBS Video Capture Device on the OBSBOT, OBSBOT Center, Teams. The log says `mf: camera is in use by another app`. Close it; the bridge picks the camera up again within 2 seconds. Also check **Let desktop apps access your camera**. |
-| The controller cannot connect | Put the controller and the bridge on the same network. VPNs and guest Wi-Fi usually block local devices. Use the bridge's Wi-Fi or Ethernet address, not a `100.x` Tailscale address, unless the phone is on Tailscale too. |
-| The controller cannot connect (Windows zip) | The firewall prompt was dismissed or allowed only private networks. Open **Allow an app through Windows Defender Firewall** and tick both columns for `obsbot-bridge.exe`, or use the installer, which adds the rule itself. |
+| Preview is blank (Windows) | A different app uses the camera, for example an OBS Video Capture Device, OBSBOT Center or Teams. The log shows `mf: camera is in use by another app`. Close that app. The preview starts again in 2 seconds. Also make sure that **Let desktop apps access your camera** is on. |
+| The controller cannot connect | Put the controller and the bridge on the same network. VPNs and guest Wi-Fi usually block local devices. Use the bridge's Wi-Fi or Ethernet address. Do not use a `100.x` Tailscale address, unless the phone also uses Tailscale. |
+| The controller cannot connect (Windows zip) | The firewall rule is missing, or it is for private networks only. Open **Allow an app through Windows Defender Firewall**. For `obsbot-bridge.exe`, tick **Private** and **Public**. Or use the installer, which adds the rule. |
 | PTZ commands fail with `device_busy` | Quit OBSBOT Center, then restart the bridge. |
 | A camera never appears | Try another USB cable or port. Cameras take 6 to 20 seconds to enumerate. |
 | OBS shows a frozen frame | Confirm the source is a Media Source with a reconnect delay, not a Browser Source. |

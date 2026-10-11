@@ -65,7 +65,7 @@ Because OBS follows `active.mjpg`, the bridge performs the switch and OBS needs 
 brew install --cask 0xharkirat/tap/open-obsbot-bridge
 ```
 
-**Windows:** download `Open-OBSBOT-Bridge-Setup-<version>-x64.exe` and run it. It is not code-signed, so at the SmartScreen warning click **More info** > **Run anyway**. A portable zip is also available.
+**Windows:** download `Open-OBSBOT-Bridge-Setup-<version>-x64.exe`, and run it. The installer is not code-signed. At the SmartScreen warning, click **More info** > **Run anyway**. A portable zip is also available.
 
 DMG, installer and zip downloads are on the [latest release](https://github.com/0xharkirat/open-obsbot-remote/releases/latest) page.
 
@@ -91,7 +91,7 @@ Reconnect Delay: 2
 FFmpeg Options: reconnect=1 reconnect_streamed=1 reconnect_delay_max=2
 ```
 
-Use a Media Source rather than a Browser Source, and do not also add the OBSBOT as a Video Capture Device: on Windows only one app can hold a camera, so OBS would take it from the bridge.
+Use a Media Source, not a Browser Source. Do not also add the OBSBOT as a Video Capture Device. On Windows, only one app can use a camera at a time, so OBS takes the camera from the bridge.
 A Browser Source runs a full Chromium instance to decode the same stream, drops frames under load, and never reconnects when a stream ends.
 
 ## Features

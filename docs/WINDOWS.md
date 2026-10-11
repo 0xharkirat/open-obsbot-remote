@@ -1,70 +1,93 @@
-# Running the bridge on Windows
+# Windows notes
 
-Windows gets the full desktop product, not just the headless binary: the same
-Flutter supervisor window as macOS, a notification-area icon, and the bundled
-`obsbot-bridge.exe` subprocess serving the WebSocket API on `:8765`, the MJPEG
-preview on `:8766` and the web remote at `http://<pc>:8765/`.
+This page is for developers.
+To install a release, see [Install the bridge](INSTALL.md#install-on-windows).
 
-Verified on Windows 11 (26H2), x64, MSVC 19.44, against a Tiny 2 Lite on
-firmware 6.2.8.1.
+On Windows, the bridge is the full desktop app, as on macOS.
+It has 3 parts:
+
+- `open_obsbot_bridge.exe`: the bridge window and the tray icon.
+- `obsbot-bridge.exe`: the C++ bridge. It serves the WebSocket API on `:8765`, the MJPEG preview on `:8766`, and the web remote at `http://<pc>:8765/`.
+- `libdev.dll` and `w32-pthreads.dll`: the OBSBOT SDK runtime.
+
+Tested on Windows 11 (26H2), x64, MSVC 19.44, with a Tiny 2 Lite on firmware 6.2.8.1.
 
 ## Prerequisites
 
-- **Visual Studio 2022** with the "Desktop development with C++" workload.
-  Build Tools alone is enough:
+- Install Visual Studio 2022 with the **Desktop development with C++** workload. Build Tools is sufficient:
+
   ```powershell
   winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
   ```
-  MSVC is required, not optional: `libdev.lib` is an MSVC import library and
-  does not link with MinGW.
-- **Flutter** on PATH.
-- **Developer Mode** on (Settings > System > For developers). Flutter needs it
-  to symlink plugins for any Windows or web build; without it the build stops
-  with "Building with plugins requires symlink support".
-- **The OBSBOT SDK** at `third_party/obsbot-sdk/`, including its `windows/`
-  directory (`win64-release/libdev.lib`, `libdev.dll`, `w32-pthreads.dll`). See
-  [Getting the SDK](GETTING_THE_SDK.md).
 
-Standalone Asio is fetched by CMake at configure time (pinned to 1.30.2 by
-hash), so there is nothing else to install.
+  You must use MSVC. `libdev.lib` is an MSVC import library. It does not link with MinGW.
+
+- Install Flutter, and put it on `PATH`.
+- Turn on **Developer Mode**: **Settings** > **System** > **For developers**. Flutter needs it to make plugin symlinks. If it is off, the build stops with "Building with plugins requires symlink support".
+- Put the OBSBOT SDK at `third_party/obsbot-sdk/`. Include its `windows/` directory: `win64-release/libdev.lib`, `libdev.dll` and `w32-pthreads.dll`. See [Getting the SDK](GETTING_THE_SDK.md).
+- To make the installer, install [Inno Setup 6](https://jrsoftware.org/isdl.php).
+
+CMake downloads Asio during configuration. The version is 1.30.2, checked by hash. You do not install it.
 
 ## Build
 
+To build the app, run this command from the repository root:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-bridge-windows.ps1                    # build
-powershell -ExecutionPolicy Bypass -File scripts\build-bridge-windows.ps1 -Zip -Installer    # release
+powershell -ExecutionPolicy Bypass -File scripts\build-bridge-windows.ps1
 ```
 
-A release build writes three files to `dist\`:
+The script builds 3 items, in this sequence:
 
-| File | What it is |
-| --- | --- |
-| `Open-OBSBOT-Bridge-Setup-<ver>-x64.exe` | Inno Setup installer (needs [Inno Setup 6](https://jrsoftware.org/isdl.php) to build). Installs to Program Files, adds a Start menu entry, adds the Windows Firewall rule for `obsbot-bridge.exe` on Private and Public networks (venue Wi-Fi is usually classed Public), optional start-at-login, removes the rule on uninstall. Pairing state in `%APPDATA%` survives uninstall. Script: `apps/bridge/windows/installer/open-obsbot-bridge.iss`. |
-| `Open-OBSBOT-Bridge-<ver>-windows-x64.zip` | The same files, portable. Windows prompts for the firewall the first time instead. |
-| `SHA256SUMS-<ver>.txt` | Checksums to publish with the release. |
+1. The C++ bridge, with MSVC.
+2. The web remote.
+3. The Flutter Windows app. This step copies the bridge, the SDK runtime and the web remote into the app folder.
 
-Both carry the VC++ runtime DLLs app-locally (from VS's `Microsoft.VC143.CRT`), so they run on a PC without the VC++ Redistributable.
+The script also copies the VC++ runtime DLLs into the app folder, from `Microsoft.VC143.CRT` in Visual Studio. Thus the app runs on a PC that does not have the VC++ Redistributable.
 
-The builds are not code-signed (neither is 7-Zip). SmartScreen shows "Windows protected your PC" for a new download; users click **More info > Run anyway**. Never change the installer's `AppId`: upgrades find the installed copy by it.
+The result is one folder that you can copy to a different PC:
 
-The zip and installer contain OBSBOT's `libdev.dll`. Check OBSBOT's SDK terms before publishing them.
-
-That builds the C++ bridge, the web remote and the Flutter app, in that order,
-and the Flutter build copies the first two into the bundle:
-
-```
+```text
 apps\bridge\build\windows\x64\runner\Release\
-  open_obsbot_bridge.exe     the supervisor window + tray icon
-  obsbot-bridge.exe          the C++ bridge subprocess
+  open_obsbot_bridge.exe     bridge window and tray icon
+  obsbot-bridge.exe          C++ bridge
   libdev.dll, w32-pthreads.dll
-  web\                       the remote, served at http://<pc>:8765/
+  vcruntime140*.dll, msvcp140*.dll
+  web\                       web remote
   data\, flutter_windows.dll, *_plugin.dll
 ```
 
-The folder is self-contained, VC++ runtime included, so it runs on another
-machine as-is.
+### Make a release
 
-For C++-only iteration:
+To make the release files, add `-Zip -Installer`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-bridge-windows.ps1 -Zip -Installer
+```
+
+The script writes 3 files to `dist\`:
+
+| File | Contents |
+| --- | --- |
+| `Open-OBSBOT-Bridge-Setup-<ver>-x64.exe` | The installer. The script is `apps/bridge/windows/installer/open-obsbot-bridge.iss`. |
+| `Open-OBSBOT-Bridge-<ver>-windows-x64.zip` | The same files, with no installer. |
+| `SHA256SUMS-<ver>.txt` | Checksums. Publish this file with the release. |
+
+The installer does these steps:
+
+- It installs the app in Program Files, with a Start menu entry.
+- It adds a Windows Firewall rule for `obsbot-bridge.exe` on private and public networks. Windows usually classes venue Wi-Fi as public. A rule for private networks only blocks all phones there.
+- It can start the app when the user signs in. This is an option.
+- It closes a running bridge before an upgrade.
+- On uninstall, it removes the firewall rule. It keeps the pairing data in `%APPDATA%`.
+
+Do not change `AppId` in the installer script. Upgrades use it to find the installed copy.
+
+The builds are not code-signed. 7-Zip is not signed either. Thus SmartScreen shows "Windows protected your PC" for a new download. The user clicks **More info** > **Run anyway**.
+
+The zip and the installer contain OBSBOT's `libdev.dll`. Read OBSBOT's SDK terms before you publish them.
+
+### Build only the C++ bridge
 
 ```powershell
 cmake -S apps/bridge_cpp -B apps/bridge_cpp/build -G "Visual Studio 17 2022" -A x64
@@ -72,78 +95,128 @@ cmake --build apps/bridge_cpp/build --config Release
 apps\bridge_cpp\build\Release\obsbot-bridge.exe --port 8765 --web-root apps\rc\build\web
 ```
 
-`flutter run -d windows` in `apps/bridge` also works: the supervisor walks up
-from the runner to find `apps\bridge_cpp\build\Release\obsbot-bridge.exe`.
+You can also run `flutter run -d windows` in `apps/bridge`.
+The bridge window then finds `apps\bridge_cpp\build\Release\obsbot-bridge.exe` in the repository.
 
 ## First run
 
-1. Quit OBSBOT Center if it is running. Both drive the camera's control
-   endpoint and PTZ will return `device_busy` (CLAUDE.md gotcha #19).
-2. Windows Defender Firewall prompts for `obsbot-bridge.exe` the first time it
-   listens. Allow **Private networks**, or phones on the Wi-Fi cannot connect.
-   A dismissed prompt is undone under "Allow an app through Windows Defender
-   Firewall", which the bridge window links to.
-3. Camera access is one system switch, Settings > Privacy & security > Camera >
-   "Let desktop apps access your camera". There is no per-app prompt on
-   Windows. When it is off the bridge logs
-   `mf: camera access denied ...` and the window shows the camera as denied.
+1. Quit OBSBOT Center. It uses the same camera control endpoint, and PTZ commands then fail with `device_busy`.
+2. In OBS, remove any **Video Capture Device** that reads the OBSBOT. On Windows, only one app can use a camera at a time. OBS must read `active.mjpg` through a Media Source.
+3. If you did not use the installer, Windows Firewall asks about `obsbot-bridge.exe`. Tick **Private** and **Public**, then click **Allow**.
+4. Make sure that **Settings** > **Privacy & security** > **Camera** > **Let desktop apps access your camera** is on. Windows has no camera prompt for each desktop app. If this switch is off, the log shows `mf: camera access denied`.
 
-## What differs from macOS
+## Differences from macOS
 
-**Capture is Media Foundation.** `src/video_capture_win.cpp` asks an
-`IMFSourceReader` for the camera's native MJPEG type (1080p, highest frame rate
-up to 30) with video processing off, so MF hands back the camera's JPEG
-untouched and capture is one copy per frame, as on Linux. A webcam that offers
-no MJPEG falls back to RGB32 plus a WIC JPEG encode, which is what macOS does
-for every camera. Measured: `active.mjpg` runs at about 81 Mbps at 1080p30,
-matching the Linux figure.
+### Capture
 
-**Fades work.** `jpeg_darken` and `jpeg_crossfade` decode, blend and re-encode
-with Windows Imaging Component, which ships with the OS. This is the one place
-Windows is ahead of Linux, which still hard-cuts.
+`src/video_capture_win.cpp` uses Media Foundation.
+It asks the camera for its own MJPEG format: 1080p, at the highest frame rate up to 30.
+Video processing is off, so Media Foundation gives the camera's JPEG frames without change.
+Capture is one copy for each frame, as on Linux.
 
-**The SN join is exact, even with identical cameras.** `Device::videoDevPath()`
-exists on Windows (it returns `std::wstring`), but it is the DirectShow
-interface path, class `{65e8773d-...}` (KSCATEGORY_VIDEO), while MF enumerates
-the same camera under `{e5323777-...}` (KSCATEGORY_VIDEO_CAMERA). Everything
-before `#{` is the device instance and matches in both, so the bridge joins on
-that. A Tiny 2 Lite reports no USB serial, but Windows derives the instance ID
-from the port, so two of them still get distinct paths. Contrast Linux, where
-the join is positional.
+Some webcams do not supply MJPEG.
+For them, the bridge reads RGB32 and encodes JPEG with Windows Imaging Component (WIC).
+macOS encodes every frame in this way.
 
-**Paths.** Settings and pairing state live in `%APPDATA%\Open OBSBOT Bridge\`
-(`auth.json`, `sequence.json`, `sequences.json`, ...); the log is
-`%LOCALAPPDATA%\Open OBSBOT Bridge\Logs\bridge.log`. The supervisor holds the log
-open for writing, so read it with a tool that opens files share-read-write,
-for example `Get-Content -Tail`.
+At 1080p30, `active.mjpg` uses approximately 81 Mbps. This is the same as on Linux.
 
-**Dying with the supervisor** uses the same stdin pipe as macOS. Dart gives the
-child an anonymous pipe; when the supervisor dies by any means, `ReadFile` on it
-fails and the bridge logs `supervisor gone; exiting so the camera is released`
-before exiting. Verified by force-killing `open_obsbot_bridge.exe`. Under a
-console, stdin is a console handle, not a pipe, so the watchdog stays off.
+### A camera that a different app holds
 
-**Tray.** `windows/runner/native_tray.cpp` implements the `obsbot.bridge/tray`
-channel that `NativeTray.swift` does on macOS, so the Dart tray code is shared.
-Left click shows the window, right click opens the menu. Template icons are
-recoloured white or black to contrast with the taskbar theme.
+On Windows, only one app can use a camera at a time.
+If OBS, OBSBOT Center or a video call opens the camera first, the capture fails with `0xC00D3704`.
+The bridge then tries again every 2 seconds, and logs `mf: camera is in use by another app`.
+When the other app releases the camera, the preview starts again. You do not restart the bridge.
 
-**One instance.** A named mutex keeps a second copy from starting; launching
-again brings the running window forward.
+### One picture format for OBS
 
-**No H.264 path.** `--h264` is Linux-only (it forks ffmpeg), and is not
-compiled into the Windows build.
+OBS's Media Source stops with an error if the frame size or the chroma format changes during an MJPEG stream.
+We saw this in OBS 32.2.2: the crash is in `swscale-9.dll`, on `mp_media_thread`.
 
-**The window still uses macos_ui.** It renders correctly on Windows, but it
-looks like a Mac app. A Fluent restyle is separate work.
+On Windows, camera frames go through without change. Thus a TAKE between 2 different cameras can change the format. For example, a Tiny 2 Lite sends 1080p 4:2:2, and a laptop webcam sends 720p.
+
+To prevent this, the MJPEG server keeps each `active.mjpg` connection at the format of its first frame.
+`jpeg_conform` converts each different frame to that format.
+It letterboxes a camera with a different shape, as macOS does.
+Fade frames use the chroma format of the camera.
+
+### Fades
+
+`jpeg_darken` and `jpeg_crossfade` decode, blend and encode with WIC. WIC is part of Windows.
+Linux does not have this yet. On Linux, a fade is a hard cut.
+
+### Camera identity
+
+The bridge must find the video device of each camera, by its serial number.
+On Windows, `Device::videoDevPath()` exists, and returns `std::wstring`.
+
+The two paths do not match as full strings:
+
+- libdev gives the DirectShow interface path, class `{65e8773d-...}`.
+- Media Foundation lists the same camera under class `{e5323777-...}`.
+
+The text before `#{` is the device instance. It is the same in the two paths. The bridge compares that part.
+
+A Tiny 2 Lite has no USB serial number, but Windows makes the instance ID from the USB port. Thus 2 identical cameras have different paths, and the match is exact.
+On Linux, the match uses the sequence of the cameras.
+
+### Files
+
+The settings and the pairing data are in `%APPDATA%\Open OBSBOT Bridge\`: `auth.json`, `sequence.json`, `sequences.json` and others.
+
+The log is `%LOCALAPPDATA%\Open OBSBOT Bridge\Logs\bridge.log`.
+The bridge window keeps the log open for writing. To read it, use a tool that shares the file, for example `Get-Content -Tail`.
+
+### Exit with the bridge window
+
+The C++ bridge stops when the bridge window stops, as on macOS.
+The bridge window gives the C++ bridge an anonymous pipe on stdin.
+If the bridge window stops for any reason, `ReadFile` on that pipe fails.
+The C++ bridge then logs `supervisor gone; exiting so the camera is released`, and exits.
+We tested this with a forced stop of `open_obsbot_bridge.exe`.
+
+In a console window, stdin is not a pipe. Thus this check is off when you start the C++ bridge by hand.
+
+### Tray icon
+
+`windows/runner/native_tray.cpp` gives the same `obsbot.bridge/tray` channel as `NativeTray.swift` on macOS.
+Thus the Dart tray code is the same on the two platforms.
+A left click shows the window. A right click opens the menu.
+The icon is white or black, for contrast with the taskbar.
+
+### One copy of the app
+
+A named mutex prevents a second copy of the app.
+If you start the app again, the open window comes to the front.
+
+### No H.264 stream
+
+`--h264` is for Linux only. It starts ffmpeg with `fork`, and is not in the Windows build.
+
+### Window style
+
+The bridge window uses `macos_ui`. It works on Windows, but it looks like a Mac app.
+A Windows style is planned work.
 
 ## Tests
 
-The Node batteries in `tests/` read `auth.json` from the platform location via
-`tests/paths.mjs`, so they run on Windows unchanged once a token exists (pair
-once from a phone or the web remote). With one camera: `library.mjs` passes 4/4.
-`fade.mjs` fails its dip check on every platform since crossfades landed: it
-re-takes the camera already on air, so the "outgoing" frame is the same scene
-and the dissolve never darkens. `bridge_smoke.mjs` and `exposure.mjs` still
-expect the v1 `state.device` shape. `mix_sequence.mjs` and `two_cam_smoke.mjs`
-need two cameras.
+The Node tests in `tests/` find `auth.json` through `tests/paths.mjs`. Thus they run on Windows without change.
+They need a token. Pair a phone or the web remote one time before you run them.
+
+Results with 1 camera:
+
+| Test | Result |
+| --- | --- |
+| `library.mjs` | 4 of 4 pass. |
+| `fade.mjs` | The dip check fails on all platforms. The test does a TAKE to the camera that is already on air, so the fade blends a scene into the same scene. |
+| `bridge_smoke.mjs`, `exposure.mjs` | Fail on all platforms. They expect the old v1 `state.device` shape. |
+| `mix_sequence.mjs`, `two_cam_smoke.mjs` | Need 2 cameras. |
+| `obs_e2e.mjs` | Needs OBS with a scene collection named `OBSBOT E2E`. See the next section. |
+
+### OBS test
+
+`obs_e2e.mjs` reads the picture that OBS shows, through obs-websocket.
+It checks that OBS shows the camera, that the picture moves when PTZ and zoom move, and that OBS follows a TAKE as a cut and as a crossfade.
+
+The test changes the OBS program scene, and adds and removes sources.
+Thus it runs only when the current OBS scene collection is `OBSBOT E2E`. In OBS, click **Scene Collection** > **New**, and name it `OBSBOT E2E`.
+Do not run it on an OBS setup that you use for real work.
