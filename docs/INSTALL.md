@@ -120,9 +120,29 @@ Click **Settings** > **Apps** > **Installed apps** > **Open OBSBOT Bridge** > **
 The uninstaller removes the firewall rule.
 It keeps your pairing PIN, paired phones and saved sequences in `%APPDATA%\Open OBSBOT Bridge`. Thus a new install keeps them. To start again with no data, delete that folder.
 
+## Read the bridge window
+
+The top of the window answers one question: is everything ready for the service?
+
+<img src="images/bridge-window-ready.png" alt="The bridge window: Ready for the service, with Bridge, Cameras, OBS and Phones all marked green" width="575"/>
+
+Below the answer are 4 places: **Bridge**, **Cameras**, **OBS** and **Phones**. Each place has a mark:
+
+| Mark | Meaning |
+| --- | --- |
+| Green circle with a tick | Connected. |
+| Green ring | Starting. Wait a few seconds. |
+| Orange circle with **!** | This needs you. The steps to fix it show below. |
+
+<img src="images/bridge-window-needs.png" alt="The bridge window: 2 things need you, with OBS and Phones marked orange and the Connect OBS steps below" width="460"/>
+
+If more than one place needs you, the window shows the steps for each one, in the same order as the places.
+The camera list shows which camera is **ON AIR**. To change the camera that OBS shows, click **Put on air**.
+To rename a camera, click the pencil. Other controls are in the remote.
+
 ## Pair a controller
 
-1. In the bridge window, click **Reveal**. The pairing PIN and QR code show for 60 seconds.
+1. In the bridge window, click **Show PIN and QR code**. The pairing PIN and QR code show for 60 seconds.
 2. Choose a controller:
 
    - Phone browser: scan the QR code. The web remote opens and pairs itself, because the QR encodes the PIN in the URL fragment.

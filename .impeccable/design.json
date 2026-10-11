@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-11T12:28:55+00:00",
+  "title": "Design System: Open OBSBOT Bridge",
+  "extensions": {
+    "colorMeta": {
+      "maroon": {
+        "role": "primary",
+        "displayName": "Durrie Maroon",
+        "canonical": "#7A1F2B",
+        "tonalRamp": [
+          "#3D0F16",
+          "#6A1B25",
+          "#962635",
+          "#C33245",
+          "#D65C6C",
+          "#E28D98",
+          "#EEBEC4",
+          "#FAEBED"
+        ]
+      },
+      "on-maroon": {
+        "role": "primary",
+        "displayName": "Band White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5E5E5E",
+          "#7A7A7A",
+          "#999999",
+          "#B8B8B8",
+          "#D6D6D6",
+          "#F2F2F2"
+        ]
+      },
+      "on-maroon-soft": {
+        "role": "primary",
+        "displayName": "Rose Thread",
+        "canonical": "#EBD3D6",
+        "tonalRamp": [
+          "#35181B",
+          "#5B2930",
+          "#823B44",
+          "#A84D58",
+          "#BF737C",
+          "#D29DA4",
+          "#E5C7CB",
+          "#F7EDEF"
+        ]
+      },
+      "jute": {
+        "role": "primary",
+        "displayName": "Jute",
+        "canonical": "#C8A96B",
+        "tonalRamp": [
+          "#382C15",
+          "#614C24",
+          "#8A6D33",
+          "#B28D42",
+          "#C8A96A",
+          "#D8C397",
+          "#E9DCC4",
+          "#F8F4EC"
+        ]
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "Leaf Green",
+        "canonical": "#2E7D4F",
+        "tonalRamp": [
+          "#153823",
+          "#24613D",
+          "#338A57",
+          "#42B371",
+          "#6AC891",
+          "#97D9B2",
+          "#C3E9D3",
+          "#ECF8F1"
+        ]
+      },
+      "green-soft": {
+        "role": "secondary",
+        "displayName": "Pale Leaf",
+        "canonical": "#B9DCC6",
+        "tonalRamp": [
+          "#193323",
+          "#2C583D",
+          "#3F7E56",
+          "#52A370",
+          "#77BB90",
+          "#A0CFB1",
+          "#C9E4D3",
+          "#EEF6F1"
+        ]
+      },
+      "turmeric": {
+        "role": "tertiary",
+        "displayName": "Turmeric",
+        "canonical": "#E0A526",
+        "tonalRamp": [
+          "#43310A",
+          "#745411",
+          "#A57818",
+          "#D69C1F",
+          "#E6B54C",
+          "#EDCB82",
+          "#F5E1B8",
+          "#FCF6E9"
+        ]
+      },
+      "turmeric-mark": {
+        "role": "tertiary",
+        "displayName": "Deep Turmeric",
+        "canonical": "#C0820F",
+        "tonalRamp": [
+          "#473006",
+          "#7B530A",
+          "#AF770E",
+          "#E39A12",
+          "#F0B342",
+          "#F5CA7B",
+          "#F9E1B3",
+          "#FDF6E7"
+        ]
+      },
+      "turmeric-tint": {
+        "role": "tertiary",
+        "displayName": "Turmeric Wash",
+        "canonical": "#FFF6E0",
+        "tonalRamp": [
+          "#4C3600",
+          "#855E00",
+          "#BD8600",
+          "#F5AE00",
+          "#FFC433",
+          "#FFD670",
+          "#FFE7AD",
+          "#FFF8E5"
+        ]
+      },
+      "on-turmeric-tint": {
+        "role": "tertiary",
+        "displayName": "Turmeric Ink",
+        "canonical": "#7A5409",
+        "tonalRamp": [
+          "#473105",
+          "#7B5509",
+          "#B0790D",
+          "#E49D11",
+          "#F1B641",
+          "#F5CC7A",
+          "#F9E2B3",
+          "#FDF6E7"
+        ]
+      },
+      "limewash": {
+        "role": "neutral",
+        "displayName": "Limewash",
+        "canonical": "#F6F7F4",
+        "tonalRamp": [
+          "#282C20",
+          "#464D38",
+          "#636D4F",
+          "#818E67",
+          "#9EA989",
+          "#BBC3AC",
+          "#D8DDD0",
+          "#F3F4F0"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Plate White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#262626",
+          "#424242",
+          "#5E5E5E",
+          "#7A7A7A",
+          "#999999",
+          "#B8B8B8",
+          "#D6D6D6",
+          "#F2F2F2"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Rule Grey",
+        "canonical": "#DCDDD8",
+        "tonalRamp": [
+          "#282924",
+          "#45473E",
+          "#626558",
+          "#7F8372",
+          "#9DA092",
+          "#BBBCB3",
+          "#D8D9D3",
+          "#F3F3F1"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#1D2125",
+        "tonalRamp": [
+          "#22262B",
+          "#3A424A",
+          "#535E6A",
+          "#6C7A89",
+          "#8D99A5",
+          "#AFB8C0",
+          "#D1D6DB",
+          "#F1F2F4"
+        ]
+      },
+      "ink-soft": {
+        "role": "neutral",
+        "displayName": "Soft Ink",
+        "canonical": "#4A535B",
+        "tonalRamp": [
+          "#22262A",
+          "#3B4349",
+          "#555F68",
+          "#6E7B87",
+          "#8E9AA4",
+          "#B0B8BF",
+          "#D2D6DA",
+          "#F1F2F4"
+        ]
+      },
+      "steel": {
+        "role": "neutral",
+        "displayName": "Steel",
+        "canonical": "#9AA3AB",
+        "tonalRamp": [
+          "#23262A",
+          "#3C4348",
+          "#565F67",
+          "#6F7B86",
+          "#909AA2",
+          "#B1B8BE",
+          "#D2D6DA",
+          "#F1F2F3"
+        ]
+      },
+      "steel-light": {
+        "role": "neutral",
+        "displayName": "Light Steel",
+        "canonical": "#E2E5E8",
+        "tonalRamp": [
+          "#22262B",
+          "#3B424A",
+          "#535E69",
+          "#6C7A89",
+          "#8D99A5",
+          "#AFB8C0",
+          "#D1D6DB",
+          "#F1F2F4"
+        ]
+      },
+      "steel-dark": {
+        "role": "neutral",
+        "displayName": "Dark Steel",
+        "canonical": "#6B747C",
+        "tonalRamp": [
+          "#232629",
+          "#3D4347",
+          "#575F65",
+          "#717B83",
+          "#9199A1",
+          "#B2B8BD",
+          "#D3D6D9",
+          "#F1F2F3"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Answer",
+        "purpose": "The one-sentence answer in the runner band, white on maroon. The only line at this size."
+      },
+      "body-band": {
+        "displayName": "Band detail",
+        "purpose": "The detail sentence under the answer, in Rose Thread."
+      },
+      "value": {
+        "displayName": "Value",
+        "purpose": "The phone address; the revealed PIN at 34 px with 6 px tracking. Tabular figures."
+      },
+      "dialog-title": {
+        "displayName": "Dialog title",
+        "purpose": "Settings and confirm dialogs."
+      },
+      "headline": {
+        "displayName": "Section head",
+        "purpose": "Cameras and the fix names."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Place, camera and setting names."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Instructions and numbered fix steps."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Place values, meta lines, field labels, hints."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Filled and outlined button labels; text buttons at 14 px."
+      }
+    },
+    "shadows": [
+      {
+        "name": "place-lift",
+        "value": "0 2px 6px rgba(29,33,37,0.06)",
+        "purpose": "The four place tiles only. Panels are flat."
+      }
+    ],
+    "motion": [
+      {
+        "name": "thali-fill",
+        "value": "240ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Signature: the thali plate fills from its centre outward on a state change, or empties back for in progress (Flutter Curves.easeOutExpo). The mark appears after 60% of the fill."
+      },
+      {
+        "name": "answer-crossfade",
+        "value": "240ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The band answer and detail cross-fade in place; nothing reflows."
+      },
+      {
+        "name": "place-emphasis",
+        "value": "240ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "A place tile animates its fill and border into or out of needs you."
+      },
+      {
+        "name": "copied-revert",
+        "value": "1500ms",
+        "purpose": "The Copy button reads Copied, then returns."
+      },
+      {
+        "name": "pin-hide",
+        "value": "60s",
+        "purpose": "A revealed PIN and QR code hide themselves."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "window-min",
+        "value": "720px x 560px"
+      },
+      {
+        "name": "window-default",
+        "value": "920px x 720px"
+      },
+      {
+        "name": "body-stack",
+        "value": "760px",
+        "purpose": "Content width under which the fix column stacks above Cameras."
+      },
+      {
+        "name": "place-compact",
+        "value": "190px",
+        "purpose": "Place width under which the thali shrinks from 44 px to 34 px."
+      }
+    ],
+    "platform": {
+      "surfaces": [
+        "Open OBSBOT Bridge desktop window (macOS and Windows), one design on both"
+      ],
+      "notYet": [
+        "Open OBSBOT Remote (apps/rc): a later surface; it does not use this system yet"
+      ],
+      "windowsCaption": "Windows 11 DWM caption and border #7A1F2B, caption text #FFFFFF (apps/bridge/windows/runner/flutter_window.cpp)",
+      "font": "Atkinson Hyperlegible Regular and Bold, bundled under apps/bridge/assets/fonts (OFL)",
+      "source": "apps/bridge/lib/langar_theme.dart, apps/bridge/lib/langar_widgets.dart"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Maroon filled button for the main fix action.",
+      "html": "<button class=\"ds-btn-primary\">Show PIN and QR code</button>",
+      "css": ".ds-btn-primary{font-family:'Atkinson Hyperlegible',sans-serif;font-size:15px;font-weight:700;background:#7A1F2B;color:#FFFFFF;height:44px;padding:0 18px;border:none;border-radius:10px;cursor:pointer;transition:background .2s} .ds-btn-primary:hover{background:#6A1B25} .ds-btn-primary:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(122,31,43,.2)} .ds-btn-primary:disabled{background:#E2E5E8;color:#6B747C}"
+    },
+    {
+      "name": "Outlined Button",
+      "kind": "button",
+      "refersTo": "button-outlined",
+      "description": "2 px maroon outline for Put on air, Copy and second actions.",
+      "html": "<button class=\"ds-btn-outlined\">Put on air</button>",
+      "css": ".ds-btn-outlined{font-family:'Atkinson Hyperlegible',sans-serif;font-size:15px;font-weight:700;background:#FFFFFF;color:#7A1F2B;height:44px;padding:0 16px;border:2px solid #7A1F2B;border-radius:10px;cursor:pointer;transition:background .2s} .ds-btn-outlined:hover{background:rgba(122,31,43,.08)} .ds-btn-outlined:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(122,31,43,.2)}"
+    },
+    {
+      "name": "Text Button",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "Quiet maroon text action: Hide, Cancel, Phone cannot connect?",
+      "html": "<button class=\"ds-btn-text\">Phone cannot connect?</button>",
+      "css": ".ds-btn-text{font-family:'Atkinson Hyperlegible',sans-serif;font-size:14px;font-weight:700;background:transparent;color:#7A1F2B;height:40px;padding:0 12px;border:none;border-radius:10px;cursor:pointer} .ds-btn-text:hover{background:rgba(122,31,43,.08)} .ds-btn-text:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(122,31,43,.2)}"
+    },
+    {
+      "name": "Runner Band",
+      "kind": "nav",
+      "refersTo": "runner-band",
+      "description": "Maroon band with a plain 4 px jute edge carrying the one-sentence answer.",
+      "html": "<header class=\"ds-band\"><div><div class=\"ds-band-answer\">2 things need you</div><div class=\"ds-band-detail\">OBS is not connected. No phone is connected.</div></div><button class=\"ds-band-icon\" aria-label=\"Settings\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M19.4 13c.04-.33.06-.66.06-1s-.02-.67-.06-1l2.1-1.6c.2-.15.25-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.5 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.5-1a.5.5 0 0 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.33-.07.67-.07 1s.03.67.07 1l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64L19.4 13zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z\"/></svg></button></header>",
+      "css": ".ds-band{font-family:'Atkinson Hyperlegible',sans-serif;display:flex;justify-content:space-between;align-items:flex-start;background:#7A1F2B;border-bottom:4px solid #C8A96B;padding:22px 16px 22px 28px} .ds-band-answer{font-size:32px;line-height:1.15;font-weight:700;color:#FFFFFF} .ds-band-detail{margin-top:6px;font-size:16px;line-height:1.35;color:#EBD3D6} .ds-band-icon{width:40px;height:40px;display:grid;place-items:center;border:none;border-radius:20px;background:transparent;color:#FFFFFF;cursor:pointer} .ds-band-icon:hover{background:rgba(255,255,255,.13)} .ds-band-icon:focus-visible{outline:2px solid #FFFFFF;outline-offset:2px}"
+    },
+    {
+      "name": "Place Tile (served)",
+      "kind": "card",
+      "refersTo": "place-tile",
+      "description": "A set place that is served: filled green plate with a white tick.",
+      "html": "<div class=\"ds-place\"><svg width=\"44\" height=\"44\" viewBox=\"0 0 44 44\" aria-label=\"ready\"><circle cx=\"22\" cy=\"22\" r=\"22\" fill=\"#2E7D4F\"/><path d=\"M13.5 22.4 L19.8 28.3 L30.6 16.4\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"3.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><div><div class=\"ds-place-name\">Bridge</div><div class=\"ds-place-value\">Running</div></div></div>",
+      "css": ".ds-place{font-family:'Atkinson Hyperlegible',sans-serif;display:flex;align-items:center;gap:12px;height:92px;width:220px;padding:0 14px;background:#FFFFFF;border:1px solid #DCDDD8;border-radius:14px;box-shadow:0 2px 6px rgba(29,33,37,.06);transition:background .24s cubic-bezier(.16,1,.3,1),border-color .24s cubic-bezier(.16,1,.3,1)} .ds-place-name{font-size:17px;font-weight:700;color:#1D2125} .ds-place-value{margin-top:2px;min-height:37.8px;font-size:14px;line-height:1.35;font-weight:400;color:#4A535B}"
+    },
+    {
+      "name": "Place Tile (in progress)",
+      "kind": "card",
+      "refersTo": "place-tile",
+      "description": "A place on its way: open green ring with one heavier quarter.",
+      "html": "<div class=\"ds-place-w\"><svg width=\"44\" height=\"44\" viewBox=\"0 0 44 44\" aria-label=\"waiting\"><circle cx=\"22\" cy=\"22\" r=\"20\" fill=\"none\" stroke=\"#B9DCC6\" stroke-width=\"2.4\"/><path d=\"M22 2 A20 20 0 0 1 42 22\" fill=\"none\" stroke=\"#2E7D4F\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg><div><div class=\"ds-place-w-name\">Bridge</div><div class=\"ds-place-w-value\">Starting</div></div></div>",
+      "css": ".ds-place-w{font-family:'Atkinson Hyperlegible',sans-serif;display:flex;align-items:center;gap:12px;height:92px;width:220px;padding:0 14px;background:#FFFFFF;border:1px solid #DCDDD8;border-radius:14px;box-shadow:0 2px 6px rgba(29,33,37,.06);transition:background .24s cubic-bezier(.16,1,.3,1),border-color .24s cubic-bezier(.16,1,.3,1)} .ds-place-w-name{font-size:17px;font-weight:700;color:#1D2125} .ds-place-w-value{margin-top:2px;min-height:37.8px;font-size:14px;line-height:1.35;font-weight:400;color:#4A535B}"
+    },
+    {
+      "name": "Place Tile (needs you)",
+      "kind": "card",
+      "refersTo": "place-tile-needs",
+      "description": "The place that needs you: turmeric edge and wash, solid turmeric plate with an exclamation mark.",
+      "html": "<div class=\"ds-place-n\"><svg width=\"44\" height=\"44\" viewBox=\"0 0 44 44\" aria-label=\"needs you\"><circle cx=\"22\" cy=\"22\" r=\"22\" fill=\"#C0820F\"/><line x1=\"22\" y1=\"12.8\" x2=\"22\" y2=\"24.6\" stroke=\"#FFFFFF\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"22\" cy=\"31.2\" r=\"2.2\" fill=\"#FFFFFF\"/></svg><div><div class=\"ds-place-n-name\">OBS</div><div class=\"ds-place-n-value\">Not connected</div></div></div>",
+      "css": ".ds-place-n{font-family:'Atkinson Hyperlegible',sans-serif;display:flex;align-items:center;gap:12px;height:92px;width:220px;padding:0 14px;background:#FFF6E0;border:2px solid #E0A526;border-radius:14px;box-shadow:0 2px 6px rgba(29,33,37,.06);transition:background .24s cubic-bezier(.16,1,.3,1),border-color .24s cubic-bezier(.16,1,.3,1)} .ds-place-n-name{font-size:17px;font-weight:700;color:#1D2125} .ds-place-n-value{margin-top:2px;min-height:37.8px;font-size:14px;line-height:1.35;font-weight:700;color:#7A5409}"
+    },
+    {
+      "name": "Camera Row with ON AIR Pill",
+      "kind": "custom",
+      "refersTo": "camera-row",
+      "description": "One camera: name, state, and ON AIR or Put on air.",
+      "html": "<div class=\"ds-cam\"><div><div class=\"ds-cam-name\">Tiny 2 Lite (3LOQ)</div><div class=\"ds-cam-meta\">Ready</div></div><span class=\"ds-onair\"><span class=\"ds-onair-dot\"></span>ON AIR</span></div>",
+      "css": ".ds-cam{font-family:'Atkinson Hyperlegible',sans-serif;display:flex;align-items:center;justify-content:space-between;height:64px;padding:0 8px 0 16px;background:#FFFFFF;border:1px solid #DCDDD8;border-radius:10px} .ds-cam-name{font-size:17px;font-weight:700;color:#1D2125} .ds-cam-meta{font-size:14px;line-height:1.35;color:#4A535B} .ds-onair{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;background:#7A1F2B;border-radius:999px;color:#FFFFFF;font-size:13px;font-weight:700;letter-spacing:.8px} .ds-onair-dot{width:8px;height:8px;border-radius:50%;background:#FFFFFF}"
+    },
+    {
+      "name": "Copy Field",
+      "kind": "input",
+      "refersTo": "copy-field",
+      "description": "A read-only value with a Copy button; secrets shown masked.",
+      "html": "<div class=\"ds-copy\"><div class=\"ds-copy-label\">OBS Media Source input</div><div class=\"ds-copy-row\"><div class=\"ds-copy-field\">http://localhost:8766/preview/active.mjpg?t=••••••••</div><button class=\"ds-copy-btn\">Copy</button></div></div>",
+      "css": ".ds-copy{font-family:'Atkinson Hyperlegible',sans-serif;} .ds-copy-label{font-size:14px;line-height:1.35;color:#4A535B;margin-bottom:6px} .ds-copy-row{display:flex;gap:8px} .ds-copy-field{flex:1;min-width:0;height:44px;display:flex;align-items:center;padding:0 12px;background:#FFFFFF;border:1px solid #DCDDD8;border-radius:10px;font-size:14px;color:#1D2125;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .ds-copy-btn{font-family:'Atkinson Hyperlegible',sans-serif;font-size:15px;font-weight:700;height:44px;padding:0 16px;background:#FFFFFF;color:#7A1F2B;border:2px solid #7A1F2B;border-radius:10px;cursor:pointer} .ds-copy-btn:hover{background:rgba(122,31,43,.08)} .ds-copy-btn:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(122,31,43,.2)}"
+    },
+    {
+      "name": "Attention Panel",
+      "kind": "card",
+      "refersTo": "panel-attention",
+      "description": "The fix panel for a place that needs you; flat, turmeric edge and wash.",
+      "html": "<div class=\"ds-panel\"><ol class=\"ds-panel-steps\"><li>In OBS, add a Media Source.</li><li>Turn off Local File.</li><li>Paste this into Input.</li></ol></div>",
+      "css": ".ds-panel{font-family:'Atkinson Hyperlegible',sans-serif;padding:18px;background:#FFF6E0;border:2px solid #E0A526;border-radius:14px} .ds-panel-steps{margin:0;padding-left:22px;font-size:15px;line-height:1.4;color:#1D2125} .ds-panel-steps li{margin-bottom:6px} .ds-panel-steps li::marker{font-weight:700}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Langar Hall",
+    "overview": "The service is a row of set places, as in a langar hall before the sangat sits. Limewashed walls, a long durrie-maroon runner, a steel thali at every place. The window shows which places are served and the one that still needs you. It is not a grey settings list of status dots and toggles, and it must not feel like a gamer or tech tool.\n\nThe window answers one question first: is everything OK for the service? A maroon runner band carries that answer as one large sentence. Under it, four equal places (Bridge, Cameras, OBS, Phones) each show a thali mark, a name and a real value. Only a place that needs the user changes emphasis, and its fix appears in the column below. The rest stays quiet. Density is low and the type is large, because the volunteer reads it in a dim hall, at a glance, maybe once a month.\n\nThe state is a shape, not only a colour. Places never move or resize; only their content changes. Motion is one authored moment (a 240 ms fill or empty of the plate, and a cross-fade of the answer), and nothing reflows.",
+    "keyCharacteristics": [
+      "One maroon runner band with a plain jute edge owns the top of the window.",
+      "Four fixed places in one row; a place that needs you gains a turmeric edge and tint, never a new size or position.",
+      "Three state shapes: filled green plate with a tick, open green ring, solid turmeric plate with an exclamation mark.",
+      "One family (Atkinson Hyperlegible) at large, clear steps.",
+      "Flat white panels on a limewash ground; standard Material controls themed to the world.",
+      "Short plain words, about 80% ASD-STE100."
+    ],
+    "rules": [
+      {
+        "name": "The Turmeric Means You Rule",
+        "body": "Turmeric appears only on a place, panel or plate that needs the user. It is never decoration, never a highlight, never on air. The ON AIR dot is white for this reason.",
+        "section": "colors"
+      },
+      {
+        "name": "The Green Is Good Rule",
+        "body": "Whatever is connected or in progress is green (user's call, 2026-10-11). Do not use amber, blue or grey for \"starting\"; the open green ring carries it.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Voice Rule",
+        "body": "Maroon is the window's own colour. It is the band and the primary action, and it does not mark status.",
+        "section": "colors"
+      },
+      {
+        "name": "The Big Answer Rule",
+        "body": "The window has exactly one Display line, and it is the answer. The only text set larger is the revealed PIN (34 px Value), and it shows only when the user asks for it.",
+        "section": "typography"
+      },
+      {
+        "name": "The Plain Words Rule",
+        "body": "Copy is short plain words, about 80% ASD-STE100: one idea per sentence, the verb first in instructions (\"Paste this into Input.\"). No em dashes anywhere.",
+        "section": "typography"
+      },
+      {
+        "name": "The Set Places Rule",
+        "body": "Places never move, reflow or resize. Two value lines are always reserved in each tile, so every name sits on the same line whether or not its value wraps.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Panel Rule",
+        "body": "Panels never get a shadow. A panel that needs you gets a turmeric border and tint, not elevation.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** answer \"is everything OK for the service?\" first, in one sentence in the band, in Display.",
+      "**Do** show every state as a shape and a colour together: filled green plate with tick, open green ring, solid turmeric plate with exclamation mark.",
+      "**Do** keep the four places fixed in size and position; reserve two value lines in each.",
+      "**Do** put the fix for a place that needs you in the fix column, one section per place, in place order.",
+      "**Do** show real values only: the LAN address, the OBS input URL, camera names, the paired-phone count.",
+      "**Do** use the themed Material controls (FilledButton, OutlinedButton, TextButton, IconButton, Switch, AlertDialog) at 44 px targets.",
+      "**Do** keep motion to the 240 ms fill or empty and the answer cross-fade (ease-out expo).",
+      "**Do** write short plain words, about 80% ASD-STE100, verb first in steps."
+    ],
+    "donts": [
+      "**Don't** use a woven, checker or striped pattern anywhere, on the band or on a plate (user-pinned, 2026-10-11). The band's jute edge is one plain line.",
+      "**Don't** use turmeric for anything but \"needs you\": not for on air, not for hover, not for a highlight.",
+      "**Don't** mark connected or in progress with any colour but green.",
+      "**Don't** grow, move or reorder a place to draw attention; change its border, tint and plate only.",
+      "**Don't** raise a panel with a shadow; the place lift is for the four tiles only.",
+      "**Don't** add camera previews or a wall of settings to this window; settings sit behind the one icon in the band.",
+      "**Don't** add a second type family, or a second line at display size.",
+      "**Don't** use em dashes in any copy or file."
+    ]
+  }
+}

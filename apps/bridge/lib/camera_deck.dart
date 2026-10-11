@@ -1,40 +1,44 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart'
-    show
-        AlertDialog,
-        FilledButton,
-        InputDecoration,
-        TextButton,
-        TextField,
-        showDialog;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
-import 'package:macos_ui/macos_ui.dart';
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 
+import 'langar_theme.dart';
+import 'langar_widgets.dart';
 import 'local_bridge_client.dart';
 
-/// The copyable OBS Browser Source URL row.
+/// The OBS output URL, with the token masked.
 ///
-/// `/preview/active.mjpg` follows whatever camera is ON AIR, so one OBS
-/// Browser Source pointed here replaces scene switching entirely. The
-/// URL carries a bearer token; we show it masked and put the real thing
-/// on the clipboard only when the user asks - the same discipline as
-/// the PIN row. Before v2 the token lived only in auth.json and setting
-/// this up meant a terminal; that was a product gap, not a design
-/// choice.
-class ObsOutputRow extends StatefulWidget {
-  const ObsOutputRow({super.key, required this.client, this.mjpegPort = 8766});
+/// `/preview/active.mjpg` always shows the camera that is on air, so one OBS
+/// Media Source replaces scene switching. The URL carries a bearer token, so
+/// the window shows it masked and copies the real one only on request.
+String? obsUrl(String? token, {int mjpegPort = 8766}) => token == null
+    ? null
+    : 'http://localhost:$mjpegPort/preview/active.mjpg?t=$token';
 
-  final LocalBridgeClient client;
-  final int mjpegPort;
+/// The FFmpeg options README.md and the install guide give for the Media
+/// Source, so a dropped stream reconnects.
+const String obsFfmpegOptions =
+    'reconnect=1 reconnect_streamed=1 reconnect_delay_max=2';
+
+class CopyField extends StatefulWidget {
+  const CopyField({
+    super.key,
+    required this.label,
+    required this.shown,
+    required this.copyText,
+  });
+
+  final String label;
+  final String shown;
+  final String? copyText;
 
   @override
-  State<ObsOutputRow> createState() => _ObsOutputRowState();
+  State<CopyField> createState() => _CopyFieldState();
 }
 
-class _ObsOutputRowState extends State<ObsOutputRow> {
+class _CopyFieldState extends State<CopyField> {
   bool _copied = false;
   Timer? _revert;
 
@@ -44,12 +48,10 @@ class _ObsOutputRowState extends State<ObsOutputRow> {
     super.dispose();
   }
 
-  String? _url(String? token) => token == null
-      ? null
-      : 'http://localhost:${widget.mjpegPort}/preview/active.mjpg?t=$token';
-
-  Future<void> _copy(String url) async {
-    await Clipboard.setData(ClipboardData(text: url));
+  Future<void> _copy() async {
+    final text = widget.copyText;
+    if (text == null) return;
+    await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     setState(() => _copied = true);
     _revert?.cancel();
@@ -60,83 +62,48 @@ class _ObsOutputRowState extends State<ObsOutputRow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = MacosTheme.of(context);
-    final isDark = MacosTheme.brightnessOf(context).isDark;
-    return AnimatedBuilder(
-      animation: widget.client,
-      builder: (BuildContext ctx, _) {
-        final url = _url(widget.client.token);
-        final masked = url == null
-            ? 'Waiting for the bridge...'
-            : 'http://localhost:${widget.mjpegPort}/preview/active.mjpg?t=••••••••';
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: <Widget>[
-              const MacosIcon(CupertinoIcons.tv, size: 16),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      'OBS Browser Source URL',
-                      style: theme.typography.body.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      masked,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.typography.subheadline.copyWith(
-                        fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'],
-                        fontSize: 11,
-                        color: isDark
-                            ? MacosColors.systemGrayColor
-                            : const MacosColor(0xff6E6E73),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Add this as a Browser Source in OBS - it always '
-                      'shows the ON AIR camera, so cuts from the phone '
-                      'switch OBS with no scene change.',
-                      style: theme.typography.subheadline.copyWith(
-                        color: isDark
-                            ? MacosColors.systemGrayColor
-                            : const MacosColor(0xff6E6E73),
-                      ),
-                    ),
-                  ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(widget.label, style: Langar.meta),
+        const SizedBox(height: 6),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Container(
+                height: 44,
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Langar.surface,
+                  borderRadius: BorderRadius.circular(Langar.radiusSmall),
+                  border: Border.all(color: Langar.line),
+                ),
+                child: Text(
+                  widget.shown,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Langar.body.copyWith(fontSize: 14),
                 ),
               ),
-              const SizedBox(width: 8),
-              PushButton(
-                controlSize: ControlSize.regular,
-                secondary: true,
-                onPressed: url == null ? null : () => _copy(url),
-                child: Text(_copied ? 'Copied' : 'Copy URL'),
-              ),
-            ],
-          ),
-        );
-      },
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: widget.copyText == null ? null : _copy,
+              icon: Icon(_copied ? Icons.check : Icons.content_copy, size: 18),
+              label: Text(_copied ? 'Copied' : 'Copy'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
 
-/// Per-camera rows for the bridge window: one row per attached camera
-/// with status dot, friendly name, ON AIR badge, a "Put on air" action, and
-/// rename. Rendered inside the home screen's group card.
-///
-/// The deck is a monitor + coarse control. Fine control (PTZ, presets,
-/// image) stays on the phone - do not grow a second control surface
-/// here.
-class CameraDeck extends StatelessWidget {
-  const CameraDeck({super.key, required this.client});
+/// The OBS output URL as a copy field. Shown under the fix panel as proof
+/// of where OBS reads from, and inside the OBS fix as its first step.
+class ObsOutputField extends StatelessWidget {
+  const ObsOutputField({super.key, required this.client});
 
   final LocalBridgeClient client;
 
@@ -144,37 +111,51 @@ class CameraDeck extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: client,
-      builder: (BuildContext ctx, _) {
+      builder: (context, _) {
+        final url = obsUrl(client.token);
+        return CopyField(
+          label: 'OBS Media Source input',
+          shown: url == null
+              ? 'Waiting for the bridge'
+              : 'http://localhost:8766/preview/active.mjpg?t=••••••••',
+          copyText: url,
+        );
+      },
+    );
+  }
+}
+
+/// One row per camera: name, model and state, then ON AIR or Put on air.
+///
+/// Full control (pan, tilt, zoom, presets) stays in the remote. This list
+/// only shows the cameras and which one OBS shows.
+class CameraList extends StatelessWidget {
+  const CameraList({super.key, required this.client});
+
+  final LocalBridgeClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: client,
+      builder: (context, _) {
         if (!client.connected) {
-          return _InfoRow(
-            dot: MacosColors.systemGrayColor,
-            title: 'Bridge starting...',
-            subtitle: 'Waiting for the camera service to come up.',
-          );
+          return const _EmptyRow(text: 'Waiting for the bridge.');
         }
         final devices = client.state.devices;
         if (devices.isEmpty) {
-          return _InfoRow(
-            dot: MacosColors.systemGrayColor,
-            title: 'No cameras detected',
-            subtitle: 'Plug an OBSBOT camera into this Mac over USB.',
+          return const _EmptyRow(
+            text: 'No camera found. Connect an OBSBOT camera with a USB cable.',
           );
         }
         final active = client.state.activeDeviceId;
-        final rows = <Widget>[];
-        for (var i = 0; i < devices.length; i++) {
-          if (i > 0) rows.add(const _InsetDivider());
-          rows.add(
-            _CameraRow(
-              device: devices[i],
-              isLive: devices[i].deviceId == active,
-              client: client,
-            ),
-          );
-        }
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: rows,
+          children: <Widget>[
+            for (final d in devices) ...<Widget>[
+              _CameraRow(device: d, onAir: d.deviceId == active, client: client),
+              const SizedBox(height: Langar.step),
+            ],
+          ],
         );
       },
     );
@@ -184,96 +165,65 @@ class CameraDeck extends StatelessWidget {
 class _CameraRow extends StatelessWidget {
   const _CameraRow({
     required this.device,
-    required this.isLive,
+    required this.onAir,
     required this.client,
   });
 
   final DeviceState device;
-  final bool isLive;
+  final bool onAir;
   final LocalBridgeClient client;
 
-  Color get _dot {
-    if (!device.connected) return MacosColors.systemGrayColor;
+  /// The camera's state in plain words. The name line already carries the
+  /// model when the camera has no friendly name.
+  String get _detail {
+    if (!device.connected) return 'Not connected';
     return switch (device.runStatus) {
-      'run' => MacosColors.systemGreenColor,
-      'sleep' => MacosColors.systemOrangeColor,
-      'privacy' => MacosColors.systemRedColor,
-      _ => MacosColors.systemGrayColor,
-    };
-  }
-
-  String get _subtitle {
-    final status = switch (device.runStatus) {
       'sleep' => 'Asleep',
       'privacy' => 'Privacy mode',
-      'run' => 'Running',
-      _ => 'Unknown state',
+      _ => 'Ready',
     };
-    final sn = device.sn.isEmpty ? '' : '  -  ${device.sn}';
-    return '$status$sn';
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = MacosTheme.of(context);
-    final isDark = MacosTheme.brightnessOf(context).isDark;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.only(left: 16, right: 8),
+      decoration: BoxDecoration(
+        color: Langar.surface,
+        borderRadius: BorderRadius.circular(Langar.radiusSmall),
+        border: Border.all(color: Langar.line),
+      ),
       child: Row(
         children: <Widget>[
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: _dot, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 12),
           Expanded(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        device.displayName,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.typography.body.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (isLive) ...<Widget>[
-                      const SizedBox(width: 8),
-                      const _LiveBadge(),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 2),
                 Text(
-                  _subtitle,
-                  style: theme.typography.subheadline.copyWith(
-                    color: isDark
-                        ? MacosColors.systemGrayColor
-                        : const MacosColor(0xff6E6E73),
+                  device.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Langar.title.copyWith(
+                    color: device.connected ? Langar.ink : Langar.inkSoft,
                   ),
                 ),
+                Text(_detail, style: Langar.meta),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          if (!isLive && device.connected)
-            PushButton(
-              controlSize: ControlSize.regular,
-              secondary: true,
+          if (onAir)
+            const OnAirPill()
+          else if (device.connected)
+            OutlinedButton(
               onPressed: () => client.setActive(device.deviceId),
               child: const Text('Put on air'),
             ),
-          const SizedBox(width: 6),
-          MacosIconButton(
-            icon: const MacosIcon(CupertinoIcons.pencil, size: 16),
-            semanticLabel: 'Rename camera',
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Rename camera',
+            icon: const Icon(Icons.edit_outlined, size: 20),
             onPressed: () => _rename(context),
           ),
         ],
@@ -281,20 +231,24 @@ class _CameraRow extends StatelessWidget {
     );
   }
 
-  Future<void> _rename(BuildContext ctx) async {
+  Future<void> _rename(BuildContext context) async {
     final ctrl = TextEditingController(text: device.friendlyName);
     final name = await showDialog<String>(
-      context: ctx,
-      builder: (BuildContext c) => AlertDialog(
+      context: context,
+      builder: (c) => AlertDialog(
         title: const Text('Rename camera'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLength: 60,
-          decoration: const InputDecoration(
-            hintText: 'e.g. Vocal, Stage wide, Audience',
+        content: SizedBox(
+          width: 360,
+          child: TextField(
+            controller: ctrl,
+            autofocus: true,
+            maxLength: 60,
+            style: Langar.body,
+            decoration: const InputDecoration(
+              hintText: 'For example: Darbar, Sangat, Ragis',
+            ),
+            onSubmitted: (_) => Navigator.of(c).pop(ctrl.text.trim()),
           ),
-          onSubmitted: (_) => Navigator.of(c).pop(ctrl.text.trim()),
         ),
         actions: <Widget>[
           TextButton(
@@ -308,102 +262,28 @@ class _CameraRow extends StatelessWidget {
         ],
       ),
     );
-    // Empty string clears the friendly name; null means cancelled.
+    // An empty name clears the friendly name; null means cancelled.
     if (name == null) return;
     await client.rename(device.deviceId, name);
   }
 }
 
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge();
+class _EmptyRow extends StatelessWidget {
+  const _EmptyRow({required this.text});
+
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFFF3B30),
-        borderRadius: BorderRadius.circular(4),
+        color: Langar.surface,
+        borderRadius: BorderRadius.circular(Langar.radiusSmall),
+        border: Border.all(color: Langar.line),
       ),
-      child: const Text(
-        'ON AIR',
-        style: TextStyle(
-          color: Color(0xFFFFFFFF),
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.dot,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final Color dot;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = MacosTheme.of(context);
-    final isDark = MacosTheme.brightnessOf(context).isDark;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: theme.typography.body.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: theme.typography.subheadline.copyWith(
-                    color: isDark
-                        ? MacosColors.systemGrayColor
-                        : const MacosColor(0xff6E6E73),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InsetDivider extends StatelessWidget {
-  const _InsetDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = MacosTheme.brightnessOf(context).isDark;
-    return Padding(
-      padding: const EdgeInsets.only(left: 36),
-      child: Container(
-        height: 0.5,
-        color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
-      ),
+      child: Text(text, style: Langar.body.copyWith(color: Langar.inkSoft)),
     );
   }
 }

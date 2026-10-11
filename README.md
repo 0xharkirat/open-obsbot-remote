@@ -108,7 +108,7 @@ A Browser Source runs a full Chromium instance to decode the same stream, drops 
 
 **Desk layout.** On a Mac window, an iPad in landscape, or a desktop browser, the remote becomes a small vision mixer. Preview and program sit side by side over the camera bus, and every control moves into a rail instead of hiding behind a toggle.
 
-**Bridge app.** A pairing card with a PIN and a QR code that encodes a 1-scan pairing link. A menu bar item that keeps the bridge running with the window closed. A row per camera, and a copyable OBS output URL.
+**Bridge app.** One sentence tells you if everything is ready for the service. Four marks show the Bridge, the cameras, OBS and the phones: green when connected, orange with the steps to fix it when something needs you. A PIN and a QR code that encodes a 1-scan pairing link. A menu bar or notification-area icon that keeps the bridge running with the window closed. A row per camera with Put on air, and a copyable OBS output URL.
 
 ## Known limits
 

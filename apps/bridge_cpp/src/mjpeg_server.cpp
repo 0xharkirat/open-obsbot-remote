@@ -96,6 +96,24 @@ static std::string extract_path(const char* req) {
     return std::string(start, end);
 }
 
+// The client's User-Agent, truncated, for the connect log line. The bridge
+// window reads it to tell OBS (ffmpeg's "Lavf/..." from a Media Source, or
+// "OBS/..." from a Browser Source) apart from a phone remote, which pulls the
+// same active.mjpg for its program preview.
+static std::string extract_user_agent(const char* req) {
+    const char* p = std::strstr(req, "\nUser-Agent:");
+    if (!p) p = std::strstr(req, "\nuser-agent:");
+    if (!p) return "-";
+    p += 12;
+    while (*p == ' ') ++p;
+    std::string out;
+    while (*p && *p != '\r' && *p != '\n' && out.size() < 60) {
+        out += (*p == ' ') ? '_' : *p;   // one token, so the log stays parseable
+        ++p;
+    }
+    return out.empty() ? "-" : out;
+}
+
 // Resolve the requested path to a camera "key": "active" for the active
 // stream, or a serial number for a specific camera. Returns false if the path
 // is not a preview path at all.
@@ -264,7 +282,8 @@ static void serve_client(sock_t fd, DeviceManager* mgr, AuthStore* auth) {
         "Content-Type: multipart/x-mixed-replace; boundary=obsboundary\r\n\r\n";
     if (!send_all(fd, hdr, std::strlen(hdr))) { close_sock(fd); return; }
 
-    LOGI("mjpeg: client connected fd=%d path=%s", (int)fd, path.c_str());
+    LOGI("mjpeg: client connected fd=%d path=%s ua=%s", (int)fd, path.c_str(),
+         extract_user_agent(buf).c_str());
 
     uint64_t last_seq = 0;
     VideoCapture* last_cap = nullptr;

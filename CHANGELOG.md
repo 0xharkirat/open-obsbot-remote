@@ -12,6 +12,10 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
   - Each preview shows the correct camera, also with 2 identical cameras.
 - An OBS test, `tests/obs_e2e.mjs`. It reads the picture that OBS shows. It checks that the picture moves with pan and zoom, and that OBS follows TAKE as a cut and as a crossfade. It runs only on an OBS scene collection named "OBSBOT E2E".
 
+### Changed
+
+- A new bridge window, on macOS and Windows. It answers one question first: is everything ready for the service? Four places show the Bridge, the cameras, OBS and the phones. A green mark with a tick means connected. An orange mark with **!** means it needs you, and the steps to fix it show below, one set for each problem. The window also tells you when OBS is not reading the camera feed, and when a different app holds the camera. The Mac look (macos_ui) is gone; the window has one design of its own, recorded in DESIGN.md. The text uses Atkinson Hyperlegible, a font made for low vision, bundled so it works with no internet.
+
 ### Fixed
 
 - The OBS feed keeps one picture format through each TAKE. OBS's Media Source stops with an error if the size or the color format of an MJPEG stream changes. On Windows, a cut between 2 different cameras, or a fade, caused this. Now the bridge keeps each OBS connection at its first format, and converts the other frames. A camera with a different shape gets black bars. macOS did not have this problem.

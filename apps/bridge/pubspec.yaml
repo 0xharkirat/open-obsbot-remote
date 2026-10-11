@@ -42,11 +42,9 @@ dependencies:
   # by first-party NativeTray in macos/Runner/NativeTray.swift +
   # lib/native_tray.dart.
   shared_preferences: ^2.5.5
-  # macos_ui (v1.3)  -  native AppKit-shaped chrome for the bridge top
-  # bar + window background. We keep child widgets on Material so
-  # SnackBar / AlertDialog / SwitchListTile still work via the
-  # Material wrapping in main.dart.
-  macos_ui: ^2.1.6
+  # macos_ui was dropped in the Langar Hall redesign: the bridge window has
+  # one design of its own on macOS and Windows (PRODUCT.md, DESIGN.md),
+  # built on standard Material controls themed in lib/langar_theme.dart.
   # v2: the bridge window is itself a WS client of the C++ subprocess,
   # consuming the same transport + domain types as the phone remote.
   obsbot_api_client:
@@ -93,6 +91,16 @@ flutter:
     - assets/tray/cameraTemplateWarn@2x.png
     - assets/tray/cameraTemplateError.png
     - assets/tray/cameraTemplateError@2x.png
+
+  # Bundled, never fetched: the bridge must work with no internet.
+  # Atkinson Hyperlegible (Braille Institute, SIL OFL 1.1, assets/fonts/OFL.txt)
+  # was drawn for low-vision readers: a dim hall and older volunteers.
+  fonts:
+    - family: AtkinsonHyperlegible
+      fonts:
+        - asset: assets/fonts/AtkinsonHyperlegible-Regular.ttf
+        - asset: assets/fonts/AtkinsonHyperlegible-Bold.ttf
+          weight: 700
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

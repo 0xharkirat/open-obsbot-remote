@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/cupertino.dart' show CupertinoColors, CupertinoIcons;
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:macos_ui/macos_ui.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:marionette_flutter/marionette_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -15,7 +13,9 @@ import 'package:window_manager/window_manager.dart';
 import 'bridge_prefs.dart';
 import 'bridge_supervisor.dart';
 import 'camera_deck.dart';
-import 'footer.dart';
+import 'health.dart';
+import 'langar_theme.dart';
+import 'langar_widgets.dart';
 import 'local_bridge_client.dart';
 import 'platform_paths.dart';
 import 'tray_controller.dart';
@@ -40,10 +40,23 @@ Future<bool> _hasPairedTokens() async {
   }
 }
 
-Future<void> main() async {
-  // Marionette (debug only) lets an AI agent drive this Mac app via the
-  // widget tree. Skip it under a test harness - one WidgetsBinding per
-  // process. Desktop-only app (macOS, Windows), so dart:io is always here.
+/// `--window-size=720x560` opens the window at that logical size. For review
+/// captures of the minimum layout; the window manager applies display
+/// scaling itself, which an outside resize gets wrong.
+Size _windowSize(List<String> args) {
+  for (final a in args) {
+    final m = RegExp(r'^--window-size=(\d+)x(\d+)$').firstMatch(a);
+    if (m != null) {
+      return Size(double.parse(m.group(1)!), double.parse(m.group(2)!));
+    }
+  }
+  return const Size(920, 720);
+}
+
+Future<void> main(List<String> args) async {
+  // Marionette (debug only) lets an AI agent drive this app via the widget
+  // tree. Skip it under a test harness - one WidgetsBinding per process.
+  // Desktop-only app (macOS, Windows), so dart:io is always here.
   final underTest = Platform.environment.containsKey('FLUTTER_TEST');
   if (kDebugMode && !underTest) {
     MarionetteBinding.ensureInitialized();
@@ -62,17 +75,20 @@ Future<void> main() async {
   final hideAtLaunch = prefs.startHidden && paired;
 
   await windowManager.waitUntilReadyToShow(
-    const WindowOptions(
-      size: Size(560, 480),
-      minimumSize: Size(420, 320),
+    WindowOptions(
+      // 920x720 by default, so the whole first viewport - answer, four
+      // places, cameras and the fix panel - is visible without scrolling.
+      size: _windowSize(args),
+      minimumSize: const Size(720, 560),
       titleBarStyle: TitleBarStyle.normal,
       title: 'Open OBSBOT Bridge',
       center: true,
+      backgroundColor: Langar.limewash,
     ),
     () async {
-      // Close (red dot / Cmd-W) hides the window; the tray controller
-      // intercepts onWindowClose and keeps the bridge subprocess alive.
-      // Quit happens only via the tray menu or Cmd-Q from the app menu.
+      // Close hides the window; the tray controller intercepts
+      // onWindowClose and keeps the bridge subprocess alive. Quit happens
+      // only via the tray menu or Cmd-Q from the app menu.
       await windowManager.setPreventClose(true);
       if (hideAtLaunch) {
         await windowManager.hide();
@@ -117,7 +133,7 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
   List<String> _lanIps = const <String>[];
 
   /// Tray-driven "Reveal PIN" toggles this from anywhere; HomeScreen
-  /// watches it so the reveal animation runs regardless of who fired it.
+  /// watches it so the reveal runs regardless of who fired it.
   final ValueNotifier<int> _revealRequest = ValueNotifier<int>(0);
   TrayController? _tray;
 
@@ -148,45 +164,17 @@ class _ObsbotBridgeAppState extends State<ObsbotBridgeApp> {
 
   @override
   Widget build(BuildContext context) {
-    // v1.3 macos_ui shell. Two layers:
-    //
-    //   1. `MacosApp` at the very top provides MacosTheme (SF Pro
-    //      typography, system colours, native window background tint
-    //      via macos_window_utils) and a CupertinoApp underneath for
-    //      its routing + localizations.
-    //   2. `MaterialApp` nested as `home`  -  but with router OFF
-    //      (`home:` set, no `routes`)  -  gives every descendant the
-    //      MaterialLocalizations + Material context that Scaffold,
-    //      AlertDialog, SnackBar, SwitchListTile, SegmentedButton
-    //      (gone) and the v1.2.1 forui widgets rely on.
-    //
-    // Net effect: window chrome reads as a Mac app (system fonts,
-    // dark-tinted titlebar), body widgets keep their Material
-    // semantics. No widget-by-widget rewrite needed; that's a future
-    // PR if/when we decide to embrace MacosScaffold + MacosToolBar.
-    return MacosApp(
+    return MaterialApp(
       title: 'Open OBSBOT Bridge',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
-      theme: MacosThemeData.light(),
-      darkTheme: MacosThemeData.dark(),
-      home: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1976D2),
-            brightness: Brightness.dark,
-          ),
-        ),
-        home: AnimatedBuilder(
-          animation: supervisor,
-          builder: (BuildContext context, _) => HomeScreen(
-            supervisor: supervisor,
-            lanIps: _lanIps,
-            revealRequest: _revealRequest,
-            prefs: widget.prefs,
-          ),
+      theme: Langar.theme(),
+      home: AnimatedBuilder(
+        animation: supervisor,
+        builder: (BuildContext context, _) => HomeScreen(
+          supervisor: supervisor,
+          lanIps: _lanIps,
+          revealRequest: _revealRequest,
+          prefs: widget.prefs,
         ),
       ),
     );
@@ -197,9 +185,8 @@ class HomeScreen extends StatefulWidget {
   final BridgeSupervisor supervisor;
   final List<String> lanIps;
 
-  /// External reveal trigger (bumped by the macOS tray menu's
-  /// "Reveal pairing PIN" item). HomeScreen listens and shows the PIN
-  /// for the standard 60-second window.
+  /// External reveal trigger (bumped by the tray menu). HomeScreen listens
+  /// and shows the PIN for the standard 60-second window.
   final ValueNotifier<int> revealRequest;
   final BridgePrefs prefs;
   const HomeScreen({
@@ -214,16 +201,18 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  /// PIN + QR are hidden by default. User taps "Reveal" to show them long
-  /// enough to type / scan, then they auto-hide after 60s. This stops a
-  /// shoulder-surfer from grabbing the PIN off an idle Mac.
+  /// PIN + QR are hidden by default. The user shows them long enough to
+  /// type or scan, then they hide after 60s. This stops a shoulder-surfer
+  /// from reading the PIN off an idle computer.
   bool _revealed = false;
   Timer? _hideTimer;
+
+  /// The firewall note under "Phone cannot connect?".
+  bool _firewallHelp = false;
   int _lastRevealRequest = 0;
 
-  /// v2: the window is itself a WS client of the C++ subprocess, so the
-  /// Cameras section renders real multi-camera state (per-device rows,
-  /// LIVE badge, set-live, rename) instead of log scraping.
+  /// The window is itself a WS client of the C++ subprocess, so the camera
+  /// list renders real multi-camera state instead of log scraping.
   late final LocalBridgeClient _bridgeClient;
 
   @override
@@ -262,1132 +251,661 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Color _statusColor(BuildContext ctx) {
-    switch (supervisor.status) {
-      case BridgeStatus.running:
-        return supervisor.cameraConnected ? Colors.green : Colors.amber;
-      case BridgeStatus.starting:
-        return Colors.amber;
-      case BridgeStatus.error:
-        return Theme.of(ctx).colorScheme.error;
-      case BridgeStatus.stopped:
-        return Theme.of(ctx).colorScheme.outline;
-    }
-  }
-
-  String _statusLabel() {
-    switch (supervisor.status) {
-      case BridgeStatus.running:
-        return supervisor.cameraConnected
-            ? 'Running  -  camera connected'
-            : 'Running  -  waiting for camera plug-in';
-      case BridgeStatus.starting:
-        return 'Starting...';
-      case BridgeStatus.error:
-        return 'Error: ${supervisor.lastError ?? "unknown"}';
-      case BridgeStatus.stopped:
-        return 'Stopped';
-    }
+  Health _health() {
+    final devices = _bridgeClient.state.devices;
+    return Health.from(HealthInput(
+      bridge: switch (supervisor.status) {
+        BridgeStatus.running => BridgeRun.running,
+        BridgeStatus.starting => BridgeRun.starting,
+        BridgeStatus.stopped => BridgeRun.stopped,
+        BridgeStatus.error => BridgeRun.error,
+      },
+      bridgeError: supervisor.lastError,
+      windowConnected: _bridgeClient.connected,
+      camerasConnected: devices.where((d) => d.connected).length,
+      camerasTotal: devices.length,
+      cameraAccessDenied:
+          supervisor.cameraPermission == CameraPermission.denied,
+      cameraBusy: supervisor.cameraBusy,
+      obsReading: supervisor.obsReading,
+      wsClients: supervisor.wsClientCount,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
-    // v1.4.1 native-shape rewrite. Outer chrome is now MacosScaffold +
-    // ToolBar (AppKit-style title bar buttons + sectioned content) so
-    // the window reads as a real Mac app instead of "Flutter debug
-    // console". Body content still uses Material widgets inside the
-    // ContentArea - SnackBar (URL copied), AlertDialog (Reset pairing,
-    // Settings) and the log monospace box keep their existing
-    // semantics. The MaterialApp wrapper above us provides the
-    // Localizations + Material context they need.
-    final isRunning = supervisor.status == BridgeStatus.running;
-    return MacosScaffold(
-      toolBar: ToolBar(
-        // Logo + title. icon-1024.png has ~10% transparent padding baked
-        // in per Apple's macOS app-icon convention - rendering it raw
-        // wastes the toolbar's vertical real estate. Scale to 130% with
-        // BoxFit.cover inside a clipped 20x20 SizedBox so the actual
-        // glyph fills the visible area edge-to-edge.
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ClipRRect(
-              borderRadius: const BorderRadius.all(Radius.circular(5)),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: Image.asset(
-                  'assets/icon-1024.png',
-                  fit: BoxFit.cover,
-                  scale: 0.77, // 1 / 1.3
-                  filterQuality: FilterQuality.medium,
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text('OBSBOT Bridge'),
-          ],
-        ),
-        titleWidth: 200,
-        actions: <ToolbarItem>[
-          ToolBarIconButton(
-            label: isRunning ? 'Stop' : 'Start',
-            icon: MacosIcon(
-              isRunning
-                  ? CupertinoIcons.stop_circle
-                  : CupertinoIcons.play_circle,
-            ),
-            onPressed: isRunning ? supervisor.stop : supervisor.start,
-            showLabel: false,
-            tooltipMessage: isRunning ? 'Stop bridge' : 'Start bridge',
-          ),
-          ToolBarIconButton(
-            label: 'Settings',
-            icon: const MacosIcon(CupertinoIcons.gear),
-            onPressed: _showSettings,
-            showLabel: false,
-            tooltipMessage: 'Settings',
-          ),
-        ],
-      ),
-      children: <Widget>[
-        ContentArea(
-          builder: (BuildContext context, ScrollController scrollController) {
-            return _buildBody(context, scrollController);
-          },
-        ),
-      ],
-    );
-  }
-
-  /// Body content for the [ContentArea]. Split out so the build() method
-  /// stays scoped to the shell. The Material wrapper is required so the
-  /// Material-flavoured rows below (TextButton, IconButton, Card chrome,
-  /// SnackBar overlay, AlertDialog) still find a Material ancestor when
-  /// they paint inside the MacosScaffold.
-  Widget _buildBody(BuildContext context, ScrollController scrollController) {
-    return Material(
-      type: MaterialType.transparency,
-      child: SingleChildScrollView(
-        controller: scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            // Hero status row - oversized dot + native macos_ui title
-            // typography. Lives outside the Status group so it reads as
-            // a banner rather than a row.
-            _statusBanner(context),
-            const SizedBox(height: 18),
-            // Pairing first: the PIN/QR is the thing you open this window for
-            // (setting up a phone), so it sits above the fold - no scrolling.
-            _sectionHeader(context, 'Pairing'),
-            const SizedBox(height: 6),
-            _revealCard(context),
-            if (lanIps.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Text(
-                  'Offline - no Wi-Fi network detected.',
-                  style: MacosTheme.of(context).typography.subheadline.copyWith(
-                    color: MacosColors.systemGrayColor,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 18),
-            _sectionHeader(context, 'Status'),
-            const SizedBox(height: 6),
-            _groupCard(context, <Widget>[
-              _cameraPermissionRow(context),
-              _divider(context),
-              _statusRow(
-                context,
-                title: 'Phone clients connected',
-                subtitle:
-                    '${supervisor.wsClientCount} active  ·  ${supervisor.pairedTokenCount} paired',
-                dotColor: supervisor.wsClientCount > 0
-                    ? CupertinoColors.systemGreen
-                    : MacosColors.systemGrayColor,
-              ),
-              // Firewall last (informational hint for users whose phones
-              // can't connect; not a measured state).
-              _divider(context),
-              _firewallRow(context),
-            ]),
-            const SizedBox(height: 18),
-            // v2: per-camera rows replace the single log-scraped Camera
-            // row - each attached camera gets its own status dot, LIVE
-            // badge, Set live action, and rename. The deck talks to the
-            // C++ subprocess over the same WS API the phone uses.
-            _sectionHeader(context, 'Cameras'),
-            const SizedBox(height: 6),
-            _groupCard(context, <Widget>[CameraDeck(client: _bridgeClient)]),
-            const SizedBox(height: 18),
-            // One Browser Source pointed at active.mjpg replaces OBS
-            // scene switching; the URL carries a token, so the row
-            // masks it and copies the real thing on demand.
-            _sectionHeader(context, 'OBS output'),
-            const SizedBox(height: 6),
-            _groupCard(context, <Widget>[ObsOutputRow(client: _bridgeClient)]),
-            const SizedBox(height: 20),
-            _logSection(context),
-            const AppFooter(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// "Bridge log" section header with reveal-in-Finder action, plus the
-  /// scrollable monospace log box, all wrapped in the same group-card
-  /// chrome as the Status section above.
-  Widget _logSection(BuildContext ctx) {
-    final macosTheme = MacosTheme.of(ctx);
-    final isDark = MacosTheme.brightnessOf(ctx).isDark;
-    final mutedColor = isDark
-        ? MacosColors.systemGrayColor
-        : const MacosColor(0xff6E6E73);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+    return AnimatedBuilder(
+      animation: _bridgeClient,
+      builder: (context, _) {
+        final health = _health();
+        return Scaffold(
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Text(
-                'BRIDGE LOG',
-                style: macosTheme.typography.caption1.copyWith(
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.6,
-                  color: mutedColor,
-                ),
-              ),
-              const Spacer(),
-              if (supervisor.logFilePath != null) ...<Widget>[
-                Flexible(
-                  child: Text(
-                    PlatformPaths.displayPath(supervisor.logFilePath!),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'],
-                      fontSize: 10,
-                      color: mutedColor,
-                    ),
+              _band(health),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(28, 20, 28, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      _places(health),
+                      const SizedBox(height: 28),
+                      LayoutBuilder(
+                        builder: (context, c) {
+                          final cameras = _section(
+                            'Cameras',
+                            CameraList(client: _bridgeClient),
+                          );
+                          final fix = _fixColumn(health);
+                          if (c.maxWidth < 760) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                fix,
+                                const SizedBox(height: 28),
+                                cameras,
+                              ],
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Expanded(flex: 11, child: cameras),
+                              const SizedBox(width: 24),
+                              Expanded(flex: 10, child: fix),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                PushButton(
-                  controlSize: ControlSize.small,
-                  secondary: true,
-                  onPressed: supervisor.revealLogInFinder,
-                  child: const Text('Open'),
-                ),
-              ],
+              ),
             ],
           ),
-        ),
-        const SizedBox(height: 6),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1C1C1E) : const Color(0xFFF6F6F8),
-            borderRadius: const BorderRadius.all(Radius.circular(8)),
-            border: Border.all(
-              color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
-              width: 0.5,
-            ),
-          ),
-          child: SizedBox(
-            height: 220,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: ListView.builder(
-                itemCount: supervisor.logTail.length,
-                itemBuilder: (BuildContext ctx, int i) {
-                  return SelectableText(
-                    supervisor.logTail[i],
-                    style: const TextStyle(fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'], fontSize: 11),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _revealCard(BuildContext ctx) {
-    final macosTheme = MacosTheme.of(ctx);
-    final mutedColor = MacosTheme.brightnessOf(ctx).isDark
-        ? MacosColors.systemGrayColor
-        : const MacosColor(0xff6E6E73);
-    if (!_revealed) {
-      return _groupCard(ctx, <Widget>[
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          child: Row(
-            children: <Widget>[
-              MacosIcon(CupertinoIcons.lock_fill, color: mutedColor, size: 18),
-              const SizedBox(width: 12),
-              Expanded(
+  // ---- The runner band: the one answer ---------------------------------
+
+  Widget _band(Health health) {
+    return RunnerBand(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(28, 22, 16, 22),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOutExpo,
+                layoutBuilder: (current, previous) => Stack(
+                  alignment: Alignment.topLeft,
+                  children: <Widget>[...previous, ?current],
+                ),
                 child: Column(
+                  key: ValueKey<String>('${health.answer}|${health.detail}'),
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Text(
-                      'PIN and QR hidden',
-                      style: macosTheme.typography.body.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(health.answer, style: Langar.answer),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Reveal only when a phone is in front of you.',
-                      style: macosTheme.typography.subheadline.copyWith(
-                        color: mutedColor,
-                      ),
-                    ),
+                    const SizedBox(height: 6),
+                    Text(health.detail, style: Langar.answerSub),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              PushButton(
-                controlSize: ControlSize.regular,
-                onPressed: supervisor.pin.isEmpty ? null : _toggleReveal,
-                child: const Text('Reveal'),
+            ),
+            IconButton(
+              tooltip: 'Settings',
+              onPressed: _showSettings,
+              icon: const Icon(Icons.settings_outlined),
+              color: Langar.onMaroon,
+              style: IconButton.styleFrom(
+                foregroundColor: Langar.onMaroon,
+                hoverColor: const Color(0x22FFFFFF),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---- The row of four set places --------------------------------------
+
+  Widget _places(Health health) {
+    return Row(
+      children: <Widget>[
+        for (int i = 0; i < health.places.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(width: 14),
+          Expanded(child: PlaceTile(place: health.places[i])),
+        ],
+      ],
+    );
+  }
+
+  Widget _section(String title, Widget child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(title, style: Langar.heading),
+        const SizedBox(height: 12),
+        child,
+      ],
+    );
+  }
+
+  // ---- The fix column: what needs you, or pairing -----------------------
+
+  /// One fix per place that needs the user, in place order, so no fix hides
+  /// behind another. With nothing to fix, the column offers pairing.
+  Widget _fixColumn(Health health) {
+    final fixes = health.needing.map((p) => p.fix!).toList();
+    final children = <Widget>[];
+    for (final fix in fixes) {
+      if (children.isNotEmpty) children.add(const SizedBox(height: 24));
+      children.add(switch (fix) {
+        Fix.startBridge => _section('Start the bridge', _bridgeFix()),
+        Fix.cameraAccess => _section('Allow camera access', _cameraAccessFix()),
+        Fix.cameraBusy => _section('Free the camera', _cameraBusyFix()),
+        Fix.plugCamera => _section('Connect a camera', _plugCameraFix()),
+        Fix.setUpObs => _section('Connect OBS', _obsFix()),
+        Fix.connectPhone => _section('Connect a phone', _pairPanel(attention: true)),
+      });
+    }
+    if (fixes.isEmpty) {
+      children.add(_section('Connect another phone', _pairPanel(attention: false)));
+    }
+    // Proof of where OBS reads from, unless the OBS fix already shows it.
+    if (!fixes.contains(Fix.setUpObs) && !fixes.contains(Fix.startBridge)) {
+      children
+        ..add(const SizedBox(height: 16))
+        ..add(ObsOutputField(client: _bridgeClient));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    );
+  }
+
+  Widget _steps(List<String> steps) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (int i = 0; i < steps.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                SizedBox(
+                  width: 24,
+                  child: Text('${i + 1}.', style: Langar.body.copyWith(fontWeight: FontWeight.w700)),
+                ),
+                Expanded(child: Text(steps[i], style: Langar.body)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _bridgeFix() {
+    final err = supervisor.lastError;
+    return Panel(
+      attention: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            err == null ? 'The bridge is stopped.' : 'The bridge stopped: $err',
+            style: Langar.body,
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              FilledButton(
+                onPressed: supervisor.start,
+                child: const Text('Start the bridge'),
+              ),
+              if (supervisor.logFilePath != null)
+                OutlinedButton(
+                  onPressed: supervisor.revealLogInFinder,
+                  child: const Text('Open the log'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cameraAccessFix() {
+    final windows = Platform.isWindows;
+    return Panel(
+      attention: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            windows
+                ? 'Windows blocks camera access for desktop apps.'
+                : 'macOS blocks camera access for Open OBSBOT Bridge.',
+            style: Langar.body,
+          ),
+          const SizedBox(height: 10),
+          _steps(windows
+              ? <String>[
+                  'Click Open camera settings.',
+                  'Turn on "Let desktop apps access your camera".',
+                ]
+              : <String>[
+                  'Click Open camera settings.',
+                  'Turn on Open OBSBOT Bridge.',
+                ]),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              FilledButton(
+                onPressed: supervisor.openSystemCameraSettings,
+                child: const Text('Open camera settings'),
+              ),
+              OutlinedButton(
+                onPressed: supervisor.resetCameraPermissionAndRestart,
+                child: const Text('Try again'),
               ),
             ],
           ),
-        ),
-      ]);
-    }
-    return _groupCard(ctx, <Widget>[
-      Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-        // Hide button moved into _pinBlock's right column so it stacks
-        // cleanly under Reset pairing instead of floating off to the
-        // far right of the row at a different baseline.
-        child: _pinBlock(ctx, onHide: _toggleReveal),
+        ],
       ),
-      if (lanIps.isNotEmpty) ...<Widget>[
-        _divider(ctx),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+    );
+  }
+
+  Widget _cameraBusyFix() {
+    return Panel(
+      attention: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'A different app is using the camera. Only one app can use it at a time.',
+            style: Langar.body,
+          ),
+          const SizedBox(height: 10),
+          _steps(const <String>[
+            'Quit OBSBOT Center, if it is open.',
+            'In OBS, remove any Video Capture Device that uses the OBSBOT.',
+          ]),
+          const SizedBox(height: 4),
+          const Text(
+            'The picture comes back in 2 seconds. You do not need to restart.',
+            style: Langar.meta,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plugCameraFix() {
+    return Panel(
+      attention: true,
+      child: _steps(const <String>[
+        'Connect the OBSBOT camera to this computer with a USB cable.',
+        'Quit OBSBOT Center, if it is open.',
+        'Wait up to 20 seconds. The camera shows in the list.',
+      ]),
+    );
+  }
+
+  Widget _obsFix() {
+    final url = obsUrl(_bridgeClient.token);
+    return Panel(
+      attention: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _steps(const <String>[
+            'In OBS, add a Media Source.',
+            'Turn off Local File.',
+            'Paste this into Input. Set Input Format to mjpeg.',
+          ]),
+          const SizedBox(height: 6),
+          CopyField(
+            label: 'Input',
+            shown: url == null
+                ? 'Waiting for the bridge'
+                : 'http://localhost:8766/preview/active.mjpg?t=••••••••',
+            copyText: url,
+          ),
+          const SizedBox(height: 12),
+          const CopyField(
+            label: 'FFmpeg Options',
+            shown: obsFfmpegOptions,
+            copyText: obsFfmpegOptions,
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Do not add the OBSBOT as a Video Capture Device in OBS.',
+            style: Langar.meta,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pairPanel({required bool attention}) {
+    final address = lanIps.isEmpty ? null : '${lanIps.first}:8765';
+    if (address == null) {
+      return const Panel(
+        attention: true,
+        child: Text(
+          'This computer is not on a network. Connect it to the Wi-Fi.',
+          style: Langar.body,
+        ),
+      );
+    }
+    final url = 'http://$address/';
+    final pin = supervisor.pin;
+    final link = pin.isEmpty ? url : '$url#pair?pin=$pin';
+    return Panel(
+      attention: attention,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('Open this on your phone', style: Langar.title),
+          const SizedBox(height: 2),
+          const Text('Use the same Wi-Fi as this computer.', style: Langar.meta),
+          const SizedBox(height: 10),
+          SelectableText(address, style: Langar.value),
+          for (final ip in lanIps.skip(1))
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: SelectableText('or $ip:8765', style: Langar.meta),
+            ),
+          const SizedBox(height: 14),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutExpo,
+            alignment: Alignment.topLeft,
+            child: _revealed && pin.isNotEmpty
+                ? _revealedPin(pin, link)
+                : FilledButton.icon(
+                    onPressed: pin.isEmpty ? null : _toggleReveal,
+                    icon: const Icon(Icons.qr_code_2, size: 20),
+                    label: const Text('Show PIN and QR code'),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: <Widget>[
+              Text(
+                supervisor.pairedTokenCount == 1
+                    ? '1 device paired.'
+                    : '${supervisor.pairedTokenCount} devices paired.',
+                style: Langar.meta,
+              ),
+              TextButton(
+                onPressed: () => setState(() => _firewallHelp = !_firewallHelp),
+                child: const Text('Phone cannot connect?'),
+              ),
+            ],
+          ),
+          if (_firewallHelp) ...<Widget>[
+            const SizedBox(height: 4),
+            const Text(
+              'Make sure the phone uses the same Wi-Fi. Then allow Open OBSBOT '
+              'Bridge in the firewall.',
+              style: Langar.body,
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: supervisor.openSystemFirewallSettings,
+              child: const Text('Open firewall settings'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _revealedPin(String pin, String link) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(Langar.radiusSmall),
+            border: Border.all(color: Langar.line),
+          ),
+          child: QrImageView(
+            data: link,
+            size: 132,
+            backgroundColor: Colors.white,
+            eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Langar.ink),
+            dataModuleStyle: const QrDataModuleStyle(
+              dataModuleShape: QrDataModuleShape.square,
+              color: Langar.ink,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                'Connect from your phone to',
-                style: macosTheme.typography.body.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _qrCard(ctx, lanIps.first),
-              for (final ip in lanIps.skip(1)) _ipPill(ctx, '$ip:8765'),
-              const SizedBox(height: 8),
-              Text(
-                'Auto-hides in 60 seconds',
-                style: macosTheme.typography.caption1.copyWith(
-                  color: mutedColor,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ]);
-  }
-
-  Widget _qrCard(BuildContext ctx, String firstIp) {
-    // The connection LINK carries the PIN in the URL FRAGMENT, which a
-    // browser never sends over the network. One link, three consumers: a
-    // phone browser opens the web remote and it pairs itself; the phone
-    // app's Scan QR parses it; a desktop remote pastes it via Copy link.
-    // Only ever rendered inside the reveal-gated card, same as the PIN.
-    final url = 'http://$firstIp:8765/';
-    final link = supervisor.pin.isEmpty
-        ? url
-        : '$url#pair?pin=${supervisor.pin}';
-    final macosTheme = MacosTheme.of(ctx);
-    final mutedColor = MacosTheme.brightnessOf(ctx).isDark
-        ? MacosColors.systemGrayColor
-        : const MacosColor(0xff6E6E73);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: QrImageView(
-                  data: link,
-                  version: QrVersions.auto,
-                  size: 140,
-                  backgroundColor: Colors.white,
-                  eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: Colors.black,
-                  ),
-                  dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              // URL under QR - type if scanning is slow
+              const Text('PIN', style: Langar.meta),
               SelectableText(
-                url,
-                style: const TextStyle(
-                  fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'],
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                pin,
+                style: Langar.value.copyWith(fontSize: 34, letterSpacing: 6),
               ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: 2),
+              const Text('Scan the code, or type the PIN. Hides in 60 seconds.', style: Langar.meta),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: <Widget>[
-                  PushButton(
-                    controlSize: ControlSize.small,
-                    secondary: true,
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: url));
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(
-                          content: Text('URL copied'),
-                          duration: Duration(milliseconds: 700),
-                        ),
-                      );
-                    },
-                    child: const Text('Copy URL'),
-                  ),
-                  const SizedBox(width: 6),
-                  // The pairing link (URL + PIN fragment): paste into the
-                  // desktop or phone app's Connect screen to connect AND
-                  // pair in one step.
-                  PushButton(
-                    controlSize: ControlSize.small,
-                    secondary: true,
+                  OutlinedButton(
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: link));
-                      ScaffoldMessenger.of(ctx).showSnackBar(
+                      ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('Pairing link copied'),
-                          duration: Duration(milliseconds: 700),
+                          duration: Duration(milliseconds: 1200),
                         ),
                       );
                     },
                     child: const Text('Copy link'),
                   ),
+                  TextButton(onPressed: _toggleReveal, child: const Text('Hide')),
                 ],
               ),
             ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'Scan or type the URL on any phone to open the web remote.',
-                    style: macosTheme.typography.subheadline.copyWith(
-                      color: mutedColor,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'After the page loads, type the 6-digit PIN above to pair.',
-                    style: macosTheme.typography.caption1.copyWith(
-                      color: mutedColor,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _pinBlock(BuildContext ctx, {VoidCallback? onHide}) {
-    final macosTheme = MacosTheme.of(ctx);
-    final isDark = MacosTheme.brightnessOf(ctx).isDark;
-    final mutedColor = isDark
-        ? MacosColors.systemGrayColor
-        : const MacosColor(0xff6E6E73);
-    if (supervisor.pin.isEmpty) {
-      return Text(
-        'Pairing PIN - generated on first launch',
-        style: macosTheme.typography.body.copyWith(color: mutedColor),
-      );
-    }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              'PAIRING PIN',
-              style: macosTheme.typography.caption1.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.6,
-                color: mutedColor,
-              ),
-            ),
-            const SizedBox(height: 4),
-            SelectableText(
-              supervisor.pin,
-              style: const TextStyle(
-                fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'],
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 6,
-              ),
-            ),
-          ],
-        ),
-        const Spacer(),
-        // Right-side controls: paired count + Reset pairing + Hide
-        // all stacked in a single column so they share x-baseline and
-        // visually group as "the actions for this PIN".
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              '${supervisor.pairedTokenCount} paired',
-              style: macosTheme.typography.caption1.copyWith(color: mutedColor),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                PushButton(
-                  controlSize: ControlSize.regular,
-                  secondary: true,
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: ctx,
-                      builder: (BuildContext c) => AlertDialog(
-                        title: const Text('Reset pairing?'),
-                        content: const Text(
-                          'This deletes the PIN and revokes every paired phone. '
-                          'A new PIN will be generated. Each phone has to re-enter it.',
-                        ),
-                        actions: <Widget>[
-                          TextButton(
-                            onPressed: () => Navigator.of(c).pop(false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.of(c).pop(true),
-                            child: const Text('Reset'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok == true) {
-                      await supervisor.resetPairing();
-                    }
-                  },
-                  child: const Text('Reset pairing'),
-                ),
-                if (onHide != null) ...<Widget>[
-                  const SizedBox(width: 6),
-                  PushButton(
-                    controlSize: ControlSize.regular,
-                    secondary: true,
-                    onPressed: onHide,
-                    child: const Text('Hide'),
-                  ),
-                ],
-              ],
-            ),
-          ],
         ),
       ],
     );
   }
 
-  // ---- v1.4.1 macos_ui status section helpers ----
-
-  /// Hero banner above the Status group. Big status dot + title3
-  /// typography in MacosTheme. Reads as a glanceable indicator rather
-  /// than just another row.
-  Widget _statusBanner(BuildContext ctx) {
-    final macosTheme = MacosTheme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              color: _statusColor(ctx),
-              shape: BoxShape.circle,
-              boxShadow: <BoxShadow>[
-                BoxShadow(
-                  color: _statusColor(ctx).withValues(alpha: 0.5),
-                  blurRadius: 6,
-                  spreadRadius: 0,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              _statusLabel(),
-              style: macosTheme.typography.title3.copyWith(
-                fontWeight: MacosFontWeight.w590,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Section header above a grouped list (Status / Pairing / etc.).
-  /// SF-style: caps + tighter tracking + muted color.
-  Widget _sectionHeader(BuildContext ctx, String label) {
-    final macosTheme = MacosTheme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      child: Text(
-        label.toUpperCase(),
-        style: macosTheme.typography.caption1.copyWith(
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.6,
-          color: MacosTheme.brightnessOf(ctx).isDark
-              ? MacosColors.systemGrayColor
-              : const MacosColor(0xff6E6E73),
-        ),
-      ),
-    );
-  }
-
-  /// Card container that groups a list of rows with a subtle background
-  /// + rounded corners, matching the System Settings group style.
-  Widget _groupCard(BuildContext ctx, List<Widget> children) {
-    final isDark = MacosTheme.brightnessOf(ctx).isDark;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0x14FFFFFF)
-            : MacosColors.controlBackgroundColor.color,
-        borderRadius: const BorderRadius.all(Radius.circular(8)),
-        border: Border.all(
-          color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
-          width: 0.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: children,
-      ),
-    );
-  }
-
-  /// 1px inset divider between rows in a [_groupCard].
-  Widget _divider(BuildContext ctx) {
-    final isDark = MacosTheme.brightnessOf(ctx).isDark;
-    return Padding(
-      padding: const EdgeInsets.only(left: 36),
-      child: Container(
-        height: 0.5,
-        color: isDark ? const Color(0x1FFFFFFF) : const Color(0x14000000),
-      ),
-    );
-  }
-
-  /// Generic status row inside [_groupCard]. Status dot (leading) - or
-  /// an info icon when [informational] is true (signals "this is a
-  /// hint, not a state we measured"); title (bold); subtitle (muted);
-  /// optional trailing action.
-  Widget _statusRow(
-    BuildContext ctx, {
-    required String title,
-    required String subtitle,
-    required Color dotColor,
-    Widget? trailing,
-    bool informational = false,
-  }) {
-    final macosTheme = MacosTheme.of(ctx);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: <Widget>[
-          if (informational)
-            MacosIcon(
-              CupertinoIcons.info_circle,
-              size: 14,
-              color: MacosColors.systemGrayColor,
-            )
-          else
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: dotColor,
-                shape: BoxShape.circle,
-              ),
-            ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: macosTheme.typography.body.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: macosTheme.typography.subheadline.copyWith(
-                    color: MacosTheme.brightnessOf(ctx).isDark
-                        ? MacosColors.systemGrayColor
-                        : const MacosColor(0xff6E6E73),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) ...<Widget>[const SizedBox(width: 8), trailing],
-        ],
-      ),
-    );
-  }
-
-  Widget _cameraPermissionRow(BuildContext ctx) {
-    String title;
-    String subtitle;
-    Color dot;
-    Widget? trailing;
-    switch (supervisor.cameraPermission) {
-      case CameraPermission.granted:
-        title = 'Camera permission';
-        subtitle = 'Granted';
-        dot = CupertinoColors.systemGreen;
-        break;
-      case CameraPermission.denied:
-        title = 'Camera permission';
-        subtitle = 'Denied - turn on OBSBOT Bridge in System Settings';
-        dot = CupertinoColors.systemRed;
-        trailing = Wrap(
-          spacing: 6,
-          children: <Widget>[
-            PushButton(
-              controlSize: ControlSize.regular,
-              secondary: true,
-              onPressed: supervisor.openSystemCameraSettings,
-              child: const Text('Open Settings'),
-            ),
-            PushButton(
-              controlSize: ControlSize.regular,
-              secondary: true,
-              onPressed: () async {
-                await supervisor.resetCameraPermissionAndRestart();
-              },
-              child: const Text('Reset & retry'),
-            ),
-          ],
-        );
-        break;
-      case CameraPermission.noCamera:
-        title = 'Camera permission';
-        subtitle = 'Granted (no camera detected yet)';
-        dot = CupertinoColors.systemYellow;
-        break;
-      case CameraPermission.unknown:
-        title = 'Camera permission';
-        subtitle = 'Not determined yet';
-        dot = MacosColors.systemGrayColor;
-        break;
-    }
-    return _statusRow(
-      ctx,
-      title: title,
-      subtitle: subtitle,
-      dotColor: dot,
-      trailing: trailing,
-    );
-  }
-
-  Widget _firewallRow(BuildContext ctx) {
-    return _statusRow(
-      ctx,
-      title: 'Network firewall',
-      subtitle:
-          'If phones cannot connect: Firewall settings -> Options... '
-          '-> allow obsbot-bridge to accept incoming connections.',
-      dotColor: MacosColors.systemGrayColor,
-      // We can't query firewall state from a non-privileged app; the
-      // row is a hint rather than a measurement. Info icon makes
-      // that explicit so the grey colour doesn't read as "broken".
-      informational: true,
-      trailing: PushButton(
-        controlSize: ControlSize.regular,
-        secondary: true,
-        onPressed: supervisor.openSystemFirewallSettings,
-        child: const Text('Open Firewall Settings'),
-      ),
-    );
-  }
+  // ---- Settings ----------------------------------------------------------
 
   Future<void> _showSettings() async {
     bool startHidden = widget.prefs.startHidden;
     final initial = startHidden;
-    // Native macOS sheet, not a Material AlertDialog - the shell is macos_ui
-    // (v1.4.1 native pass) and this dialog was the one Material island left:
-    // Material switch + dialog chrome read wrong against MacosScaffold.
-    // Hand-rolled route instead of showMacosSheet: its default transition
-    // scale-pops on open, which reads as a glitch, not macOS. A plain quick
-    // fade matches how AppKit presents centered panels.
-    await showGeneralDialog<void>(
+    final trayWord = Platform.isWindows ? 'notification area' : 'menu bar';
+    await showDialog<void>(
       context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Settings',
-      barrierColor: const Color(0x33000000),
-      transitionDuration: const Duration(milliseconds: 160),
-      transitionBuilder:
-          (BuildContext c, Animation<double> anim, _, Widget child) {
-            return FadeTransition(
-              opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-              child: child,
-            );
-          },
-      pageBuilder: (BuildContext c, _, _) {
-        final MacosTypography type = MacosTheme.of(c).typography;
-        return StatefulBuilder(
-          builder: (BuildContext c, void Function(void Function()) setSt) {
-            // Center + transparent Material: showGeneralDialog gives a raw
-            // fullscreen page (no centering), and SelectableText's context
-            // menu wants a Material ancestor the macos_ui route never had.
-            return Center(
-              child: Material(
-                type: MaterialType.transparency,
-                // showGeneralDialog builds its own route subtree, which does
-                // not carry the macos_ui text defaults the main window has.
-                // Without this, any bare TextStyle in here inherits a colour
-                // that is invisible against the sheet - which is exactly how
-                // the About values shipped unreadable in v2.5.1.
-                child: DefaultTextStyle(
-                  style: type.body,
-                  child: MacosSheet(
-                    insetPadding: const EdgeInsets.symmetric(
-                      horizontal: 60,
-                      vertical: 40,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text('Settings', style: type.title2),
-                            const SizedBox(height: 14),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: <Widget>[
-                                      Text(
-                                        'Start hidden in menubar',
-                                        style: type.body,
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        'Launch directly into the menubar with no '
-                                        'window or dock icon. Show the window any '
-                                        'time from the tray. Until at least one '
-                                        'phone is paired, the window will still '
-                                        'appear on launch so you can see the PIN.',
-                                        style: type.caption1.copyWith(
-                                          color: MacosColors.systemGrayColor,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                MacosSwitch(
-                                  value: startHidden,
-                                  onChanged: (bool v) async {
-                                    setSt(() => startHidden = v);
-                                    await widget.prefs.setStartHidden(v);
-                                  },
-                                ),
-                              ],
+      builder: (c) => StatefulBuilder(
+        builder: (c, setSt) => AlertDialog(
+          title: const Text('Settings'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          const Text('Start hidden', style: Langar.title),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Open in the $trayWord with no window. Until a phone is '
+                            'paired, the window still opens so you can see the PIN.',
+                            style: Langar.meta,
+                          ),
+                          if (startHidden != initial)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 4),
+                              child: Text('Applies the next time the app starts.', style: Langar.meta),
                             ),
-                            if (startHidden != initial)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child: Row(
-                                  children: <Widget>[
-                                    const MacosIcon(
-                                      CupertinoIcons.info_circle,
-                                      size: 14,
-                                      color: MacosColors.systemGrayColor,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        'Applies on next launch. The dock icon '
-                                        'already follows the window automatically.',
-                                        style: type.caption1.copyWith(
-                                          color: MacosColors.systemGrayColor,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              child: Container(
-                                height: 1,
-                                color: MacosTheme.of(c).dividerColor,
-                              ),
-                            ),
-                            _aboutSection(c),
-                            const SizedBox(height: 16),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: PushButton(
-                                controlSize: ControlSize.regular,
-                                onPressed: () => Navigator.of(c).pop(),
-                                child: const Text('Close'),
-                              ),
-                            ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Switch(
+                      value: startHidden,
+                      onChanged: (v) async {
+                        setSt(() => startHidden = v);
+                        await widget.prefs.setStartHidden(v);
+                      },
+                    ),
+                  ],
                 ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  /// "About" block at the bottom of the Settings dialog. Mirrors the
-  /// Handy / Tauri convention: version, log + app-data directories
-  /// (clickable to open in Finder), source / changelog / issues links,
-  /// and a short credit line.
-  Widget _aboutSection(BuildContext ctx) {
-    final MacosTypography type = MacosTheme.of(ctx).typography;
-    final TextStyle mutedStyle = type.caption1.copyWith(
-      color: MacosColors.systemGrayColor,
-    );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(
-          'About',
-          style: type.caption1.copyWith(
-            color: MacosTheme.of(ctx).primaryColor,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.0,
+                const SizedBox(height: 18),
+                const Divider(),
+                const SizedBox(height: 12),
+                const Text('Pairing', style: Langar.title),
+                const SizedBox(height: 2),
+                const Text(
+                  'Reset pairing makes a new PIN and disconnects every paired phone.',
+                  style: Langar.meta,
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton(
+                  onPressed: () async {
+                    Navigator.of(c).pop();
+                    await _confirmResetPairing();
+                  },
+                  child: const Text('Reset pairing'),
+                ),
+                const SizedBox(height: 18),
+                const Divider(),
+                const SizedBox(height: 12),
+                _aboutRow('Version', 'v$_kAppVersion'),
+                if (supervisor.logFilePath != null)
+                  _aboutRow(
+                    'Log',
+                    PlatformPaths.displayPath(supervisor.logFilePath!),
+                    onOpen: supervisor.revealLogInFinder,
+                  ),
+                _aboutRow(
+                  'App data',
+                  PlatformPaths.supportDirLabel,
+                  onOpen: () => PlatformPaths.openFolder(PlatformPaths.supportDir),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    TextButton.icon(
+                      onPressed: () => launchUrl(
+                        Uri.parse('https://github.com/0xharkirat/open-obsbot-remote'),
+                        mode: LaunchMode.externalApplication,
+                      ),
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: const Text('Open OBSBOT Remote on GitHub'),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () async {
+                        Navigator.of(c).pop();
+                        if (supervisor.status == BridgeStatus.running) {
+                          await supervisor.stop();
+                        } else {
+                          await supervisor.start();
+                        }
+                      },
+                      child: Text(
+                        supervisor.status == BridgeStatus.running
+                            ? 'Stop the bridge'
+                            : 'Start the bridge',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: <Widget>[
-            Text('Version', style: mutedStyle),
-            const SizedBox(width: 8),
-            SelectableText(
-              'v$_kAppVersion',
-              // Colour must come from the theme's typography, never a bare
-              // TextStyle. A bare one inherits whatever the surrounding route
-              // provides, and inside this sheet that is a dark colour on a
-              // dark background: the text renders invisibly.
-              style: type.body.copyWith(
-                fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'],
-                fontWeight: FontWeight.w600,
-              ),
+          actions: <Widget>[
+            FilledButton(
+              onPressed: () => Navigator.of(c).pop(),
+              child: const Text('Close'),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        if (supervisor.logFilePath != null)
-          _aboutRow(
-            ctx,
-            label: 'Log directory',
-            value: PlatformPaths.displayPath(supervisor.logFilePath!),
-            onTap: supervisor.revealLogInFinder,
-          ),
-        _aboutRow(
-          ctx,
-          label: 'App data',
-          value: PlatformPaths.supportDirLabel,
-          onTap: () => _openInFinder(PlatformPaths.supportDir),
-        ),
-        const SizedBox(height: 12),
-        // Single-line footer. Inline GitHub link replaces the trio of
-        // labelled link buttons (Source / Changelog / Report) which
-        // overflowed past the AlertDialog's Close button. The repo
-        // home page already has Changelog + Issues tabs one click in,
-        // so one link is enough.
-        Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: <Widget>[
-            Text(
-              'by Hark Singh with OBSBOT SDK + Flutter  ',
-              style: mutedStyle,
-            ),
-            _aboutLink(
-              ctx,
-              icon: Icons.open_in_new,
-              label: 'GitHub',
-              url: 'https://github.com/0xharkirat/open-obsbot-remote',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _aboutRow(
-    BuildContext ctx, {
-    required String label,
-    required String value,
-    required VoidCallback onTap,
-  }) {
-    final MacosTypography type = MacosTheme.of(ctx).typography;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: type.caption1.copyWith(color: MacosColors.systemGrayColor),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              value,
-              style: type.body.copyWith(fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'], fontSize: 11),
-            ),
-          ),
-          MacosTooltip(
-            message: 'Reveal in ${PlatformPaths.fileManagerName}',
-            child: MacosIconButton(
-              icon: const MacosIcon(CupertinoIcons.folder, size: 14),
-              padding: EdgeInsets.zero,
-              boxConstraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              onPressed: onTap,
-            ),
-          ),
-        ],
       ),
     );
   }
 
-  Widget _aboutLink(
-    BuildContext ctx, {
-    required IconData icon,
-    required String label,
-    required String url,
-  }) {
-    // Small secondary PushButton: the inline-with-text micro-affordance size
-    // (the same rule as the Copy URL button under the QR).
-    return PushButton(
-      controlSize: ControlSize.small,
-      secondary: true,
-      onPressed: () async {
-        final uri = Uri.parse(url);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri);
-        }
-      },
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          MacosIcon(icon, size: 12),
-          const SizedBox(width: 4),
-          Text(label),
-        ],
-      ),
-    );
-  }
-
-  void _openInFinder(String path) {
-    PlatformPaths.openFolder(path);
-  }
-
-  Widget _ipPill(BuildContext ctx, String hostPort) {
+  Widget _aboutRow(String label, String value, {VoidCallback? onOpen}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: SelectableText(
-              hostPort,
-              style: const TextStyle(
-                fontFamily: 'Menlo',
-                fontFamilyFallback: <String>['Consolas'],
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
+          SizedBox(width: 84, child: Text(label, style: Langar.meta)),
+          Expanded(child: SelectableText(value, style: Langar.body.copyWith(fontSize: 14))),
+          if (onOpen != null)
+            IconButton(
+              tooltip: 'Show in ${PlatformPaths.fileManagerName}',
+              icon: const Icon(Icons.folder_open_outlined, size: 20),
+              onPressed: onOpen,
             ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmResetPairing() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Reset pairing?'),
+        content: const SizedBox(
+          width: 420,
+          child: Text(
+            'This makes a new PIN and disconnects every paired phone. '
+            'Each phone must enter the new PIN.',
+            style: Langar.body,
           ),
-          MacosIconButton(
-            backgroundColor: Colors.transparent,
-            icon: MacosIcon(
-              CupertinoIcons.doc_on_clipboard,
-              color: MacosTheme.brightnessOf(ctx).isDark
-                  ? MacosColors.systemGrayColor
-                  : const MacosColor(0xff6E6E73),
-              size: 14,
-            ),
-            semanticLabel: 'Copy URL',
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: hostPort));
-            },
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(c).pop(true),
+            child: const Text('Reset pairing'),
           ),
         ],
       ),
     );
+    if (ok == true) await supervisor.resetPairing();
   }
 }

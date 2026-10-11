@@ -194,8 +194,9 @@ If you start the app again, the open window comes to the front.
 
 ### Window style
 
-The bridge window uses `macos_ui`. It works on Windows, but it looks like a Mac app.
-A Windows style is planned work.
+The bridge window has one design of its own on macOS and Windows. It does not use the Mac look (`macos_ui`) any more.
+[DESIGN.md](../DESIGN.md) records the design. The tokens are in `apps/bridge/lib/langar_theme.dart`.
+On Windows 11, the title bar is maroon, the same as the top band. Windows 10 keeps the default title bar.
 
 ## Tests
 

@@ -52,6 +52,17 @@ class BridgeSupervisor extends ChangeNotifier {
   String _pin = ''; // 6-digit pairing PIN from bridge log
   int _pairedTokenCount = 0;
 
+  /// Open active.mjpg connections whose User-Agent is OBS: ffmpeg's
+  /// "Lavf/..." from a Media Source, or "OBS/..." from a Browser Source.
+  /// Keyed by the bridge's socket id so a disconnect removes the right one.
+  /// A phone remote pulls the same stream for its program preview, which
+  /// is why the User-Agent, not the path, decides.
+  final Set<int> _obsFeedSockets = <int>{};
+
+  /// True while the capture reports the camera held by another app
+  /// (Windows: an OBS Video Capture Device, OBSBOT Center, a video call).
+  bool _cameraBusy = false;
+
   // Auto-restart bookkeeping.
   bool _userStopped = false;
   int _autoRestartCount = 0;
@@ -81,6 +92,10 @@ class BridgeSupervisor extends ChangeNotifier {
   CameraPermission get cameraPermission => _cameraPermission;
   String get pin => _pin;
   int get pairedTokenCount => _pairedTokenCount;
+
+  /// True when at least one OBS instance is reading active.mjpg now.
+  bool get obsReading => _obsFeedSockets.isNotEmpty;
+  bool get cameraBusy => _cameraBusy;
 
   /// Returns the path to the bundled obsbot-bridge binary inside the .app.
   /// Falls back to the dev-tree build path if running via `flutter run`.
@@ -300,6 +315,9 @@ class BridgeSupervisor extends ChangeNotifier {
         // showing "Camera connected" after a crash.
         _videoRunning = false;
         _videoDeviceName = '';
+        _obsFeedSockets.clear();
+        _cameraBusy = false;
+        _wsClientCount = 0;
         if (code == 0) {
           _setStatus(BridgeStatus.stopped);
         } else {
@@ -385,6 +403,13 @@ class BridgeSupervisor extends ChangeNotifier {
     r'auth: token issued \(total: (\d+)\)',
   );
   static final RegExp _tokenRevokedRe = RegExp(r'auth: all tokens revoked');
+  static final RegExp _mjpegConnRe = RegExp(
+    r'mjpeg: client connected fd=(\d+) path=(\S+) ua=(\S+)',
+  );
+  static final RegExp _mjpegDisconnRe = RegExp(
+    r'mjpeg: client disconnected fd=(\d+)',
+  );
+  static final RegExp _cameraBusyRe = RegExp(r'mf: camera is in use');
   static final RegExp _pinRotatedRe = RegExp(
     r'auth: PIN rotated, new PIN = (\d{6})',
   );
@@ -423,6 +448,20 @@ class BridgeSupervisor extends ChangeNotifier {
     if (_tokenRevokedRe.hasMatch(line)) {
       _pairedTokenCount = 0;
     }
+    final mc = _mjpegConnRe.firstMatch(line);
+    if (mc != null) {
+      final ua = (mc.group(3) ?? '').toLowerCase();
+      final isActive = (mc.group(2) ?? '').contains('active.mjpg');
+      final isObs = ua.startsWith('lavf') || ua.contains('obs/');
+      final fd = int.tryParse(mc.group(1) ?? '');
+      if (isActive && isObs && fd != null) _obsFeedSockets.add(fd);
+    } else {
+      final md = _mjpegDisconnRe.firstMatch(line);
+      final fd = int.tryParse(md?.group(1) ?? '');
+      if (fd != null) _obsFeedSockets.remove(fd);
+    }
+    if (_cameraBusyRe.hasMatch(line)) _cameraBusy = true;
+
     final pr = _pinRotatedRe.firstMatch(line);
     if (pr != null) {
       _pin = pr.group(1) ?? '';
@@ -453,6 +492,7 @@ class BridgeSupervisor extends ChangeNotifier {
     // picks the camera back up when start() runs.
     if (_videoStartedRe.hasMatch(line)) {
       _videoRunning = true;
+      _cameraBusy = false;
     }
     final vd = _videoUsingDeviceRe.firstMatch(line);
     if (vd != null) {

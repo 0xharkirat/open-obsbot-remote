@@ -1,5 +1,7 @@
 #include "flutter_window.h"
 
+#include <dwmapi.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -28,6 +30,18 @@ bool FlutterWindow::OnCreate() {
   tray_ = std::make_unique<NativeTray>(
       flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+
+  // Langar Hall (lib/langar_theme.dart): the title bar continues the maroon
+  // runner band, so the window's own colour reaches the top edge. Windows 11
+  // only; older builds ignore these attributes and keep the system colours.
+  const COLORREF maroon = RGB(0x7A, 0x1F, 0x2B);
+  const COLORREF white = RGB(0xFF, 0xFF, 0xFF);
+  ::DwmSetWindowAttribute(GetHandle(), 35 /* DWMWA_CAPTION_COLOR */, &maroon,
+                          sizeof(maroon));
+  ::DwmSetWindowAttribute(GetHandle(), 36 /* DWMWA_TEXT_COLOR */, &white,
+                          sizeof(white));
+  ::DwmSetWindowAttribute(GetHandle(), 34 /* DWMWA_BORDER_COLOR */, &maroon,
+                          sizeof(maroon));
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
