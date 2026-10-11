@@ -487,6 +487,16 @@ void observe_av_devices(std::function<void(std::string, bool)> cb) {
     }];
 }
 
+// Every frame this backend emits is already re-encoded by VideoToolbox /
+// ImageIO with one pipeline, so the stream's format does not change at a
+// TAKE. Nothing to conform (see video_capture.h).
+std::vector<uint8_t> jpeg_conform(const std::vector<uint8_t>& jpeg,
+                                  int width, int height,
+                                  int luma_h, int luma_v) {
+    (void)width; (void)height; (void)luma_h; (void)luma_v;
+    return jpeg;
+}
+
 // Trivial here: libdev hands us the AVFoundation uniqueID directly. The Linux
 // build has to go and find the node, because the SDK compiles videoDevPath()
 // only under _WIN32 and __APPLE__. See video_capture.h.

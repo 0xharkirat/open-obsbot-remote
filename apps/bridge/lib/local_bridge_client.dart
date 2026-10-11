@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:obsbot_api_client/obsbot_api_client.dart';
 import 'package:obsbot_protocol/obsbot_protocol.dart';
 
+import 'platform_paths.dart';
+
 /// Connects the bridge UI to its own C++ subprocess over the same
 /// WebSocket API the phone uses, so the Mac window renders real
 /// per-camera state instead of scraping log lines.
@@ -39,10 +41,7 @@ class LocalBridgeClient extends ChangeNotifier {
   /// Browser Source URL from it. Null until the first connect lands.
   String? get token => _token;
 
-  static String get _authPath {
-    final home = Platform.environment['HOME'] ?? '';
-    return '$home/Library/Application Support/Open OBSBOT Bridge/auth.json';
-  }
+  static String get _authPath => PlatformPaths.authJsonPath;
 
   /// Token first; PIN as fallback for the never-paired case.
   static ({String? token, String? pin}) _readAuth() {

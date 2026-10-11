@@ -92,6 +92,7 @@ class _ObsOutputRowState extends State<ObsOutputRow> {
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.subheadline.copyWith(
                         fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'],
                         fontSize: 11,
                         color: isDark
                             ? MacosColors.systemGrayColor

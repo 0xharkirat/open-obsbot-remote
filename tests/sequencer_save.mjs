@@ -13,10 +13,11 @@
 import WebSocket from 'ws';
 import fs from 'node:fs';
 import os from 'node:os';
+import { SUPPORT_DIR } from './paths.mjs';
 
 const auth = JSON.parse(fs.readFileSync(
-  `${os.homedir()}/Library/Application Support/Open OBSBOT Bridge/auth.json`, 'utf8'));
-const SEQUENCES_PATH = `${os.homedir()}/Library/Application Support/Open OBSBOT Bridge/sequences.json`;
+  `${SUPPORT_DIR}/auth.json`, 'utf8'));
+const SEQUENCES_PATH = `${SUPPORT_DIR}/sequences.json`;
 const token = auth.tokens[0];
 
 const ws = new WebSocket('ws://localhost:8765/v1');

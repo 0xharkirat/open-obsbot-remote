@@ -57,10 +57,10 @@ class TrayController with WindowListener implements NativeTrayListener {
   });
 
   Future<void> init() async {
-    if (!Platform.isMacOS) {
-      // Tray is macOS-only for v1.2.x. Native impl is AppKit.
-      // Windows + Linux ports will need their own NativeTray
-      // siblings.
+    if (!Platform.isMacOS && !Platform.isWindows) {
+      // Native impls: macos/Runner/NativeTray.swift (AppKit) and
+      // windows/runner/native_tray.cpp (Shell_NotifyIcon). Linux runs the
+      // bridge headless and has no supervisor.
       return;
     }
     // Initial icon is set inside _refreshIcon (it picks the right
@@ -87,7 +87,7 @@ class TrayController with WindowListener implements NativeTrayListener {
     _disposed = true;
     _refresh?.cancel();
     supervisor.removeListener(_onSupervisorChange);
-    if (Platform.isMacOS) {
+    if (Platform.isMacOS || Platform.isWindows) {
       NativeTray.removeListener(this);
       windowManager.removeListener(this);
       await NativeTray.destroy();

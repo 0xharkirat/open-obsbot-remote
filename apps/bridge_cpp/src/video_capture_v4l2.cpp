@@ -183,6 +183,17 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
     return incoming;
 }
 
+// No decoder on this backend (see the fade note above), so frames pass
+// through unchanged: a TAKE between cameras whose native formats differ can
+// still change the stream's format mid-connection, which OBS's Media Source
+// does not survive (video_capture.h). Same libjpeg-turbo TODO as the fades.
+std::vector<uint8_t> jpeg_conform(const std::vector<uint8_t>& jpeg,
+                                  int width, int height,
+                                  int luma_h, int luma_v) {
+    (void)width; (void)height; (void)luma_h; (void)luma_v;
+    return jpeg;
+}
+
 // ----------------------------------------------------------------------------
 // SN -> capture-device join
 // ----------------------------------------------------------------------------

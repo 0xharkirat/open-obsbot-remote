@@ -8,12 +8,22 @@
 #include <random>
 #include <sstream>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <filesystem>
+#endif
 
 namespace obs {
 
 // mkdir -p for one path, ignoring "already exists". Only used for the auth
 // store's parent, so it does not need to be general.
 static void make_dirs(const std::string& dir) {
+#ifdef _WIN32
+    // Drive letters and backslashes make the hand-rolled walk below wrong on
+    // Windows, and there is no mode to set: the profile ACL already keeps
+    // %APPDATA% private to the user.
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+#else
     std::string acc;
     size_t i = 0;
     if (!dir.empty() && dir[0] == '/') { acc = "/"; i = 1; }
@@ -29,12 +39,25 @@ static void make_dirs(const std::string& dir) {
         if (slash == std::string::npos) break;
         i = slash + 1;
     }
+#endif
 }
 
 std::string auth_store_path() {
     const char* home = std::getenv("HOME");
 
-#ifdef __APPLE__
+#if defined(_WIN32)
+    // Roaming AppData is where Windows apps keep per-user settings, and it is
+    // what the Flutter supervisor reads to show the PIN.
+    (void)home;
+    const char* appdata = std::getenv("APPDATA");
+    if (appdata != nullptr && *appdata) {
+        std::string dir = std::string(appdata) + "/Open OBSBOT Bridge";
+        make_dirs(dir);
+        return dir + "/auth.json";
+    }
+    const char* tmp = std::getenv("TEMP");
+    return std::string(tmp ? tmp : ".") + "/obsbot-bridge-auth.json";
+#elif defined(__APPLE__)
     if (home != nullptr) {
         std::string dir =
             std::string(home) + "/Library/Application Support/Open OBSBOT Bridge";
@@ -86,10 +109,14 @@ static std::string random_token_hex(int bytes = 32) {
 
 AuthStore::AuthStore(const std::string& store_path) : path_(store_path) {
     // Ensure parent dir exists.
-    auto slash = path_.find_last_of('/');
+    auto slash = path_.find_last_of("/\\");
     if (slash != std::string::npos) {
         std::string dir = path_.substr(0, slash);
+#ifdef _WIN32
+        make_dirs(dir);
+#else
         ::mkdir(dir.c_str(), 0755);
+#endif
     }
     load();
     if (pin_.empty()) {
@@ -157,7 +184,9 @@ void AuthStore::save() const {
     for (auto& t : tokens_) j["tokens"].push_back(t);
     std::ofstream f(path_);
     if (f) f << j.dump(2);
+#ifndef _WIN32
     ::chmod(path_.c_str(), 0600);
+#endif
 }
 
 }  // namespace obs

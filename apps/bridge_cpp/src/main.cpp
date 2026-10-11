@@ -2,7 +2,7 @@
 #include "ws_server.h"
 #include "video_capture.h"
 #include "mjpeg_server.h"
-#ifndef __APPLE__
+#ifdef __linux__
 #include "h264_stream.h"
 #endif
 #include "auth.h"
@@ -16,7 +16,11 @@
 #include <thread>
 
 #include <cerrno>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <unistd.h>   // read, STDIN_FILENO
+#endif
 
 static std::atomic<bool> g_shutdown{false};
 
@@ -30,11 +34,17 @@ static void on_signal(int) {
 int main(int argc, char** argv) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
+#ifdef _WIN32
+    // Ctrl+Break and closing the console window arrive as SIGBREAK on the MSVC
+    // CRT. There is no SIGPIPE: a write to a closed socket returns an error.
+    std::signal(SIGBREAK, on_signal);
+#else
     // Ignore SIGPIPE  -  when a phone client closes its socket mid-write
     // (very common: page reload, switch tab, lock screen), the default
     // POSIX behaviour is to terminate the process. We want the bridge
     // to keep serving everyone else.
     std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     // Die with the supervisor, by watching stdin for EOF.
     //
@@ -66,13 +76,34 @@ int main(int argc, char** argv) {
     //
     // Under run-bridge.sh stdin is the terminal, which stays open, so the dev
     // path is unaffected.
+    //
+    // Windows gets the same guarantee from an anonymous pipe: Dart's
+    // Process.start hands the child the read end, and ReadFile fails with
+    // ERROR_BROKEN_PIPE once every handle to the write end is closed, which
+    // the kernel does for a dead supervisor however it died. Under a console
+    // stdin is the console, which never reaches EOF, so the dev path is
+    // unaffected there too.
     std::thread([]() {
+#ifdef _WIN32
+        HANDLE in = ::GetStdHandle(STD_INPUT_HANDLE);
+        // No stdin at all (a detached launch) is not a supervisor dying.
+        if (in == nullptr || in == INVALID_HANDLE_VALUE) return;
+        // A console handle never EOFs, and ReadFile on one blocks on a line of
+        // typing; only a pipe means a supervisor is holding the other end.
+        if (::GetFileType(in) != FILE_TYPE_PIPE) return;
+        char b;
+        DWORD n = 0;
+        while (::ReadFile(in, &b, 1, &n, nullptr) && n > 0) {
+            // The supervisor never writes to us; drain anything anyway.
+        }
+#else
         char b;
         ssize_t n;
         while ((n = ::read(STDIN_FILENO, &b, 1)) > 0) {
             // The supervisor never writes to us; drain anything anyway.
         }
         if (n < 0 && errno == EINTR) return;   // not a death; leave it alone
+#endif
         obs::log_line_to_file("supervisor gone; exiting so the camera is released");
         // _Exit for the same reason as the signal handler: libdev's global
         // destructors crash on teardown (gotcha #14). Every OS resource we
@@ -90,7 +121,7 @@ int main(int argc, char** argv) {
     // the ports are not also raw on the LAN.
     std::string bindaddr = "0.0.0.0";
 
-#ifndef __APPLE__
+#ifdef __linux__
     // Off unless asked for. The MJPEG preview is the primary path and costs
     // nothing extra; this one spawns an encoder, so it only runs on request.
     bool h264_on = false;
@@ -102,7 +133,7 @@ int main(int argc, char** argv) {
         if (a == "--web-root" && i + 1 < argc) { web_root = argv[++i]; }
         else if (a == "--port" && i + 1 < argc) { port = (uint16_t)std::atoi(argv[++i]); }
         else if (a == "--bind" && i + 1 < argc) { bindaddr = argv[++i]; }
-#ifndef __APPLE__
+#ifdef __linux__
         else if (a == "--h264") { h264_on = true; }
         else if (a == "--h264-dir" && i + 1 < argc) { h264.out_dir = argv[++i]; }
         else if (a == "--h264-size" && i + 1 < argc) { h264.size = argv[++i]; }
@@ -159,7 +190,7 @@ int main(int argc, char** argv) {
         obs::log("error", "mjpeg server crashed: %s", e.what());
     }
 
-#ifndef __APPLE__
+#ifdef __linux__
     // Start the remote H.264 path before the blocking server call. It pulls
     // frames from the same captures the MJPEG server uses, so it needs nothing
     // of its own and cannot contend for /dev/video*.

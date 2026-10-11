@@ -6,6 +6,9 @@
 #include <mutex>
 #include <sstream>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <filesystem>
+#endif
 
 namespace obs::persist {
 
@@ -17,12 +20,23 @@ namespace {
 std::mutex g_mu;
 
 std::string support_dir() {
+#ifdef _WIN32
+    // Same directory auth.json lives in (auth_store_path), so everything the
+    // bridge persists sits under one %APPDATA% folder.
+    const char* appdata = std::getenv("APPDATA");
+    if (!appdata || !*appdata) return ".";
+    std::string dir = std::string(appdata) + "/Open OBSBOT Bridge";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return dir;
+#else
     const char* home = std::getenv("HOME");
     if (!home) return "/tmp";
     std::string dir = std::string(home) +
         "/Library/Application Support/Open OBSBOT Bridge";
     ::mkdir(dir.c_str(), 0755);
     return dir;
+#endif
 }
 
 std::string path_for(const char* file) {

@@ -11,11 +11,12 @@
 import WebSocket from 'ws';
 import fs from 'node:fs';
 import os from 'node:os';
+import { SUPPORT_DIR, LOG_DIR } from './paths.mjs';
 
 const SHORT = process.argv.includes('--short');
 
-const AUTH_PATH = `${os.homedir()}/Library/Application Support/Open OBSBOT Bridge/auth.json`;
-const LOG_PATH  = `${os.homedir()}/Library/Logs/Open OBSBOT Bridge/bridge.log`;
+const AUTH_PATH = `${SUPPORT_DIR}/auth.json`;
+const LOG_PATH  = `${LOG_DIR}/bridge.log`;
 const auth = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf8'));
 const token = auth.tokens[0];
 

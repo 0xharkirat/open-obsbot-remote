@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'platform_paths.dart';
+
 /// Status of the bundled obsbot-bridge binary.
 enum BridgeStatus { stopped, starting, running, error }
 
@@ -54,7 +56,7 @@ class BridgeSupervisor extends ChangeNotifier {
   bool _userStopped = false;
   int _autoRestartCount = 0;
 
-  // Disk log: ~/Library/Logs/Open OBSBOT Bridge/bridge.log
+  // Disk log: bridge.log under PlatformPaths.logDir
   IOSink? _logSink;
   File? _logFile;
 
@@ -85,6 +87,7 @@ class BridgeSupervisor extends ChangeNotifier {
   Future<String?> _bridgeBinaryPath() async {
     final exe = File(Platform.resolvedExecutable);
     final macosDir = exe.parent;
+    if (Platform.isWindows) return _windowsBridgeBinaryPath(macosDir);
     final candidates = <String>[
       // Inside .app bundle: Contents/MacOS/obsbot-bridge (sibling)
       '${macosDir.path}/obsbot-bridge',
@@ -105,14 +108,36 @@ class BridgeSupervisor extends ChangeNotifier {
     return null;
   }
 
+  /// Windows layout: the release bundle puts obsbot-bridge.exe (plus
+  /// libdev.dll and its pthreads runtime) next to the Flutter runner exe.
+  /// In the dev tree the MSVC multi-config build lands it under
+  /// apps/bridge_cpp/build/Release/, so walk up looking for that.
+  Future<String?> _windowsBridgeBinaryPath(Directory exeDir) async {
+    const name = 'obsbot-bridge.exe';
+    final candidates = <String>['${exeDir.path}\\$name'];
+    Directory? walk = exeDir;
+    for (int i = 0; i < 12 && walk != null; i++) {
+      candidates
+        ..add('${walk.path}\\apps\\bridge_cpp\\build\\Release\\$name')
+        ..add('${walk.path}\\bridge_cpp\\build\\Release\\$name');
+      if (walk.path == walk.parent.path) break;
+      walk = walk.parent;
+    }
+    for (final p in candidates) {
+      final f = File(p);
+      if (await f.exists()) return f.absolute.path;
+    }
+    return null;
+  }
+
   Future<void> _openLogFile() async {
     if (_logSink != null) return;
-    final home = Platform.environment['HOME'] ?? '';
-    if (home.isEmpty) return;
-    final dir = Directory('$home/Library/Logs/Open OBSBOT Bridge');
+    final logDir = PlatformPaths.logDir;
+    if (logDir.isEmpty) return;
+    final dir = Directory(logDir);
     try {
       await dir.create(recursive: true);
-      final f = File('${dir.path}/bridge.log');
+      final f = File('${dir.path}${Platform.pathSeparator}bridge.log');
       _logFile = f;
       _logSink = f.openWrite(mode: FileMode.append);
       _writeLog(
@@ -134,10 +159,11 @@ class BridgeSupervisor extends ChangeNotifier {
   Future<void> revealLogInFinder() async {
     final f = _logFile;
     if (f == null) return;
-    await Process.run('open', <String>['-R', f.path]);
+    await PlatformPaths.revealFile(f.path);
   }
 
   Future<void> _killStalePortsHolders() async {
+    if (Platform.isWindows) return _killStalePortsHoldersWindows();
     // If a previous bridge subprocess is still listening (e.g. crash + restart),
     // free the ports before we spawn a new one. Best-effort: lsof + kill -9.
     for (final port in <int>[8765, 8766]) {
@@ -156,6 +182,37 @@ class BridgeSupervisor extends ChangeNotifier {
         }
       } catch (_) {}
     }
+  }
+
+  /// Windows has no lsof; `netstat -ano` lists the owning PID of every
+  /// listener. Only obsbot-bridge processes are killed, so an unrelated
+  /// program that happens to hold 8765 is reported by the bridge's own
+  /// bind failure instead of being terminated.
+  Future<void> _killStalePortsHoldersWindows() async {
+    try {
+      final r = await Process.run('netstat', <String>['-ano', '-p', 'TCP']);
+      final pids = <int>{};
+      for (final line in (r.stdout as String).split('\n')) {
+        final cols = line.trim().split(RegExp(r'\s+'));
+        if (cols.length < 5 || cols[3] != 'LISTENING') continue;
+        if (cols[1].endsWith(':8765') || cols[1].endsWith(':8766')) {
+          final pid = int.tryParse(cols[4]);
+          if (pid != null && pid > 4) pids.add(pid);
+        }
+      }
+      for (final pid in pids) {
+        final q = await Process.run('tasklist', <String>[
+          '/FI',
+          'PID eq $pid',
+          '/FO',
+          'CSV',
+          '/NH',
+        ]);
+        if ((q.stdout as String).toLowerCase().contains('obsbot-bridge')) {
+          await Process.run('taskkill', <String>['/F', '/PID', '$pid']);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> start() async {
@@ -185,6 +242,7 @@ class BridgeSupervisor extends ChangeNotifier {
     final exe = File(Platform.resolvedExecutable);
     final macosDir = exe.parent;
     final webCandidates = <String>[
+      if (Platform.isWindows) '${macosDir.path}\\web', // next to the .exe
       '${macosDir.parent.path}/Resources/web', // inside .app (prod path)
       '${Directory.current.path}/../rc/build/web', // cwd = apps/bridge
       '${Directory.current.path}/apps/rc/build/web', // cwd = repo root
@@ -314,7 +372,8 @@ class BridgeSupervisor extends ChangeNotifier {
     r"video: using device '([^']+)'",
   );
   static final RegExp _videoDeniedRe = RegExp(
-    r'video: camera permission denied|video: camera not authorized',
+    r'video: camera permission denied|video: camera not authorized'
+    r'|mf: camera access denied',
   );
   static final RegExp _videoNoCamRe = RegExp(
     r'video: no matching capture device',
@@ -407,13 +466,8 @@ class BridgeSupervisor extends ChangeNotifier {
   /// restarts the bridge subprocess so a fresh PIN is generated and
   /// every previously-paired phone has to re-enter the PIN.
   Future<void> resetPairing() async {
-    final home = Platform.environment['HOME'] ?? '';
-    if (home.isNotEmpty) {
-      final f = File(
-        '$home/Library/Application Support/Open OBSBOT Bridge/auth.json',
-      );
-      if (await f.exists()) await f.delete();
-    }
+    final f = File(PlatformPaths.authJsonPath);
+    if (await f.exists()) await f.delete();
     _pin = '';
     _pairedTokenCount = 0;
     await stop();
@@ -424,6 +478,12 @@ class BridgeSupervisor extends ChangeNotifier {
   /// Open System Settings → Privacy & Security → Camera so the user can
   /// toggle permission for OBSBOT Bridge.
   Future<void> openSystemCameraSettings() async {
+    if (Platform.isWindows) {
+      // Settings > Privacy & security > Camera. "Let desktop apps access
+      // your camera" is the one switch the bridge needs.
+      await Process.run('explorer.exe', <String>['ms-settings:privacy-webcam']);
+      return;
+    }
     await Process.run('open', <String>[
       'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
     ]);
@@ -439,6 +499,17 @@ class BridgeSupervisor extends ChangeNotifier {
   /// user. Try the Network-Settings extension first; fall back to
   /// the legacy URL for older macOS.
   Future<void> openSystemFirewallSettings() async {
+    if (Platform.isWindows) {
+      // "Allow an app through Windows Defender Firewall" - where a
+      // dismissed first-run prompt for obsbot-bridge.exe can be undone.
+      await Process.run('control.exe', <String>[
+        '/name',
+        'Microsoft.WindowsFirewall',
+        '/page',
+        'pageConfigureApps',
+      ]);
+      return;
+    }
     final r = await Process.run('open', <String>[
       'x-apple.systempreferences:com.apple.Network-Settings.extension',
     ]);
@@ -453,6 +524,16 @@ class BridgeSupervisor extends ChangeNotifier {
   /// fires again next time the bridge subprocess tries to open the camera.
   /// Then restart the bridge to retrigger the prompt.
   Future<void> resetCameraPermissionAndRestart() async {
+    if (Platform.isWindows) {
+      // No per-app decision to reset on Windows: send the user to the
+      // switch, and restart so the capture retries once they flip it.
+      await openSystemCameraSettings();
+      _cameraPermission = CameraPermission.unknown;
+      await stop();
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await start();
+      return;
+    }
     final bundleId = await _bundleIdentifier();
     if (bundleId != null && bundleId.isNotEmpty) {
       await Process.run('tccutil', <String>['reset', 'Camera', bundleId]);
@@ -490,19 +571,50 @@ class BridgeSupervisor extends ChangeNotifier {
   }
 }
 
-/// Returns the Mac's LAN IPv4 addresses suitable for handing to a phone client.
+/// Returns the host's LAN IPv4 addresses suitable for handing to a phone
+/// client, best first: the first entry is what the window shows and the QR
+/// encodes.
+///
+/// Interface order from the OS is not a preference. On Windows the Tailscale
+/// adapter sorts ahead of Wi-Fi, so the window offered a 100.x address that a
+/// phone on the venue Wi-Fi cannot reach. Rank instead: private LAN ranges
+/// (192.168/16, 10/8, 172.16/12) first, then anything else, then CGNAT
+/// 100.64/10 (Tailscale and similar overlays) last, still listed because it is
+/// the right address from outside the building. Link-local 169.254/16 is
+/// never reachable from a phone and is dropped.
 Future<List<String>> getLanAddresses() async {
-  final list = <String>[];
+  final ranked = <(int, String)>[];
   try {
     final ifaces = await NetworkInterface.list(
       includeLinkLocal: false,
       type: InternetAddressType.IPv4,
     );
     for (final iface in ifaces) {
+      final name = iface.name.toLowerCase();
       for (final addr in iface.addresses) {
-        if (!addr.isLoopback) list.add(addr.address);
+        if (addr.isLoopback) continue;
+        final o = addr.rawAddress;
+        if (o[0] == 169 && o[1] == 254) continue;
+        final isPrivate = o[0] == 10 ||
+            (o[0] == 192 && o[1] == 168) ||
+            (o[0] == 172 && o[1] >= 16 && o[1] <= 31);
+        final isOverlay = (o[0] == 100 && o[1] >= 64 && o[1] <= 127) ||
+            name.contains('tailscale');
+        // Hyper-V / WSL / VirtualBox switches use private ranges too but are
+        // host-only; rank them after real adapters.
+        final isVirtual = name.contains('vethernet') ||
+            name.contains('virtualbox') ||
+            name.contains('vmware') ||
+            name.contains('wsl');
+        final rank = isOverlay
+            ? 3
+            : isPrivate
+                ? (isVirtual ? 1 : 0)
+                : 2;
+        ranked.add((rank, addr.address));
       }
     }
   } catch (_) {}
-  return list;
+  ranked.sort((a, b) => a.$1.compareTo(b.$1));
+  return ranked.map((e) => e.$2).toList();
 }

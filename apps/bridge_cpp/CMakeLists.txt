@@ -38,6 +38,22 @@ if (APPLE)
     else()
         set(SDK_LIB_DIR "${SDK_ROOT}/macos/arm64-release")
     endif()
+elseif (WIN32)
+    # MSVC only: libdev.lib is an MSVC import library, and the SDK sample
+    # builds with /utf-8 for the same reason this target does (see below).
+    if (NOT MSVC)
+        message(FATAL_ERROR "The Windows build needs MSVC (Visual Studio 2022 "
+            "Build Tools, 'Desktop development with C++'). libdev.lib is an MSVC "
+            "import library and will not link with MinGW.")
+    endif()
+    set(SDK_LIB_DIR "${SDK_ROOT}/windows/win64-release")
+    if (NOT EXISTS "${SDK_LIB_DIR}/libdev.lib")
+        message(FATAL_ERROR
+            "No Windows libdev.lib at ${SDK_LIB_DIR}.
+"
+            "The SDK archive contains linux/, macos/ and windows/ - copy all "
+            "of it, not just the macOS slice. See docs/GETTING_THE_SDK.md.")
+    endif()
 elseif (UNIX)
     # The SDK ships a Linux build alongside the macOS one. Verified on an
     # x86_64 Arch host against a Tiny 2 Lite: libdev discovers the camera,
@@ -59,23 +75,45 @@ else()
 endif()
 
 # crow / asio
-find_path(ASIO_INCLUDE_DIR asio.hpp HINTS /opt/homebrew/include /usr/local/include REQUIRED)
+if (WIN32)
+    # Windows has no system package manager to supply standalone Asio, so
+    # fetch the header-only release at configure time. A pre-installed copy
+    # (vcpkg, or -DASIO_INCLUDE_DIR=...) still wins.
+    find_path(ASIO_INCLUDE_DIR asio.hpp)
+    if (NOT ASIO_INCLUDE_DIR)
+        include(FetchContent)
+        FetchContent_Declare(asio
+            URL https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-30-2.tar.gz
+            URL_HASH SHA256=755bd7f85a4b269c67ae0ea254907c078d408cce8e1a352ad2ed664d233780e8
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(asio)
+        set(ASIO_INCLUDE_DIR "${asio_SOURCE_DIR}/asio/include")
+    endif()
+else()
+    find_path(ASIO_INCLUDE_DIR asio.hpp HINTS /opt/homebrew/include /usr/local/include REQUIRED)
+endif()
 
 # The only platform-specific translation unit. Everything else in this target
 # is portable C++ that talks to libdev, Crow and Asio. The capture layer is
-# AVFoundation on macOS and V4L2 on Linux; both implement video_capture.h.
+# AVFoundation on macOS, Media Foundation on Windows and V4L2 on Linux; all
+# three implement video_capture.h.
 if (APPLE)
     set(CAPTURE_SRC src/video_capture.mm)
+elseif (WIN32)
+    set(CAPTURE_SRC src/video_capture_win.cpp)
 else()
     set(CAPTURE_SRC src/video_capture_v4l2.cpp)
 endif()
 
 # The H.264 remote path is Linux-only, on purpose rather than by omission.
+# (Windows leaves it out too: it is built on fork/exec of ffmpeg and is a
+# headless-server feature, not something the desktop bridge needs.)
 # It exists because a domestic upload link cannot carry the ~80 Mbps the MJPEG
 # preview costs at 1080p30. The macOS build is what runs live services with two
 # cameras and OBS on the same machine, and an extra encoder is the last thing
 # that host needs, so the code is not compiled into it at all.
-if (APPLE)
+if (APPLE OR WIN32)
     set(H264_SRC "")
 else()
     set(H264_SRC src/h264_stream.cpp)
@@ -127,6 +165,19 @@ if (APPLE)
         "-framework Foundation"
         "-framework UniformTypeIdentifiers"
     )
+elseif (WIN32)
+    # Media Foundation for capture, WIC for the fade primitives' JPEG decode and
+    # encode, Winsock for the MJPEG server. All ship with Windows.
+    target_link_libraries(obsbot-bridge PRIVATE libdev
+        mfplat mf mfreadwrite mfuuid ole32 windowscodecs ws2_32 mswsock
+    )
+    target_compile_definitions(obsbot-bridge PRIVATE
+        NOMINMAX                 # windows.h min/max macros break std::min
+        WIN32_LEAN_AND_MEAN      # keeps windows.h from dragging in winsock 1
+        _WIN32_WINNT=0x0A00      # Windows 10; Asio wants a target version
+        _CRT_SECURE_NO_WARNINGS
+        _USE_MATH_DEFINES        # M_PI, which MSVC's <cmath> hides by default
+    )
 else()
     # V4L2 needs no library beyond libc: it is ioctls on a device node. The
     # nine Apple frameworks above are all capture and JPEG work that the
@@ -135,9 +186,16 @@ else()
     target_link_libraries(obsbot-bridge PRIVATE dev Threads::Threads)
 endif()
 
-target_compile_options(obsbot-bridge PRIVATE
-    -Wall -Wno-deprecated-declarations -Wno-switch -Wno-unused-parameter
-)
+if (MSVC)
+    # /utf-8 because dev.hpp carries non-ASCII comments (the SDK sample sets it
+    # too). /bigobj because crow_all.h overflows the default section count.
+    target_compile_options(obsbot-bridge PRIVATE /utf-8 /bigobj /EHsc /W3
+        /wd4996 /wd4244 /wd4267 /wd4819)   # same suppressions as the SDK sample
+else()
+    target_compile_options(obsbot-bridge PRIVATE
+        -Wall -Wno-deprecated-declarations -Wno-switch -Wno-unused-parameter
+    )
+endif()
 
 if (APPLE)
     set_target_properties(obsbot-bridge PROPERTIES
@@ -149,6 +207,16 @@ if (APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${SDK_LIB_DIR}/libdev.dylib"
             "$<TARGET_FILE_DIR:obsbot-bridge>/libdev.dylib"
+    )
+elseif (WIN32)
+    # Windows resolves DLLs from the executable's own directory first, so
+    # dropping libdev.dll and its pthreads runtime next to obsbot-bridge.exe is
+    # all the "rpath" it needs. Every DLL in the SDK dir goes, because the
+    # pthreads one has shipped under more than one name.
+    file(GLOB SDK_DLLS "${SDK_LIB_DIR}/*.dll")
+    add_custom_command(TARGET obsbot-bridge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${SDK_DLLS} "$<TARGET_FILE_DIR:obsbot-bridge>"
     )
 else()
     set_target_properties(obsbot-bridge PROPERTIES

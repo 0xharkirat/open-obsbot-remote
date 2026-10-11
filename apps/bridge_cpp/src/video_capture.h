@@ -32,6 +32,25 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
                                     const std::vector<uint8_t>& incoming,
                                     float factor);
 
+// Re-encode `jpeg` as exactly `width` x `height` with luma sampling factors
+// `luma_h` x `luma_v` (2x1 = 4:2:2, 2x2 = 4:2:0, 1x1 = 4:4:4).
+//
+// This exists because OBS's Media Source crashes (swscale, in
+// mp_media_thread) when the frame size or chroma format changes partway
+// through an MJPEG stream - verified against OBS 32.2.2 on Windows. On the
+// passthrough backends a TAKE between cameras with different native formats,
+// or a fade frame encoded differently from the camera's own JPEG, does exactly
+// that, so the MJPEG server pins each active.mjpg connection to the format of
+// its first frame and conforms everything else to it.
+//
+// Returns the conformed JPEG, or an EMPTY vector on failure (the caller drops
+// that frame rather than send one that would crash OBS). Backends whose
+// output format is already fixed (AVFoundation re-encodes every frame) return
+// the input unchanged.
+std::vector<uint8_t> jpeg_conform(const std::vector<uint8_t>& jpeg,
+                                  int width, int height,
+                                  int luma_h, int luma_v);
+
 // The SN -> capture-device join, per platform.
 //
 // On macOS this is just Device::videoDevPath(), which returns the AVFoundation

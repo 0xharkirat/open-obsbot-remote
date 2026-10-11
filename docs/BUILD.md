@@ -2,7 +2,8 @@
 
 Use this guide to build the bridge and the remote yourself, either to develop or to run a version that has no release.
 
-For installing a published release instead, see [Install the bridge on macOS](INSTALL.md).
+For installing a published release instead, see [Install the bridge](INSTALL.md).
+This page covers the macOS build; the Windows build is under [Build on Windows](#build-on-windows), and Linux in [Linux](LINUX.md).
 
 ## Prerequisites
 
@@ -56,6 +57,29 @@ open "apps/bridge/build/macos/Build/Products/Release/Open OBSBOT Bridge.app"
 ```
 
 Then follow [Grant camera access](INSTALL.md#grant-camera-access) and the steps after it.
+
+## Build on Windows
+
+You need Visual Studio 2022 (Build Tools is enough) with **Desktop development with C++**, Flutter, Windows **Developer Mode** (Settings > System > For developers; Flutter needs it for plugin symlinks), and the SDK including its `windows/` directory.
+Asio is fetched by CMake. For the installer you also need [Inno Setup 6](https://jrsoftware.org/isdl.php).
+
+From the repository root, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-bridge-windows.ps1 -Zip -Installer
+```
+
+The script builds `obsbot-bridge.exe` with MSVC, the web remote, and the Flutter Windows app, which bundles the bridge, `libdev.dll`, the VC++ runtime and the web assets.
+It writes:
+
+```text
+apps\bridge\build\windows\x64\runner\Release\        the runnable bundle
+dist\Open-OBSBOT-Bridge-Setup-<version>-x64.exe       installer
+dist\Open-OBSBOT-Bridge-<version>-windows-x64.zip     portable zip
+dist\SHA256SUMS-<version>.txt                         checksums for the release page
+```
+
+[Windows notes](WINDOWS.md) covers what differs from macOS and why.
 
 ## Build the remote
 
@@ -124,8 +148,8 @@ flutter analyze apps/rc apps/bridge
 
 | Path | Contents |
 | --- | --- |
-| `apps/bridge_cpp/` | C++ bridge: OBSBOT `libdev`, Crow WebSocket and static HTTP, and a hand-rolled MJPEG server. |
-| `apps/bridge/` | Flutter macOS app that supervises the C++ subprocess. |
+| `apps/bridge_cpp/` | C++ bridge: OBSBOT `libdev`, Crow WebSocket and static HTTP, and a hand-rolled MJPEG server. Capture is AVFoundation, Media Foundation or V4L2 per platform. |
+| `apps/bridge/` | Flutter macOS and Windows app that supervises the C++ subprocess. `windows/installer/` holds the Inno Setup script. |
 | `apps/rc/` | Flutter remote for Web, Android, iOS, and macOS. |
 | `packages/` | Shared Dart packages: `obsbot_protocol`, `obsbot_api_client`, `auth_repository`, `bridge_repository`, `device_repository`. |
 | `scripts/` | Build, packaging, and SDK verification scripts. |
@@ -133,7 +157,7 @@ flutter analyze apps/rc apps/bridge
 
 ## Runtime files
 
-The bridge persists state under `~/Library/Application Support/Open OBSBOT Bridge/`:
+The bridge persists state under `~/Library/Application Support/Open OBSBOT Bridge/` on macOS and `%APPDATA%\Open OBSBOT Bridge\` on Windows:
 
 | File | Contents |
 | --- | --- |
@@ -146,7 +170,7 @@ The bridge persists state under `~/Library/Application Support/Open OBSBOT Bridg
 | `mix.json` | Active mix-sequence scratch. |
 | `mix_sequences.json` | Saved mix sequences. |
 
-Logs are at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
+Logs are at `~/Library/Logs/Open OBSBOT Bridge/bridge.log` on macOS and `%LOCALAPPDATA%\Open OBSBOT Bridge\Logs\bridge.log` on Windows.
 
 ## Additional resources
 

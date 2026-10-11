@@ -17,6 +17,7 @@ import 'bridge_supervisor.dart';
 import 'camera_deck.dart';
 import 'footer.dart';
 import 'local_bridge_client.dart';
+import 'platform_paths.dart';
 import 'tray_controller.dart';
 
 /// Best-effort check whether the user has ever paired a phone.
@@ -29,11 +30,7 @@ import 'tray_controller.dart';
 /// needs to see is gated behind a permission/credential).
 Future<bool> _hasPairedTokens() async {
   try {
-    final home = Platform.environment['HOME'];
-    if (home == null) return false;
-    final f = File(
-      '$home/Library/Application Support/Open OBSBOT Bridge/auth.json',
-    );
+    final f = File(PlatformPaths.authJsonPath);
     if (!await f.exists()) return false;
     final j = json.decode(await f.readAsString()) as Map<String, dynamic>;
     final tokens = j['tokens'] as List<dynamic>?;
@@ -46,7 +43,7 @@ Future<bool> _hasPairedTokens() async {
 Future<void> main() async {
   // Marionette (debug only) lets an AI agent drive this Mac app via the
   // widget tree. Skip it under a test harness - one WidgetsBinding per
-  // process. macOS-only app, so dart:io is always available here.
+  // process. Desktop-only app (macOS, Windows), so dart:io is always here.
   final underTest = Platform.environment.containsKey('FLUTTER_TEST');
   if (kDebugMode && !underTest) {
     MarionetteBinding.ensureInitialized();
@@ -470,14 +467,12 @@ class _HomeScreenState extends State<HomeScreen> {
               if (supervisor.logFilePath != null) ...<Widget>[
                 Flexible(
                   child: Text(
-                    supervisor.logFilePath!.replaceAll(
-                      Platform.environment['HOME'] ?? '',
-                      '~',
-                    ),
+                    PlatformPaths.displayPath(supervisor.logFilePath!),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'],
                       fontSize: 10,
                       color: mutedColor,
                     ),
@@ -513,7 +508,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 itemBuilder: (BuildContext ctx, int i) {
                   return SelectableText(
                     supervisor.logTail[i],
-                    style: const TextStyle(fontFamily: 'Menlo', fontSize: 11),
+                    style: const TextStyle(fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'], fontSize: 11),
                   );
                 },
               ),
@@ -656,6 +652,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 url,
                 style: const TextStyle(
                   fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'],
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -762,6 +759,7 @@ class _HomeScreenState extends State<HomeScreen> {
               supervisor.pin,
               style: const TextStyle(
                 fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'],
                 fontSize: 28,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 6,
@@ -1241,6 +1239,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // dark background: the text renders invisibly.
               style: type.body.copyWith(
                 fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'],
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1251,19 +1250,14 @@ class _HomeScreenState extends State<HomeScreen> {
           _aboutRow(
             ctx,
             label: 'Log directory',
-            value: supervisor.logFilePath!.replaceAll(
-              Platform.environment['HOME'] ?? '',
-              '~',
-            ),
+            value: PlatformPaths.displayPath(supervisor.logFilePath!),
             onTap: supervisor.revealLogInFinder,
           ),
         _aboutRow(
           ctx,
           label: 'App data',
-          value: '~/Library/Application Support/Open OBSBOT Bridge/',
-          onTap: () => _openInFinder(
-            '${Platform.environment['HOME']}/Library/Application Support/Open OBSBOT Bridge',
-          ),
+          value: PlatformPaths.supportDirLabel,
+          onTap: () => _openInFinder(PlatformPaths.supportDir),
         ),
         const SizedBox(height: 12),
         // Single-line footer. Inline GitHub link replaces the trio of
@@ -1312,11 +1306,12 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: SelectableText(
               value,
-              style: type.body.copyWith(fontFamily: 'Menlo', fontSize: 11),
+              style: type.body.copyWith(fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'], fontSize: 11),
             ),
           ),
           MacosTooltip(
-            message: 'Reveal in Finder',
+            message: 'Reveal in ${PlatformPaths.fileManagerName}',
             child: MacosIconButton(
               icon: const MacosIcon(CupertinoIcons.folder, size: 14),
               padding: EdgeInsets.zero,
@@ -1358,7 +1353,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openInFinder(String path) {
-    Process.run('open', <String>[path]);
+    PlatformPaths.openFolder(path);
   }
 
   Widget _ipPill(BuildContext ctx, String hostPort) {
@@ -1371,6 +1366,7 @@ class _HomeScreenState extends State<HomeScreen> {
               hostPort,
               style: const TextStyle(
                 fontFamily: 'Menlo',
+                fontFamilyFallback: <String>['Consolas'],
                 fontWeight: FontWeight.w600,
                 fontSize: 14,
               ),

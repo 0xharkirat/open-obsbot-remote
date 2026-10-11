@@ -12,6 +12,10 @@
 #include <mutex>
 #include <sstream>
 #include <sys/stat.h>
+// The MSVC CRT has stat() and S_IFDIR but not the POSIX test macro.
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#endif
 #include <thread>
 #include <unordered_set>
 

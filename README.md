@@ -29,7 +29,7 @@ The project ships 2 apps:
 
 | App | Role |
 | --- | --- |
-| Open OBSBOT Bridge | macOS app. Drives every attached camera over USB, serves the control API on `ws://<mac>:8765/v1`, serves the web remote at `http://<mac>:8765/`, and serves MJPEG preview on `:8766`. |
+| Open OBSBOT Bridge | macOS and Windows app (headless on Linux). Drives every attached camera over USB, serves the control API on `ws://<host>:8765/v1`, serves the web remote at `http://<host>:8765/`, and serves MJPEG preview on `:8766`. |
 | Open OBSBOT Remote | Flutter controller for Web, Android, iOS, and macOS. Switches cameras, drives pan, tilt, and zoom, recalls presets, edits image settings, and runs sequences. |
 
 ```text
@@ -37,13 +37,13 @@ Phone, browser, or Mac (Open OBSBOT Remote)
   |
   |  LAN, JSON over WebSocket, PIN-paired token
   v
-Open OBSBOT Bridge on the Mac
+Open OBSBOT Bridge on the Mac or Windows PC
   |  \
   |   \  MJPEG /preview/active.mjpg  -->  OBS Media Source (1 source)
   |
   |  USB via OBSBOT libdev SDK
   v
-Cameras: OBSBOT over the SDK, plus any camera macOS can see
+Cameras: OBSBOT over the SDK, plus any other camera the computer can see
 ```
 
 Switching rests on 2 ideas that stay separate:
@@ -59,17 +59,21 @@ Because OBS follows `active.mjpg`, the bridge performs the switch and OBS needs 
 
 ## Install
 
+**macOS:**
+
 ```bash
 brew install --cask 0xharkirat/tap/open-obsbot-bridge
 ```
 
-DMG downloads are on the [latest release](https://github.com/0xharkirat/open-obsbot-remote/releases/latest) page.
+**Windows:** download `Open-OBSBOT-Bridge-Setup-<version>-x64.exe` and run it. It is not code-signed, so at the SmartScreen warning click **More info** > **Run anyway**. A portable zip is also available.
 
-[Install the bridge on macOS](docs/INSTALL.md) walks through the whole first run: Gatekeeper, camera and firewall permissions, pairing a controller, and configuring OBS.
+DMG, installer and zip downloads are on the [latest release](https://github.com/0xharkirat/open-obsbot-remote/releases/latest) page.
+
+[Install the bridge](docs/INSTALL.md) walks through the whole first run on either platform: permissions and the firewall, pairing a controller, and configuring OBS.
 
 ### Requirements
 
-- macOS 12 Monterey or later on the bridge host. The release DMG is universal, for Apple Silicon and Intel.
+- macOS 12 Monterey or later, or 64-bit Windows 10 or 11, on the bridge host. The macOS DMG is universal, for Apple Silicon and Intel.
 - 1 or more OBSBOT cameras on USB. The Tiny 2 Lite is the model validated on hardware.
 - OBS, for streaming or recording. The remote works without it.
 
@@ -81,13 +85,13 @@ Select a camera to stage it, frame it, and press **TAKE** to put it on air.
 In OBS, add a **Media Source**, clear **Local File**, and paste the OBS output URL copied from the bridge window:
 
 ```text
-Input:          http://<mac-ip>:8766/preview/active.mjpg?t=<token>
+Input:          http://<bridge-ip>:8766/preview/active.mjpg?t=<token>
 Input Format:   mjpeg
 Reconnect Delay: 2
 FFmpeg Options: reconnect=1 reconnect_streamed=1 reconnect_delay_max=2
 ```
 
-Use a Media Source rather than a Browser Source.
+Use a Media Source rather than a Browser Source, and do not also add the OBSBOT as a Video Capture Device: on Windows only one app can hold a camera, so OBS would take it from the bridge.
 A Browser Source runs a full Chromium instance to decode the same stream, drops frames under load, and never reconnects when a stream ends.
 
 ## Features
@@ -109,16 +113,20 @@ A Browser Source runs a full Chromium instance to decode the same stream, drops 
 ## Known limits
 
 - The Tiny 2 Lite is the only camera validated end to end. Other OBSBOT models should work through the same SDK.
-- The bridge is macOS only. The SDK ships Windows and Linux binaries, but neither target is packaged yet.
+- The bridge app runs on macOS and Windows ([Windows notes](docs/WINDOWS.md)). Linux runs the bridge headless ([Linux notes](docs/LINUX.md)).
 - The bridge speaks `ws://` and `http://` with no TLS. Keep it on a trusted network, and never port-forward `8765` or `8766`.
-- The macOS build is ad-hoc signed rather than notarized, so a DMG install needs the Gatekeeper steps.
+- The macOS build is ad-hoc signed rather than notarized, so a DMG install needs the Gatekeeper steps. The Windows installer is unsigned, so SmartScreen warns on first run.
 - Firmware updates still need OBSBOT Center.
 
 ## Build from source
 
 ```bash
 ./scripts/verify-sdk.sh
-./scripts/build-bridge-mac.sh
+./scripts/build-bridge-mac.sh                                                   # macOS
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-bridge-windows.ps1 -Zip -Installer   # Windows
 ```
 
 The build needs your own copy of the OBSBOT Camera SDK, which is not committed to git.
@@ -135,7 +143,7 @@ Never expose the bridge to the public internet.
 ## Roadmap
 
 Planned work lives in the [GitHub issues](https://github.com/0xharkirat/open-obsbot-remote/issues), grouped under epics.
-The open epics cover app store releases, Windows and Linux builds, a CoreMediaIO virtual camera, and convergence of the 2 desktop windows.
+The open epics cover app store releases, a Windows-native look for the bridge window, a Linux desktop app, a CoreMediaIO virtual camera, and convergence of the 2 desktop windows.
 
 ## Contributing
 
@@ -149,5 +157,5 @@ Apache-2.0 (c) Harkirat Singh. See [LICENSE](LICENSE).
 
 The OBSBOT SDK is not part of this repository.
 Its headers and samples stay out of git, and each developer obtains their own copy.
-macOS release artifacts bundle the SDK runtime library so the app runs without a local SDK install.
-Check OBSBOT's SDK terms before publishing release assets that include `libdev.dylib`.
+macOS and Windows release artifacts bundle the SDK runtime library so the app runs without a local SDK install.
+Check OBSBOT's SDK terms before publishing release assets that include `libdev.dylib` or `libdev.dll`.

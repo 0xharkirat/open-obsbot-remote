@@ -9,7 +9,7 @@ Phone and browser remote for OBSBOT cameras. Tiny 2 Lite is the tested model; th
 
 Two products:
 
-- **Open OBSBOT Bridge** - macOS `.app` the user installs once. Wraps the C++ subprocess (`obsbot-bridge`) that talks to the camera over USB via OBSBOT's libdev SDK. Serves a JSON-over-WebSocket control API on `:8765`, an HTTP MJPEG preview on `:8766`, and the Flutter web build of the remote at `http://<mac>:8765/`.
+- **Open OBSBOT Bridge** - desktop app the user installs once: a macOS `.app` or a Windows folder/zip (`docs/WINDOWS.md`). Linux runs the C++ bridge headless, no app (`docs/LINUX.md`). Wraps the C++ subprocess (`obsbot-bridge`) that talks to the camera over USB via OBSBOT's libdev SDK. Serves a JSON-over-WebSocket control API on `:8765`, an HTTP MJPEG preview on `:8766`, and the Flutter web build of the remote at `http://<host>:8765/`.
 - **Open OBSBOT Remote** - Flutter app for the phone (iOS + Android + Web). Web build is bundled inside the Bridge .app and served directly, so users don't need an app-store install.
 
 ## Repo layout
@@ -21,10 +21,13 @@ Two products:
 │   │                   Targets iOS + Android + Web. Bundle IDs:
 │   │                   com.harksingh.obsbotcontrol (iOS), com.harksingh.obsbot_control (Android).
 │   │                   Internal pubspec name still `obsbot_control` - don't rename, breaks imports.
-│   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge - links libdev + AVFoundation. Single
+│   ├── bridge_cpp/    C++ WS+HTTP+MJPEG bridge - links libdev. Capture is one file per
+│   │                   platform: video_capture.mm (AVFoundation), video_capture_win.cpp
+│   │                   (Media Foundation + WIC), video_capture_v4l2.cpp (V4L2). Single
 │   │                   binary `obsbot-bridge`. Wrapped by apps/bridge/ as a subprocess.
 │   └── bridge/        "Open OBSBOT Bridge" - Flutter desktop app wrapping bridge_cpp.
-│                       Currently macOS only. Windows + Linux planned in same project.
+│                       macOS and Windows (windows/runner/native_tray.cpp is the
+│                       Windows tray). Linux has no supervisor; it runs headless.
 │                       Internal pubspec name still `obsbot_bridge_mac` - leave it.
 │                       Bundle ID: com.harksingh.obsbotbridge.
 ├── packages/                    (planned) shared Dart pkgs - empty stubs.
@@ -33,6 +36,9 @@ Two products:
 ├── scripts/
 │   ├── build-bridge-mac.sh      builds bridge_cpp → flutter build web (rc) → flutter build
 │   │                            macos (bridge) → bundles libdev + web → ad-hoc signs.
+│   ├── build-bridge-windows.ps1 same pipeline for Windows; bundling is in
+│   │                            apps/bridge/windows/CMakeLists.txt. -Zip for a release zip.
+│   ├── build-web-remote.sh      web remote only (for the headless Linux bridge).
 │   └── verify-sdk.sh
 ├── third_party/obsbot-sdk/      GITIGNORED. SDK 1.3.0 from OBSBOT (received by email).
 └── run-bridge.sh                dev shortcut: runs the C++ bridge from Terminal (no .app wrapper).
@@ -40,7 +46,7 @@ Two products:
 
 ## Architecture in one sentence
 
-Phone (Flutter, native or web) → WebSocket on `:8765/v1` (JSON, PIN-token-gated) → C++ subprocess inside the Mac .app → libdev USB → camera. Live preview is HTTP MJPEG on `:8766` (port = ws_port + 1) gated by `?t=<token>`. The Flutter web build of the phone app is served from `http://<mac>:8765/`.
+Phone (Flutter, native or web) → WebSocket on `:8765/v1` (JSON, PIN-token-gated) → C++ subprocess (inside the Mac .app or the Windows bundle; standalone on Linux) → libdev USB → camera. Live preview is HTTP MJPEG on `:8766` (port = ws_port + 1) gated by `?t=<token>`. The Flutter web build of the phone app is served from `http://<mac>:8765/`.
 
 See `docs/ARCHITECTURE.md` and `docs/PROTOCOL.md`.
 
@@ -86,7 +92,8 @@ For dev iteration on the C++ bridge alone (no Flutter wrapper), `./run-bridge.sh
 ## Conventions
 
 - WS port 8765, MJPEG port 8766 (always WS-port + 1). Both configurable but everywhere assumes the +1 relationship.
-- Logs persist at `~/Library/Logs/Open OBSBOT Bridge/bridge.log`.
+- Logs persist at `~/Library/Logs/Open OBSBOT Bridge/bridge.log` (Windows: `%LOCALAPPDATA%\Open OBSBOT Bridge\Logs\bridge.log`).
+- On Windows every file listed below lives in `%APPDATA%\Open OBSBOT Bridge\` instead. Dart reads these through `apps/bridge/lib/platform_paths.dart`, the Node tests through `tests/paths.mjs`.
 - Auth state at `~/Library/Application Support/Open OBSBOT Bridge/auth.json` (PIN + tokens).
 - Active sequence persists at `~/Library/Application Support/Open OBSBOT Bridge/sequence.json`.
 - Saved sequence library persists at `~/Library/Application Support/Open OBSBOT Bridge/sequences.json`.
@@ -279,3 +286,9 @@ Design + a11y work uses:
 49. **`flutter build web` fetches CanvasKit from a CDN by default - a LAN-only product must opt out.** `--web-resources-cdn` defaults to ON, so the bootstrap omits `useLocalCanvasKit` and pulls a 7.2MB wasm engine from `gstatic.com` on every cold load, even though an identical copy is already bundled at `web/canvaskit/`. With the venue's internet down the remote was a blank page while the bridge, the cameras and the browser sat on one machine. `scripts/build-bridge-mac.sh` now passes `--no-web-resources-cdn`; verify with `grep '"useLocalCanvasKit":true' build/web/flutter_bootstrap.js`. Still outstanding: CanvasKit's `fontFallbackBaseUrl` points at `fonts.gstatic.com` and downloads fallback fonts on demand, so non-Latin text (Gurmukhi) will not render offline.
 50. **`State.dispose()` never runs at app shutdown - it is not a cleanup hook.** Flutter's `runApp` docs are explicit: the widget tree "is not torn down when the application shuts down, because there is no way to predict when that will happen". `apps/bridge/lib/main.dart` called `supervisor.stop()` from `dispose()`, so the C++ subprocess was only ever killed via the tray menu; Cmd-Q and Dock-quit orphaned it to launchd, where it kept the camera indicator lit and held the USB control endpoint against OBSBOT Center. Anything that must happen on quit belongs in `applicationWillTerminate` on the AppKit side, and anything that must survive a force quit cannot live in the dying process at all.
 51. **A supervised child should watch its own parent, not be killed by it.** macOS has no `PR_SET_PDEATHSIG`, and a crashed or force-quit supervisor runs no cleanup code, so parent-side kills only ever cover the polite case - which is not the one that breaks. `main.cpp` blocks on `read(STDIN_FILENO)`: `ProcessStartMode.normal` gives the child a real pipe whose write end the parent holds, both ends `FD_CLOEXEC`, so the kernel closes it on any parent death and `read` returns 0 (measured 101ms). Preferred over polling `getppid()`, which is up to a second late, can be fooled by pid reuse if the pid is passed explicitly, and fires wrongly when a debugger attaches, because `PT_ATTACH` reparents the traced process. Covered by `tests/lifecycle.mjs`. Note the watchdog's own log line must be written straight to the log file: stderr is a pipe to the supervisor that just died.
+52. **Windows: libdev's `videoDevPath()` is not the Media Foundation symlink.** It returns `std::wstring` and the DirectShow interface class `{65e8773d-...}`; MF enumerates the same camera under `{e5323777-...}`. Join on the device-instance part before `#{` (`video_capture_win.cpp::device_video_path`). Comparing whole strings silently falls back to positional matching.
+53. **Windows: Flutter Windows and web builds need Developer Mode** (plugin symlinks). The error is "Building with plugins requires symlink support".
+54. **Windows: `SO_REUSEADDR` means something else.** It lets a second process steal a port in active use. `mjpeg_server.cpp` uses `SO_EXCLUSIVEADDRUSE` there so a stale bridge makes bind fail loudly.
+55. **Windows: the supervisor holds bridge.log open for writing.** `[IO.File]::ReadAllBytes` fails with a sharing violation; open it share-read-write (`Get-Content -Tail` works).
+56. **OBS's Media Source crashes if the MJPEG format changes mid-stream.** Verified on OBS 32.2.2 (Windows): a frame whose size or chroma subsampling differs from the previous one crashes OBS in `swscale-9.dll` on `mp_media_thread`. The Windows and Linux backends pass camera JPEGs through untouched, so a TAKE between unlike cameras (Tiny 2 Lite 1080p 4:2:2 vs a 720p webcam) or a fade frame encoded at a different subsampling does exactly that. `mjpeg_server.cpp` now pins each `active.mjpg` connection to its first frame's format and runs everything else through `jpeg_conform` (WIC on Windows; passthrough on macOS, whose pipeline re-encodes every frame identically, and still a TODO on Linux). Fades encode at the camera's own subsampling. `tests/obs_e2e.mjs` exercises this and refuses to run unless OBS's scene collection is named `OBSBOT E2E`, because the first run crashed a real OBS setup.
+57. **Windows: an OBS Video Capture Device on the OBSBOT starves the bridge.** A UVC stream is exclusive on Windows; whoever opens it first wins, and the loser gets `0xC00D3704`. The bridge now retries every 2s and logs `mf: camera is in use by another app`, so it recovers once OBS lets go, but with the bridge OBS should read `active.mjpg` through a Media Source, never the camera directly.
