@@ -1,0 +1,13 @@
+# factory install
+jobs/
+claims/
+locks/
+logs/
+auth/
+queue.md
+baseline/
+install.json
+old-factory/
+lessons.md
+setup/
+# end factory install

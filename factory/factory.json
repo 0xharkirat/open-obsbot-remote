@@ -1,0 +1,234 @@
+{
+  "schema": 1,
+  "name": "obsbot",
+  "adapter": "flutter",
+  "repo": {
+    "path": ".",
+    "github": "0xharkirat/open-obsbot-remote",
+    "base": "main"
+  },
+  "work": {
+    "source": "github-issues",
+    "skipLabels": ["epic", "blocked", "verification", "wontfix", "duplicate", "invalid", "question"]
+  },
+  "setup": {
+    "copy": [
+      "third_party/obsbot-sdk/include/util/comm.hpp",
+      "third_party/obsbot-sdk/include/dev/dev.hpp",
+      "third_party/obsbot-sdk/include/dev/devs.hpp",
+      "third_party/obsbot-sdk/macos/arm64-release/libdev.dylib"
+    ],
+    "steps": [
+      { "name": "pub-rc", "cwd": "apps/rc", "run": "flutter pub get", "needs": ["flutter"] },
+      { "name": "pub-bridge", "cwd": "apps/bridge", "run": "flutter pub get", "needs": ["flutter"] },
+      { "name": "pub-obsbot-protocol", "cwd": "packages/obsbot_protocol", "run": "dart pub get", "needs": ["dart"] },
+      { "name": "pub-obsbot-api-client", "cwd": "packages/obsbot_api_client", "run": "dart pub get", "needs": ["dart"] },
+      { "name": "pub-auth-repository", "cwd": "packages/auth_repository", "run": "dart pub get", "needs": ["dart"] },
+      { "name": "pub-bridge-repository", "cwd": "packages/bridge_repository", "run": "dart pub get", "needs": ["dart"] },
+      { "name": "pub-device-repository", "cwd": "packages/device_repository", "run": "dart pub get", "needs": ["dart"] }
+    ]
+  },
+  "tools": {
+    "flutter": "flutter --version",
+    "dart": "dart --version",
+    "cmake": "cmake --version",
+    "clang": "clang++ --version",
+    "asio": "test -f /opt/homebrew/include/asio.hpp || test -f /usr/local/include/asio.hpp"
+  },
+  "gates": {
+    "levels": {
+      "fast": ["lint"],
+      "full": ["lint", "test", "floor"],
+      "deep": ["lint", "test", "floor", "build"]
+    },
+    "commands": {
+      "lint": [
+        {
+          "name": "analyze-rc",
+          "cwd": "apps/rc",
+          "run": "flutter analyze",
+          "when": ["apps/rc/**", "packages/**"],
+          "needs": ["flutter"]
+        },
+        {
+          "name": "analyze-bridge",
+          "cwd": "apps/bridge",
+          "run": "flutter analyze",
+          "when": ["apps/bridge/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
+          "needs": ["flutter"]
+        },
+        {
+          "name": "analyze-obsbot-protocol",
+          "cwd": "packages/obsbot_protocol",
+          "run": "dart analyze",
+          "when": ["packages/obsbot_protocol/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "analyze-obsbot-api-client",
+          "cwd": "packages/obsbot_api_client",
+          "run": "dart analyze",
+          "when": ["packages/obsbot_api_client/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "analyze-auth-repository",
+          "cwd": "packages/auth_repository",
+          "run": "dart analyze",
+          "when": ["packages/auth_repository/**", "packages/obsbot_api_client/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "analyze-bridge-repository",
+          "cwd": "packages/bridge_repository",
+          "run": "dart analyze",
+          "when": ["packages/bridge_repository/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "analyze-device-repository",
+          "cwd": "packages/device_repository",
+          "run": "dart analyze",
+          "when": ["packages/device_repository/**", "packages/bridge_repository/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
+          "needs": ["dart"]
+        }
+      ],
+      "test": [
+        {
+          "name": "test-rc",
+          "cwd": "apps/rc",
+          "run": "flutter test",
+          "when": ["apps/rc/**", "packages/**"],
+          "needs": ["flutter"]
+        },
+        {
+          "name": "test-obsbot-protocol",
+          "cwd": "packages/obsbot_protocol",
+          "run": "dart test",
+          "when": ["packages/obsbot_protocol/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "test-obsbot-api-client",
+          "cwd": "packages/obsbot_api_client",
+          "run": "dart test",
+          "when": ["packages/obsbot_api_client/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "test-auth-repository",
+          "cwd": "packages/auth_repository",
+          "run": "dart test",
+          "when": ["packages/auth_repository/**", "packages/obsbot_api_client/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "test-bridge-repository",
+          "cwd": "packages/bridge_repository",
+          "run": "dart test",
+          "when": ["packages/bridge_repository/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "test-device-repository",
+          "cwd": "packages/device_repository",
+          "run": "dart test",
+          "when": ["packages/device_repository/**", "packages/bridge_repository/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
+          "needs": ["dart"]
+        },
+        {
+          "name": "test-mix-solver",
+          "run": "mkdir -p apps/bridge_cpp/build-test && clang++ -std=c++17 -Wall -Iapps/bridge_cpp/src apps/bridge_cpp/src/mix_solver.cpp apps/bridge_cpp/tests/mix_solver_test.cpp -o apps/bridge_cpp/build-test/mix_solver_test && apps/bridge_cpp/build-test/mix_solver_test",
+          "when": ["apps/bridge_cpp/src/mix_solver.*", "apps/bridge_cpp/tests/**"],
+          "needs": ["clang"]
+        }
+      ],
+      "build": [
+        {
+          "name": "build-web",
+          "cwd": "apps/rc",
+          "run": "flutter build web --release --pwa-strategy=none --no-web-resources-cdn",
+          "when": ["apps/rc/**", "packages/**"],
+          "needs": ["flutter"],
+          "timeout": 3600
+        },
+        {
+          "name": "build-bridge-macos",
+          "cwd": "apps/bridge",
+          "run": "flutter build macos --release",
+          "when": ["apps/bridge/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
+          "needs": ["flutter"],
+          "timeout": 3600
+        },
+        {
+          "name": "build-bridge-cpp",
+          "run": "cmake -S apps/bridge_cpp -B apps/bridge_cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build apps/bridge_cpp/build -j",
+          "when": ["apps/bridge_cpp/**"],
+          "needs": ["cmake", "clang", "asio"],
+          "timeout": 3600
+        }
+      ]
+    }
+  },
+  "floor": ["common", "dart"],
+  "proof": [
+    {
+      "name": "live-surface",
+      "kind": "command",
+      "cwd": "apps/rc",
+      "run": "flutter test integration_test -d macos",
+      "when": ["apps/rc/lib/**", "apps/rc/integration_test/**"],
+      "needs": ["flutter"],
+      "timeout": 3600,
+      "exclusive": true
+    }
+  ],
+  "paths": {
+    "risky": [
+      "apps/bridge_cpp/src/auth.*",
+      "apps/bridge_cpp/src/ws_server.*",
+      "apps/bridge_cpp/src/mjpeg_server.*",
+      "apps/bridge_cpp/src/protocol.*",
+      "apps/bridge_cpp/src/persist.*",
+      "apps/bridge_cpp/src/main.cpp",
+      "apps/bridge_cpp/CMakeLists.txt",
+      "apps/bridge_cpp/third_party/**",
+      "apps/bridge/macos/Runner/*.swift",
+      "apps/bridge/lib/bridge_supervisor.dart",
+      "packages/auth_repository/**",
+      "packages/obsbot_protocol/lib/**",
+      "**/pubspec.yaml",
+      "**/pubspec.lock",
+      "**/Podfile",
+      "**/*.entitlements",
+      "**/Info.plist",
+      "**/AndroidManifest.xml",
+      "**/*.gradle",
+      "**/*.gradle.kts",
+      "**/project.pbxproj",
+      "scripts/**",
+      ".gitignore",
+      "SECURITY.md",
+      "LICENSE"
+    ],
+    "tests": [
+      "tests/**",
+      "**/test/**",
+      "**/tests/**",
+      "**/integration_test/**",
+      "**/*_test.*",
+      "**/*.{test,spec}.*"
+    ],
+    "docs": ["**/*.md"]
+  },
+  "lenses": {
+    "impact": [
+      "apps/bridge_cpp/src/protocol.*",
+      "apps/bridge_cpp/src/persist.*",
+      "packages/obsbot_protocol/lib/**",
+      "packages/obsbot_api_client/lib/**",
+      "docs/PROTOCOL.md"
+    ]
+  },
+  "limits": { "maxChangedLines": 400 }
+}
