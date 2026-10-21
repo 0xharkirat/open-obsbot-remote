@@ -155,7 +155,7 @@
         {
           "name": "build-bridge-macos",
           "cwd": "apps/bridge",
-          "run": "flutter build macos --release",
+          "run": "set -o pipefail; snap=$(mktemp -d) && git ls-files -z macos | tar --null -cf \"$snap/macos.tar\" -T - && { flutter build macos --release; rc=$?; tar -xf \"$snap/macos.tar\"; rm -f \"$snap/macos.tar\"; rmdir \"$snap\"; exit $rc; }",
           "when": ["apps/bridge/**", "packages/obsbot_api_client/**", "packages/obsbot_protocol/**"],
           "needs": ["flutter"],
           "timeout": 3600
@@ -176,7 +176,7 @@
       "name": "live-surface",
       "kind": "command",
       "cwd": "apps/rc",
-      "run": "flutter test integration_test -d macos",
+      "run": "set -o pipefail; snap=$(mktemp -d) && git ls-files -z macos | tar --null -cf \"$snap/macos.tar\" -T - && { flutter test integration_test -d macos; rc=$?; tar -xf \"$snap/macos.tar\"; rm -f \"$snap/macos.tar\"; rmdir \"$snap\"; exit $rc; }",
       "when": ["apps/rc/lib/**", "apps/rc/integration_test/**"],
       "needs": ["flutter"],
       "timeout": 3600,
