@@ -4,6 +4,10 @@ All notable changes to Open OBSBOT Bridge and Open OBSBOT Remote. Format: [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- The MJPEG preview paths take optional `w`, `fps`, and `q` parameters, so a remote can ask for a smaller stream: `/preview/<sn>.mjpg?t=<token>&w=640&fps=10&q=0.6` sends 640x360 frames at 10 per second instead of the 1920x1080 program stream at camera rate. Streams with the same camera, size, and quality share 1 encode, and with no parameters a path serves exactly what it did before, so OBS sees no change. See `docs/PROTOCOL.md`.
+
 ## [2.5.2] - 2026-08-02
 
 ### Fixed

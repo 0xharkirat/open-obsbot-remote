@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "preview_params.h"
+
 namespace obs {
 
 // Multiply a JPEG's RGB by `factor` (0 = black, 1 = unchanged) and re-encode.
@@ -23,7 +25,9 @@ std::vector<uint8_t> jpeg_darken(const std::vector<uint8_t>& jpeg, float factor)
 // The program-transition primitive - on a TAKE/cue with a fade, the bridge
 // grabs the outgoing camera's frame and dissolves it into the incoming
 // camera's live frames over the fade window, baked into active.mjpg so OBS
-// sees the dissolve. Returns incoming unchanged when there is nothing to blend
+// sees the dissolve. Renders at the incoming frame's size and stretches the
+// outgoing to it, which a small preview stream relies on (full-size outgoing,
+// small incoming). Returns incoming unchanged when there is nothing to blend
 // (empty outgoing, or factor >= 1) or on any failure.
 std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
                                     const std::vector<uint8_t>& incoming,
@@ -99,6 +103,18 @@ public:
     // Returns a monotonically increasing counter  -  useful for clients
     // wanting to wait for the next frame.
     uint64_t frame_seq() const;
+
+    // ---- smaller preview variants (see preview_params.h) ----
+    // Claim / release 1 stream's use of a small JPEG: k.w x height_for(k.w)
+    // at quality k.q_pct. Every frame encodes each variant with at least 1
+    // claim, and streams with the same key share that encode. `sn` only
+    // labels the start / stop log lines.
+    void claim_variant(const std::string& sn, const preview::VariantKey& k);
+    void release_variant(const std::string& sn, const preview::VariantKey& k);
+    // The latest frame of a claimed variant and its counter (0 until the
+    // first frame). Empty / 0 for a variant with no claim.
+    std::vector<uint8_t> variant_jpeg(const preview::VariantKey& k) const;
+    uint64_t variant_seq(const preview::VariantKey& k) const;
 
     // Public so the AVFoundation delegate (Objective-C++) can write into
     // it. Treat as opaque from C++ callers.

@@ -3,6 +3,7 @@
 #include "video_capture.h"
 #include "auth.h"
 #include "log.h"
+#include "preview_params.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -40,15 +42,6 @@ static bool send_all(int fd, const char* data, size_t n) {
         data += w; n -= (size_t)w;
     }
     return true;
-}
-
-static std::string extract_token_from_url(const char* req) {
-    const char* p = std::strstr(req, "?t=");
-    if (!p) return "";
-    p += 3;
-    std::string out;
-    while (*p && *p != ' ' && *p != '&' && *p != '\r' && *p != '\n') { out += *p++; }
-    return out;
 }
 
 // Pull the request target (the path, without query string) out of the request
@@ -91,6 +84,36 @@ static void send_simple(int fd, const char* status_line, const char* body) {
 // True once `cap` has produced at least one frame.
 static bool has_frame(VideoCapture* cap) {
     return cap && cap->running() && cap->frame_seq() > 0;
+}
+
+// Scope guard for 1 small stream's claim on a camera's shared encode. It
+// releases the claim on every exit path, and moves it on a follow-active
+// camera swap, so a variant stops as soon as its last stream leaves.
+class VariantClaim {
+public:
+    explicit VariantClaim(const preview::VariantKey& k) : key_(k) {}
+    ~VariantClaim() { move_to(nullptr, ""); }
+    VariantClaim(const VariantClaim&) = delete;
+    VariantClaim& operator=(const VariantClaim&) = delete;
+
+    void move_to(VideoCapture* cap, const std::string& sn) {
+        if (cap == cap_) return;
+        if (cap_) cap_->release_variant(sn_, key_);
+        cap_ = cap;
+        sn_ = sn;
+        if (cap_) cap_->claim_variant(sn_, key_);
+    }
+
+private:
+    preview::VariantKey key_;
+    VideoCapture* cap_ = nullptr;
+    std::string sn_;
+};
+
+static int64_t now_us() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 }
 
 static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
@@ -138,10 +161,15 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
         return;
     }
 
+    // `t` may sit at any query position; `w`, `fps`, and `q` ask for a
+    // smaller stream (preview_params.h). No parameters = today's stream.
+    const preview::Params params = preview::parse_query(
+        preview::request_query(std::string_view(buf, (size_t)n)));
+
     if (auth) {
-        std::string tok = extract_token_from_url(buf);
-        if (!auth->is_valid_token(tok)) {
-            send_simple(fd, "401 Unauthorized", "missing or invalid ?t= token");
+        if (!auth->is_valid_token(params.token)) {
+            send_simple(fd, "401 Unauthorized",
+                        "missing or invalid t=<token> query parameter");
             ::close(fd);
             return;
         }
@@ -152,12 +180,12 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
     // Resolver: which VideoCapture do we pull from right now? For the active
     // stream this is re-evaluated every frame so the source can swap
     // mid-stream (OBS keeps its connection; a brief frozen frame is fine).
-    auto resolve = [mgr, follow_active, &key]() -> VideoCapture* {
-        if (follow_active) {
-            std::string sn = mgr->active_sn();
-            return sn.empty() ? nullptr : mgr->capture_for(sn);
-        }
-        return mgr->capture_for(key);
+    // `sn` gets the serial it resolved, which labels the variant log lines.
+    auto resolve = [mgr, follow_active, &key](std::string* sn = nullptr)
+        -> VideoCapture* {
+        const std::string s = follow_active ? mgr->active_sn() : key;
+        if (sn) *sn = s;
+        return s.empty() ? nullptr : mgr->capture_for(s);
     };
 
     // Unknown SN (specific stream) -> 404, before we commit to a 200.
@@ -197,12 +225,14 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
 
     uint64_t last_seq = 0;
     VideoCapture* last_cap = nullptr;
-    // Frame pacing is driven by the CAMERA, not by this loop: a new frame is
-    // sent the moment frame_seq ticks, and `poll` is only how often we check.
-    // The old design slept 50ms after every send - a hard ~20fps ceiling that
-    // capped a 30fps camera at 18-19fps no matter how fast the encoder was.
-    // `fade_tick` paces dissolve re-renders of the SAME camera frame during a
-    // crossfade (each one is a decode+blend+encode; 100Hz of those is waste).
+    // With no `fps`, frame pacing is driven by the CAMERA, not by this loop: a
+    // new frame is sent the moment its seq ticks, and `poll` is only how often
+    // we check. The old design slept 50ms after every send - a hard ~20fps
+    // ceiling that capped a 30fps camera at 18-19fps no matter how fast the
+    // encoder was. `fade_tick` paces dissolve re-renders of the SAME camera
+    // frame during a crossfade (each one is a decode+blend+encode; 100Hz of
+    // those is waste). With `fps` set, the Pacer also holds back any frame,
+    // real or dissolve, that would beat the stream's next 1/fps deadline.
     //
     // No deadline: this loop used to self-terminate after 2 hours, which is
     // exactly the "stream freezes after an hour or two and needs a manual
@@ -211,11 +241,20 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
     // service; dead peers are reaped by SO_SNDTIMEO/keepalive, wedged sends
     // break out of send_all, and detached specific-SN cameras end the stream
     // explicitly below.
+    //
+    // A small stream (`w` and `q` that do not resolve to 1920 and 0.85, see
+    // Params::full) reads its camera's shared variant encode instead of the
+    // program frame.
     const auto poll = std::chrono::milliseconds(10);
     const auto fade_tick = std::chrono::milliseconds(33);
+    const bool full = params.full();
+    const preview::VariantKey vkey{params.w, params.q_pct};
+    VariantClaim claim(vkey);
+    preview::Pacer pacer(params.fps);
+    std::string sn;
 
     while (true) {
-        VideoCapture* cap = resolve();
+        VideoCapture* cap = resolve(&sn);
         if (cap == nullptr) {
             // Active stream with no live camera right now: keep the connection
             // open (OBS holds it); the client shows its last frame frozen.
@@ -239,9 +278,12 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
         }
         if (cap != last_cap) {
             // Source swapped (active camera changed, or first pull). Reset the
-            // seq tracker so the new source's current frame is sent right away.
+            // seq tracker so the new source's latest frame goes out as soon as
+            // the Pacer allows, and move a small stream's claim to the new
+            // camera (a variant it starts has a frame from the next capture).
             last_cap = cap;
             last_seq = 0;
+            if (!full) claim.move_to(cap, sn);
         }
         // Program transition: while a fade is running, dissolve the frozen
         // outgoing frame into the incoming camera's live frames. Only the
@@ -252,12 +294,17 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
         const float fade = follow_active ? mgr->active_fade(outgoing) : 1.0f;
         const bool fading = fade < 1.0f;
 
-        auto seq = cap->frame_seq();
+        auto seq = full ? cap->frame_seq() : cap->variant_seq(vkey);
         if (seq == last_seq && !fading) {
             std::this_thread::sleep_for(poll);
             continue;
         }
-        auto jpeg = cap->latest_jpeg();
+        const int64_t now = params.fps > 0 ? now_us() : 0;
+        if (!pacer.ready(now)) {
+            std::this_thread::sleep_for(poll);
+            continue;
+        }
+        auto jpeg = full ? cap->latest_jpeg() : cap->variant_jpeg(vkey);
         if (jpeg.empty()) {
             std::this_thread::sleep_for(poll);
             continue;
@@ -278,8 +325,10 @@ static void serve_client(int fd, DeviceManager* mgr, AuthStore* auth) {
         if (!send_all(fd, part.data(), part.size())) break;
         if (!send_all(fd, reinterpret_cast<const char*>(jpeg.data()), jpeg.size())) break;
         if (!send_all(fd, "\r\n", 2)) break;
-        // No sleep after a real frame - the seq check above is the pacer. Only
-        // dissolve re-renders (same frame, new blend factor) are throttled.
+        pacer.sent(now);
+        // No sleep after a real frame - the seq check and the Pacer above set
+        // the rate. Dissolve re-renders (same frame, new blend factor) also
+        // wait `fade_tick`, so they never exceed about 30 per second.
         if (fading) std::this_thread::sleep_for(fade_tick);
     }
 

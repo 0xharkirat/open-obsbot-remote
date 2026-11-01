@@ -38,6 +38,7 @@ The bridge also exposes:
 
 The MJPEG server is on `ws_port + 1` (`8766`) because Crow buffers `response.write()` until the handler returns, which breaks multipart streaming.
 See [MJPEG preview](#mjpeg-preview) for the per-camera and follow-active paths.
+That section also gives the optional `w`, `fps`, and `q` parameters for a smaller stream.
 
 ## Authentication
 
@@ -1092,9 +1093,36 @@ OBS keeps one stable capture running while the person on the phone changes which
 During a crossfade switch (`device.set_active` with `fade_ms`), the bridge dissolves the outgoing camera's frozen frame into the incoming camera's live frames, so the transition is baked into the JPEG bytes OBS receives. The first take, when there is no outgoing frame, falls back to a fade from black.
 A brief frozen frame across the swap is expected; see the open questions in [`CLIENT_SHELL_DESIGN.md`](CLIENT_SHELL_DESIGN.md#open-questions).
 
+### Smaller streams
+
+Every preview path, the legacy `/preview.mjpeg` alias too, takes 3 optional query parameters.
+A client uses them to ask for a smaller stream, for example a phone tile on venue Wi-Fi.
+With none of them, the path serves exactly the stream described above, so OBS and older remotes see no change.
+
+| Parameter | Range | Default | Out of range | Malformed |
+| --- | --- | --- | --- | --- |
+| `w` | Width in pixels, 160 to 1920. The bridge rounds it down to an even number. The height is `w * 9 / 16`, rounded down to an even number. | `1920` (1920x1080) | Clamps to 160 or 1920. A negative value gives 160. | Ignored, as if absent. |
+| `fps` | The most frames per second to send, 1 to 30. The camera rate stays the upper limit. | No cap: the camera paces the stream. | Clamps to 1 or 30. | Ignored, as if absent. |
+| `q` | JPEG quality, 0.3 to 0.95. The bridge rounds it to the nearest 0.05. | `0.85` | Clamps to 0.3 or 0.95. | Ignored, as if absent. |
+
+```text
+GET :8766/preview/<device_id>.mjpg?t=<token>&w=640&fps=10&q=0.6
+```
+
+- A malformed value is empty, not a number, or has trailing characters (`640px`, `nan`, `inf`, `1e3`).
+  `w` and `fps` take whole numbers only.
+  A value with too many digits for an integer clamps like any other out-of-range value.
+- Keys are lowercase. When a key repeats, the first well-formed value wins. The bridge ignores unknown keys and does no percent-decoding.
+- The token `t` may sit at any position in the query, so `?w=640&t=<token>` works as well as `?t=<token>&w=640`.
+- `w=1920` with `q=0.85` is the program frame as-is, with no extra encode. `fps` alone keeps that frame and only caps the rate.
+- Any other size or quality is 1 VideoToolbox encode per camera. Streams with the same camera, size, and quality share that encode, whatever their `fps`. It starts with the first stream that asks for it and stops when the last one closes.
+- `fps` caps every frame the stream sends, the crossfade frames on `active.mjpg` included.
+- A small `active.mjpg` stream moves to the new camera on a TAKE, and its crossfade comes out at the stream's size.
+- When the bridge cannot make a small frame, the stream gets the full-size frame for that frame instead of a stall.
+
 Request handling:
 
-- A missing or invalid `?t=` token returns `401`.
+- A missing or invalid `t` token returns `401`.
 - A path that is not a preview path, or a `/preview/<sn>.mjpg` for a serial no camera reports, returns `404`.
 - A camera that has produced no frame yet (asleep, or still starting) returns `503` after a short wait.
 
