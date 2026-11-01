@@ -9,7 +9,9 @@
 #include "video_capture.h"
 #include "log.h"
 
+#include <algorithm>
 #include <atomic>
+#include <map>
 
 @class ObsCaptureDelegate;
 
@@ -26,6 +28,18 @@ struct VideoCapture::Impl {
     mutable std::mutex jpeg_mu;
     std::vector<uint8_t> latest;
     std::atomic<uint64_t> seq{0};
+
+    // Smaller preview variants: the claim counts and each live variant's
+    // latest frame. They live here, not on the delegate, so they survive a
+    // capture restart (the wake path in DeviceManager::set_active). The
+    // delegate owns only the VideoToolbox objects that make the frames.
+    struct VariantSlot {
+        std::vector<uint8_t> latest;
+        uint64_t seq = 0;
+    };
+    mutable std::mutex var_mu;
+    preview::VariantRefs var_refs;
+    std::map<preview::VariantKey, VariantSlot> var_slots;
 
     // Serialises start/stop. attach() runs on the libdev hotplug thread, but
     // retry_pending_captures() (after a late camera-permission grant) runs on
@@ -44,6 +58,104 @@ struct VideoCapture::Impl {
 
 // ----------------------------------------------------------------------------
 
+// The VideoToolbox objects for 1 small preview variant: a scaler from the
+// program frame, the w x h buffer it writes, and a JPEG session at the
+// variant's quality. Owned by the delegate, used only on its capture queue.
+struct VtVariant {
+    VTPixelTransferSessionRef scaler = nullptr;
+    CVPixelBufferRef buf = nullptr;
+    VTCompressionSessionRef enc = nullptr;
+};
+
+static void release_vt_variant(VtVariant& v) {
+    if (v.enc) {
+        VTCompressionSessionInvalidate(v.enc);
+        CFRelease(v.enc);
+        v.enc = nullptr;
+    }
+    if (v.scaler) {
+        VTPixelTransferSessionInvalidate(v.scaler);
+        CFRelease(v.scaler);
+        v.scaler = nullptr;
+    }
+    if (v.buf) {
+        CVPixelBufferRelease(v.buf);
+        v.buf = nullptr;
+    }
+}
+
+// An IOSurface-backed BGRA buffer, or null.
+static CVPixelBufferRef make_bgra_buffer(int w, int h) {
+    NSDictionary* attrs = @{
+        (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+        (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+    };
+    CVPixelBufferRef buf = nullptr;
+    if (CVPixelBufferCreate(kCFAllocatorDefault, w, h, kCVPixelFormatType_32BGRA,
+                            (__bridge CFDictionaryRef)attrs,
+                            &buf) != kCVReturnSuccess)
+        return nullptr;
+    return buf;
+}
+
+// A real-time VideoToolbox JPEG session at `quality` (0..1), or null.
+static VTCompressionSessionRef make_jpeg_session(int w, int h, float quality) {
+    VTCompressionSessionRef s = nullptr;
+    OSStatus st = VTCompressionSessionCreate(
+        kCFAllocatorDefault, w, h, kCMVideoCodecType_JPEG,
+        nullptr, nullptr, nullptr, nullptr, nullptr, &s);
+    if (st != noErr || !s) return nullptr;
+    CFNumberRef qn = CFNumberCreate(nullptr, kCFNumberFloat32Type, &quality);
+    VTSessionSetProperty(s, kVTCompressionPropertyKey_Quality, qn);
+    CFRelease(qn);
+    VTSessionSetProperty(s, kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
+    return s;
+}
+
+// Encode 1 frame through `s` into `out`. Returns false on any failure.
+static bool encode_jpeg(VTCompressionSessionRef s, CVPixelBufferRef pb,
+                        CMTime pts, std::vector<uint8_t>& out) {
+    __block std::vector<uint8_t>* sink = &out;
+    __block bool got = false;
+    OSStatus st = VTCompressionSessionEncodeFrameWithOutputHandler(
+        s, pb, pts, kCMTimeInvalid, nullptr, nullptr,
+        ^(OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sb) {
+            if (status != noErr || !sb) return;
+            CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sb);
+            if (!bb) return;
+            size_t len = CMBlockBufferGetDataLength(bb);
+            if (len == 0) return;
+            sink->resize(len);
+            if (CMBlockBufferCopyDataBytes(bb, 0, len, sink->data()) == noErr)
+                got = true;
+        });
+    if (st != noErr) return false;
+    // Blocks until the handler above has run, so `sink`/`got` are safe to
+    // read after this returns (the handler fires on VT's queue, before this
+    // completes).
+    VTCompressionSessionCompleteFrames(s, kCMTimeInvalid);
+    return got && !sink->empty();
+}
+
+// Scale the program frame to the variant's size on the VT hardware path and
+// encode it at the variant's quality. The VT objects are made on first use.
+static bool encode_variant(VtVariant& v, const obs::preview::VariantKey& k,
+                           CVPixelBufferRef program, CMTime pts,
+                           std::vector<uint8_t>& out) {
+    const int w = k.w, h = obs::preview::height_for(k.w);
+    if (!v.scaler &&
+        VTPixelTransferSessionCreate(kCFAllocatorDefault, &v.scaler) != noErr) {
+        v.scaler = nullptr;
+        return false;
+    }
+    if (!v.buf && !(v.buf = make_bgra_buffer(w, h))) return false;
+    if (VTPixelTransferSessionTransferImage(v.scaler, program, v.buf) != noErr)
+        return false;
+    if (!v.enc && !(v.enc = make_jpeg_session(w, h, k.q_pct / 100.0f)))
+        return false;
+    return encode_jpeg(v.enc, v.buf, pts, out);
+}
+
 @interface ObsCaptureDelegate : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {
 @public
     obs::VideoCapture::Impl* impl;
@@ -57,12 +169,16 @@ struct VideoCapture::Impl {
     // not capture at the program format (lazily created, same thread rule).
     VTPixelTransferSessionRef vtScaler;
     CVPixelBufferRef vtCanonBuf;
+    // The VT objects of each live small preview variant (same thread rule).
+    std::map<obs::preview::VariantKey, VtVariant> vtVariants;
 }
 @end
 
 // The canonical program format. EVERY source is scaled (letterboxed if the
-// aspect differs) to this before encoding, so active.mjpg never changes
-// dimensions mid-stream. A dimension change is not cosmetic: OBS re-inits its
+// aspect differs) to this before encoding, so the full active.mjpg never
+// changes dimensions mid-stream. (A small preview stream is scaled from this
+// frame; it gets the full-size frame only for a frame whose variant encode
+// fails.) A dimension change is not cosmetic: OBS re-inits its
 // decoder and scene transform on one, which shows as a flash + abrupt cut on
 // every TAKE between differently-sized cameras (a 720p Camo against 1080p
 // OBSBOTs), and mixed-size crossfades would blend mismatched extents. A real
@@ -71,6 +187,22 @@ static const int kCanonW = 1920;
 static const int kCanonH = 1080;
 
 @implementation ObsCaptureDelegate
+
+// Release every VideoToolbox object this delegate owns. A capture stop or
+// restart (the wake path) drops the delegate, and before this method the
+// program session, scaler, and buffer leaked on each one.
+- (void)dealloc {
+    if (vtSession) {
+        VTCompressionSessionInvalidate(vtSession);
+        CFRelease(vtSession);
+    }
+    if (vtScaler) {
+        VTPixelTransferSessionInvalidate(vtScaler);
+        CFRelease(vtScaler);
+    }
+    if (vtCanonBuf) CVPixelBufferRelease(vtCanonBuf);
+    for (auto& kv : vtVariants) release_vt_variant(kv.second);
+}
 
 // VideoToolbox JPEG straight off the CVPixelBuffer. The old (still present,
 // now fallback) path rendered through Core Image - GPU render + readback +
@@ -93,27 +225,18 @@ static const int kCanonH = 1080;
                              kVTPixelTransferPropertyKey_ScalingMode,
                              kVTScalingMode_Letterbox);
     }
-    if (!vtCanonBuf) {
-        NSDictionary* attrs = @{
-            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
-        };
-        if (CVPixelBufferCreate(kCFAllocatorDefault, kCanonW, kCanonH,
-                                kCVPixelFormatType_32BGRA,
-                                (__bridge CFDictionaryRef)attrs,
-                                &vtCanonBuf) != kCVReturnSuccess) {
-            vtCanonBuf = nullptr;
-            return nullptr;
-        }
-    }
+    if (!vtCanonBuf && !(vtCanonBuf = make_bgra_buffer(kCanonW, kCanonH)))
+        return nullptr;
     if (VTPixelTransferSessionTransferImage(vtScaler, pb, vtCanonBuf) != noErr)
         return nullptr;
     return vtCanonBuf;
 }
 
+// `program` gets the canonical frame that was encoded, for the variants.
 - (bool)vtEncode:(CVPixelBufferRef)pb
              pts:(CMTime)pts
-            into:(std::vector<uint8_t>&)out {
+            into:(std::vector<uint8_t>&)out
+         program:(CVPixelBufferRef*)program {
     int w = (int)CVPixelBufferGetWidth(pb);
     int h = (int)CVPixelBufferGetHeight(pb);
     if (w <= 0 || h <= 0) return false;
@@ -131,39 +254,44 @@ static const int kCanonH = 1080;
         vtSession = nullptr;
     }
     if (!vtSession) {
-        OSStatus st = VTCompressionSessionCreate(
-            kCFAllocatorDefault, w, h, kCMVideoCodecType_JPEG,
-            nullptr, nullptr, nullptr, nullptr, nullptr, &vtSession);
-        if (st != noErr || !vtSession) { vtSession = nullptr; return false; }
+        vtSession = make_jpeg_session(w, h, 0.85f);
+        if (!vtSession) return false;
         vtW = w; vtH = h;
-        float q = 0.85f;
-        CFNumberRef qn = CFNumberCreate(nullptr, kCFNumberFloat32Type, &q);
-        VTSessionSetProperty(vtSession, kVTCompressionPropertyKey_Quality, qn);
-        CFRelease(qn);
-        VTSessionSetProperty(vtSession, kVTCompressionPropertyKey_RealTime,
-                             kCFBooleanTrue);
     }
+    *program = pb;
+    return encode_jpeg(vtSession, pb, pts, out);
+}
 
-    __block std::vector<uint8_t>* sink = &out;
-    __block bool got = false;
-    OSStatus st = VTCompressionSessionEncodeFrameWithOutputHandler(
-        vtSession, pb, pts, kCMTimeInvalid, nullptr, nullptr,
-        ^(OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sb) {
-            if (status != noErr || !sb) return;
-            CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sb);
-            if (!bb) return;
-            size_t len = CMBlockBufferGetDataLength(bb);
-            if (len == 0) return;
-            sink->resize(len);
-            if (CMBlockBufferCopyDataBytes(bb, 0, len, sink->data()) == noErr)
-                got = true;
-        });
-    if (st != noErr) return false;
-    // Blocks until the handler above has run, so `sink`/`got` are safe to
-    // read after this returns (the handler fires on VT's queue, before this
-    // completes).
-    VTCompressionSessionCompleteFrames(vtSession, kCMTimeInvalid);
-    return got && !sink->empty();
+// Make this frame's small preview variants from the canonical `program`
+// frame (null on the Core Image fallback). A variant that cannot be made
+// gets the full-size frame for this frame, so its streams never stall. The VT
+// objects of a variant with no claim left are released here.
+- (void)encodeVariants:(CVPixelBufferRef)program pts:(CMTime)pts {
+    std::vector<obs::preview::VariantKey> live;
+    {
+        std::lock_guard<std::mutex> g(impl->var_mu);
+        live = impl->var_refs.live();
+    }
+    for (auto it = vtVariants.begin(); it != vtVariants.end();) {
+        if (std::find(live.begin(), live.end(), it->first) != live.end()) {
+            ++it;
+            continue;
+        }
+        release_vt_variant(it->second);
+        it = vtVariants.erase(it);
+    }
+    for (const auto& k : live) {
+        std::vector<uint8_t> jpeg;
+        if (!program || !encode_variant(vtVariants[k], k, program, pts, jpeg)) {
+            std::lock_guard<std::mutex> g(impl->jpeg_mu);
+            jpeg = impl->latest;
+        }
+        std::lock_guard<std::mutex> g(impl->var_mu);
+        auto slot = impl->var_slots.find(k);
+        if (slot == impl->var_slots.end()) continue;   // released meanwhile
+        slot->second.latest = std::move(jpeg);
+        ++slot->second.seq;
+    }
 }
 
 - (void)captureOutput:(AVCaptureOutput*)output
@@ -178,14 +306,15 @@ static const int kCanonH = 1080;
     // fallback for VT failure only.
     {
         std::vector<uint8_t> jpeg;
-        if ([self vtEncode:pixelBuffer
-                       pts:CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                      into:jpeg]) {
+        CVPixelBufferRef program = nullptr;
+        const CMTime pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+        if ([self vtEncode:pixelBuffer pts:pts into:jpeg program:&program]) {
             {
                 std::lock_guard<std::mutex> g(impl->jpeg_mu);
                 impl->latest = std::move(jpeg);
             }
             impl->seq.fetch_add(1, std::memory_order_release);
+            [self encodeVariants:program pts:pts];
             return;
         }
     }
@@ -262,6 +391,7 @@ static const int kCanonH = 1080;
                             (const uint8_t*)jpeg.bytes + jpeg.length);
     }
     impl->seq.fetch_add(1, std::memory_order_release);
+    [self encodeVariants:nullptr pts:kCMTimeInvalid];
 }
 
 @end
@@ -368,10 +498,13 @@ std::vector<uint8_t> jpeg_crossfade(const std::vector<uint8_t>& outgoing,
         CIImage* b = decode(incoming);
         if (!a || !b) return incoming;
 
-        // Every capture is canonicalized to one program size, so the extents
-        // match in practice. Insurance for a mismatch anyway: stretch the
-        // outgoing to the incoming's extent, because a partial-coverage
-        // dissolve leaves transparency that JPEG flattens to white.
+        // Stretch the outgoing to the incoming's extent when they differ,
+        // because a partial-coverage dissolve leaves transparency that JPEG
+        // flattens to white. On the full program stream both are the
+        // canonical size, but on a small preview stream (preview_params.h)
+        // this is the normal path on every TAKE fade: the outgoing is the
+        // frozen full-size frame and the incoming is the small variant. Both
+        // are 16:9, so the stretch keeps the framing.
         if (!CGRectEqualToRect(a.extent, b.extent) && a.extent.size.width > 0 &&
             a.extent.size.height > 0) {
             a = [a imageByApplyingTransform:CGAffineTransformMakeScale(
@@ -698,6 +831,10 @@ void VideoCapture::stop() {
             [impl_->session stopRunning];
             impl_->session = nil;
         }
+        // Detach the delegate and drain its queue, so no frame callback still
+        // runs when the delegate's dealloc releases its VideoToolbox objects.
+        if (impl_->output) [impl_->output setSampleBufferDelegate:nil queue:nil];
+        if (impl_->queue) dispatch_sync(impl_->queue, ^{});
         impl_->input = nil;
         impl_->output = nil;
         impl_->delegate = nil;
@@ -718,6 +855,48 @@ std::vector<uint8_t> VideoCapture::latest_jpeg() const {
 uint64_t VideoCapture::frame_seq() const {
     if (!impl_) return 0;
     return impl_->seq.load(std::memory_order_acquire);
+}
+
+void VideoCapture::claim_variant(const std::string& sn,
+                                 const preview::VariantKey& k) {
+    int clients = 0;
+    {
+        std::lock_guard<std::mutex> g(impl_->var_mu);
+        clients = impl_->var_refs.claim(k);
+        if (clients == 1) impl_->var_slots[k] = {};
+    }
+    if (clients == 1) {
+        LOGI("preview: variant start sn=%s %dx%d q=%.2f clients=%d", sn.c_str(),
+             k.w, preview::height_for(k.w), k.q_pct / 100.0, clients);
+    }
+}
+
+void VideoCapture::release_variant(const std::string& sn,
+                                   const preview::VariantKey& k) {
+    int clients = 0;
+    {
+        std::lock_guard<std::mutex> g(impl_->var_mu);
+        clients = impl_->var_refs.release(k);
+        if (clients == 0) impl_->var_slots.erase(k);
+    }
+    if (clients == 0) {
+        LOGI("preview: variant stop sn=%s %dx%d q=%.2f clients=%d", sn.c_str(),
+             k.w, preview::height_for(k.w), k.q_pct / 100.0, clients);
+    }
+}
+
+std::vector<uint8_t> VideoCapture::variant_jpeg(
+        const preview::VariantKey& k) const {
+    std::lock_guard<std::mutex> g(impl_->var_mu);
+    auto it = impl_->var_slots.find(k);
+    return it == impl_->var_slots.end() ? std::vector<uint8_t>{}
+                                        : it->second.latest;
+}
+
+uint64_t VideoCapture::variant_seq(const preview::VariantKey& k) const {
+    std::lock_guard<std::mutex> g(impl_->var_mu);
+    auto it = impl_->var_slots.find(k);
+    return it == impl_->var_slots.end() ? 0 : it->second.seq;
 }
 
 }  // namespace obs

@@ -48,6 +48,7 @@ add_executable(obsbot-bridge
     src/log.cpp
     src/video_capture.mm
     src/mjpeg_server.cpp
+    src/preview_params.cpp
     src/auth.cpp
 )
 
@@ -104,3 +105,12 @@ add_executable(mix_solver_test EXCLUDE_FROM_ALL
     tests/mix_solver_test.cpp
 )
 target_include_directories(mix_solver_test PRIVATE src)
+
+# Pure-logic unit test for the preview query parser, frame pacer, and shared
+# encode count. No sockets, no camera, no clock of its own.
+#   cmake --build build --target preview_params_test && ./build/preview_params_test
+add_executable(preview_params_test EXCLUDE_FROM_ALL
+    src/preview_params.cpp
+    tests/preview_params_test.cpp
+)
+target_include_directories(preview_params_test PRIVATE src)
